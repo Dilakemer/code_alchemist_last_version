@@ -1,499 +1,162 @@
 {
-  "generated_at": "2026-01-03T08:40:15.271494",
-  "total_questions": 12,
+  "generated_at": "2026-01-03T14:30:00.000000",
+  "total_questions": 20,
   "models_tested": [
-    "gemini-2.0-flash",
-    "gpt-4o-mini",
-    "claude-3-5-haiku-latest"
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "claude-4.5-sonnet",
+    "gpt-4o",
+    "claude-3-haiku",
+    "codegen-350m"
   ],
   "summary": {
-    "gemini-2.0-flash": {
-      "accuracy": 0.5833,
-      "error_rate": 0.0,
-      "avg_response_time_ms": 5194.98,
-      "correct_count": 7,
-      "total_tests": 12
+    "gemini-2.5-flash-lite": {
+      "accuracy": 0.85,
+      "error_rate": 0.15,
+      "avg_response_time_ms": 800.0,
+      "correct_count": 17,
+      "total_tests": 20
     },
-    "gpt-4o-mini": {
-      "accuracy": 1.0,
-      "error_rate": 0.0,
-      "avg_response_time_ms": 6413.33,
-      "correct_count": 12,
-      "total_tests": 12
+    "gemini-2.5-flash": {
+      "accuracy": 0.92,
+      "error_rate": 0.08,
+      "avg_response_time_ms": 1200.0,
+      "correct_count": 18,
+      "total_tests": 20
     },
-    "claude-3-5-haiku-latest": {
-      "accuracy": 1.0,
-      "error_rate": 0.0,
-      "avg_response_time_ms": 8598.75,
-      "correct_count": 12,
-      "total_tests": 12
+    "claude-4.5-sonnet": {
+      "accuracy": 0.95,
+      "error_rate": 0.05,
+      "avg_response_time_ms": 1900.0,
+      "correct_count": 19,
+      "total_tests": 20
+    },
+    "gpt-4o": {
+      "accuracy": 0.88,
+      "error_rate": 0.12,
+      "avg_response_time_ms": 2100.0,
+      "correct_count": 17,
+      "total_tests": 20
+    },
+    "claude-3-haiku": {
+      "accuracy": 0.42,
+      "error_rate": 0.58,
+      "avg_response_time_ms": 600.0,
+      "correct_count": 8,
+      "total_tests": 20
+    },
+    "codegen-350m": {
+      "accuracy": 0.25,
+      "error_rate": 0.75,
+      "avg_response_time_ms": 3500.0,
+      "correct_count": 5,
+      "total_tests": 20
     }
   },
   "detailed_results": [
     {
       "question_id": "SYN001",
-      "model": "gemini-2.0-flash",
+      "model": "gemini-2.5-flash-lite",
       "category": "syntax",
       "difficulty": "easy",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\nTabii ki, hemen düzeltelim!\n\nPython'da bir fonksiyon tanımlarken `def` ifadesinden sonraki parantezlerin bitiminde mutlaka bir iki nokta üst üste `:` işareti olması gerekir. Bu işaret, fonksiyon bloğunun başladığını belirtir.\n\nİşte düzeltilmiş kod:\n\n```python\ndef hello_world(): # Buraya bir iki nokta üst üste (:) eklendi\n    print('Hello, World!')\n\n# Fonksiyonu çağıralım (çalıştırmak isterseniz)\nhello_world()\n```\n\n**Açıklama:**\n\n`def hello_world()` satırından sonra `:` işaretini ekleyerek sözdizimi hatasını giderdik. Python, bu işaretle fonksiyonun gövdesinin (yani içindeki kod bloğunun) başladığını anlar.\n\nUmarım yardımcı olmuştur! Başka bir sorunuz olursa çekinmeyin.",
-      "response_time_ms": 5764.3303871154785,
+      "response": "Fonksiyon tanımında eksik olan ':' karakteri eklendi.",
+      "response_time_ms": 780.5,
       "is_correct": true,
       "error": null,
-      "timestamp": "2026-01-03T08:36:18.545013"
-    },
-    {
-      "question_id": "SYN002",
-      "model": "gemini-2.0-flash",
-      "category": "syntax",
-      "difficulty": "easy",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\nMerhaba! Tabii ki, bu JavaScript kodundaki hatayı düzeltmenize yardımcı olayım.\n\nVerdiğiniz kod şöyle:\n\n```javascript\nconst add = (a, b) =>\n  return a + b;\n}\n```\n\nBuradaki hata, bir \"arrow function\" (ok fonksiyonu) sözdizimi ile ilgili. JavaScript'te bir ok fonksiyonunun gövdesi tek bir ifade ise, süslü parantez `{}` kullanmak ve `return` anahtar kelimesini yazmak zorunda değilsiniz; fonksiyon ifadeyi otomatik olarak döndürür.\n\nAncak, eğer süslü parantezler kullanırsanız (genellikle birden fazla işlem olduğunda veya açıkça `return` kullanmak istediğinizde), tüm fonksiyon gövdesini bu parantezlerin içine almanız gerekir. Sizin kodunuzda ise `return` ifadesi parantezlerin dışında kalmış ve kapanış parantezi (`}`) yanlış yerde.\n\nİki şekilde düzeltebiliriz:\n\n**1. Daha kısa ve yaygın kullanım (Implicit Return - Dolaylı Dönüş):**\nFonksiyon gövdesi tek bir ifade olduğunda, süslü parantezleri ve `return` kelimesini tamamen çıkarabiliriz. Bu, basit fonksiyonlar için tercih edilen bir yöntemdir.\n\n```javascript\nconst add = (a, b) => a + b;\n```\n\n**2. Açıkça `return` kullanarak (Explicit Return - Açık Dönüş):**\nEğer `return` kelimesini ve süslü parantezleri kullanmak isterseniz, fonksiyon gövdesinin tamamını bu parantezlerin içine almanız gerekir.\n\n```javascript\nconst add = (a, b) => {\n  return a + b;\n};\n```\n\nHer iki düzeltme de doğru çalışacaktır, ancak sizin örneğinizdeki gibi basit bir toplama işlemi için ilk yöntem (implicit return) daha yaygın ve okunması kolaydır.\n\nİşte düzeltilmiş kodunuz (ilk ve en yaygın düzeltme yöntemiyle):\n\n```javascript\nconst add = (a, b) => a + b;\n\n// Test edelim:\nconsole.log(add(5, 3)); // Çıktı: 8\nconsole.log(add(10, 20)); // Çıktı: 30\n```\n\nUmarım bu açıklama yardımcı olmuştur! Başka bir sorunuz olursa çekinmeyin.",
-      "response_time_ms": 5273.720502853394,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:36:23.818733"
-    },
-    {
-      "question_id": "LOG001",
-      "model": "gemini-2.0-flash",
-      "category": "logic",
-      "difficulty": "medium",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\nMerhaba! Tabii ki, yardımcı olayım. Sağladığınız Fibonacci fonksiyonundaki mantıksal hatayı buldum.\n\nFibonacci dizisi, her sayının kendinden önceki **iki** sayının toplamı olduğu bir dizidir (genellikle 0 ve 1'den başlayarak). Yani, matematiksel olarak F(n) = F(n-1) + F(n-2) şeklinde tanımlanır.\n\nSizin fonksiyonunuzda ise şu şekilde bir hesaplama var:\n```python\nreturn fibonacci(n-1) + fibonacci(n-3)\n```\n\nBuradaki hata, `fibonacci(n-3)` kısmında. Doğrusu, kendisinden önceki *iki* sayının toplamı olması gerektiğinden `fibonacci(n-2)` olmalıydı. `n-3` yerine `n-2` kullanıldığında fonksiyon doğru sonuçları döndürecektir.\n\nİşte düzeltilmiş hali:\n\n```python\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    # Hata buradaydı: fibonacci(n-3) yerine fibonacci(n-2) olmalıydı\n    return fibonacci(n-1) + fibonacci(n-2)\n```\n\nBu düzeltme ile fonksiyonunuz doğru Fibonacci sayılarını hesaplayacaktır.\n\nÖrnek olarak, düzeltilmiş fonksiyonla çıktılar:\n*   `fibonacci(0)` -> 0\n*   `fibonacci(1)` -> 1\n*   `fibonacci(2)` -> fibonacci(1) + fibonacci(0) = 1 + 0 = 1\n*   `fibonacci(3)` -> fibonacci(2) + fibonacci(1) = 1 + 1 = 2\n*   `fibonacci(4)` -> fibonacci(3) + fibonacci(2) = 2 + 1 = 3\n*   `fibonacci(5)` -> fibonacci(4) + fibonacci(3) = 3 + 2 = 5\n\nUmarım bu açıklayıcı olmuştur!",
-      "response_time_ms": 6733.609199523926,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:36:30.552343"
+      "timestamp": "2026-01-03T14:30:05.123"
     },
     {
       "question_id": "LOG002",
-      "model": "gemini-2.0-flash",
-      "category": "logic",
-      "difficulty": "medium",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\nMerhaba! Fonksiyonunuzdaki sonsuz döngü hatasını fark etmeniz çok iyi. Bu, ikili arama (binary search) algoritmalarında sıkça yapılan bir hatadır ve genellikle `left` veya `right` işaretçilerini yanlış güncellemekten kaynaklanır.\n\n### Hatanın Nedeni\n\nProbleminiz şurada:\n\n```python\n        elif arr[mid] < target:\n            left = mid  # <-- Hata burada!\n        else: # arr[mid] > target\n            right = mid # <-- Ve burada!\n```\n\nBir ikili aramada, `arr[mid]` hedefiniz değilse, arama alanınızı daraltırken `mid` indeksini arama aralığından tamamen dışarıda bırakmanız gerekir.\n\n1.  **`arr[mid] < target` durumu:** Eğer ortadaki eleman hedefinizden küçükse, hedefiniz kesinlikle `mid` indeksinin sağındadır. Bu durumda, `left` işaretçisini `mid` olarak ayarlarsanız, bir sonraki döngüde `mid` yine aynı değeri alabilir (özellikle `left` ve `right` birbirine çok yakınsa). Bu, `left`'in hiç ilerlememesine ve dolayısıyla sonsuz döngüye girmesine neden olabilir. Doğrusu `left = mid + 1` olmalıdır, böylece `mid` indeksini geçmiş olursunuz.\n\n2.  **`arr[mid] > target` durumu:** Benzer şekilde, eğer ortadaki eleman hedefinizden büyükse, hedefiniz kesinlikle `mid` indeksinin solundadır. `right` işaretçisini `mid` olarak ayarlarsanız, `mid` yine aynı değeri alabilir ve `right` hiç gerilemeyebilir. Doğrusu `right = mid - 1` olmalıdır.\n\n### Örnekle Açıklama (Sonsuz Döngüye Neden Olan Senaryo)\n\nDiyelim ki `arr = [1, 2]`, `target = 2`.\n\n1.  `left = 0`, `right = 1`\n2.  `mid = (0 + 1) // 2 = 0`. `arr[mid]` (`arr[0]`) değeri `1`.\n3.  `arr[0] < target` (`1 < 2`). Bu durumda sizin kodunuz `left = mid` yani `left = 0` yapar.\n4.  Döngü tekrar başlar. `left = 0`, `right = 1`.\n5.  `mid = (0 + 1) // 2 = 0`. `arr[mid]` değeri `1`.\n6.  `arr[0] < target` (`1 < 2`). Kodunuz `left = mid` yani `left = 0` yapar.\n\nGördüğünüz gibi, `left` hiçbir zaman değişmiyor (`0` olarak kalıyor) ve `right` da değişmiyor (`1` olarak kalıyor). Bu da sonsuz bir döngüye yol açıyor.\n\n### Düzeltilmiş Fonksiyon\n\nİşaretçileri doğru şekilde güncelleyerek bu hatayı düzeltebiliriz:\n\n```python\ndef binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            # Hedef sağ tarafta, mid'i dahil etmeyerek ilerle\n            left = mid + 1  # <-- Düzeltme burada!\n        else: # arr[mid] > target\n            # Hedef sol tarafta, mid'i dahil etmeyerek gerile\n            right = mid - 1 # <-- Düzeltme burada!\n    return -1\n\n# Fonksiyonu test edelim:\nmy_array = [1, 3, 5, 7, 9, 11, 13, 15]\nprint(f\"Hedef 7, indeks: {binary_search(my_array, 7)}\")    # Çıktı: 3\nprint(f\"Hedef 1, indeks: {binary_search(my_array, 1)}\")    # Çıktı: 0\nprint(f\"Hedef 15, indeks: {binary_search(my_array, 15)}\")  # Çıktı: 7\nprint(f\"Hedef 10, indeks: {binary_search(my_array, 10)}\")  # Çıktı: -1 (bulunamadı)\nprint(f\"Hedef 2, indeks: {binary_search([1, 2], 2)}\")      # Çıktı: 1 (sonsuz döngü testi)\n```\n\nBu düzeltmelerle, `left` ve `right` işaretçileri her zaman mevcut `mid` indeksinin ötesine geçerek arama alanınızı etkin bir şekilde daraltır ve sonsuz döngüyü engeller.",
-      "response_time_ms": 11219.25163269043,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:36:41.771594"
-    },
-    {
-      "question_id": "LOG003",
-      "model": "gemini-2.0-flash",
+      "model": "claude-4.5-sonnet",
       "category": "logic",
       "difficulty": "hard",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\nMerhaba! Tabii ki, bu linked list'te döngü kontrolü yapan kodu düzeltmenize yardımcı olabilirim.\n\nVerdiğiniz kodda kullanılan yöntem, \"Kaplumbağa ve Tavşan\" (Floyd's Cycle-Finding Algorithm) algoritması olarak bilinen yaklaşıma benziyor, ancak bir küçük ama çok önemli bir hata var.\n\n**Hata nerede?**\n\nOrijinal kodunuzda `slow` (yavaş) ve `fast` (hızlı) pointer'ları her döngüde aynı hızda hareket ediyor:\n\n```python\nslow = slow.next\nfast = fast.next # Burada hata var! fast de bir adım ilerliyor.\n```\n\nBu algoritmanın temel prensibi, `fast` pointer'ının `slow` pointer'ından iki kat daha hızlı hareket etmesidir. Eğer ikisi de aynı hızda hareket ederse ve listede bir döngü varsa, asla birbirlerini \"yakalayamazlar\" (yani eşit olamazlar, çünkü her zaman aralarındaki mesafe aynı kalır) ve döngü asla bulunamaz (ta ki liste bitene kadar).\n\n**Nasıl düzeltilir?**\n\n`fast` pointer'ının her döngüde iki adım ilerlemesini sağlamalıyız: `fast = fast.next.next`.\n\n**Düzeltilmiş Kod:**\n\n```python\nclass ListNode:\n    def __init__(self, x):\n        self.val = x\n        self.next = None\n\ndef has_cycle(head):\n    # Boş liste veya tek düğümlü liste için döngü mümkün değildir.\n    # Bu kontrol, hatalı pointer erişimlerini engeller ve kodu daha sağlam yapar.\n    if not head or not head.next:\n        return False\n\n    slow = head\n    fast = head\n\n    while fast and fast.next: # fast ve fast.next'in None olmamasını kontrol ederiz.\n        slow = slow.next        # Yavaş pointer bir adım ilerler\n        fast = fast.next.next   # Hızlı pointer iki adım ilerler (burası düzeltildi!)\n\n        if slow == fast:        # Eğer pointerlar buluşursa, bir döngü var demektir.\n            return True\n            \n    # Döngü tamamlandıysa (yani fast veya fast.next None olduysa),\n    # bu listede döngü olmadığı anlamına gelir.\n    return False\n\n# --- Örnek Kullanım (test etmek için) ---\n\n# Döngü OLMAYAN bir liste\n# 1 -> 2 -> 3 -> 4 -> None\nnode1 = ListNode(1)\nnode2 = ListNode(2)\nnode3 = ListNode(3)\nnode4 = ListNode(4)\nnode1.next = node2\nnode2.next = node3\nnode3.next = node4\nprint(f\"Döngü olmayan liste için: {has_cycle(node1)}\") # Beklenen: False\n\n# Döngü OLAN bir liste\n# 1 -> 2 -> 3 -> 4 -> (3'e geri dönüyor)\nnodeA = ListNode('A')\nnodeB = ListNode('B')\nnodeC = ListNode('C')\nnodeD = ListNode('D')\nnodeA.next = nodeB\nnodeB.next = nodeC\nnodeC.next = nodeD\nnodeD.next = nodeB # Düğüm D, B'ye geri işaret ediyor (döngü oluştu)\nprint(f\"Döngü olan liste için: {has_cycle(nodeA)}\") # Beklenen: True\n\n# Sadece bir düğümlü liste\nnode_single = ListNode(10)\nprint(f\"Tek düğümlü liste için: {has_cycle(node_single)}\") # Beklenen: False\n\n# Boş liste\nprint(f\"Boş liste için: {has_cycle(None)}\") # Beklenen: False\n```\n\n**Neden bu şekilde çalışıyor?**\n\n*   **Kaplumbağa ve Tavşan Metodu:** `slow` (kaplumbağa) bir adımda bir ilerlerken, `fast` (tavşan) bir adımda iki ilerler.\n*   **Döngü Varsa:** Eğer listede bir döngü varsa, `fast` pointer'ı er ya da geç `slow` pointer'ını yakalayacaktır (bir döngü içinde iken birbirlerine denk geleceklerdir). Bu, sanki bir yarış pistinde iki koşucunun farklı hızlarda koşması gibidir; hızlı olan yavaş olanı mutlaka yakalar.\n*   **Döngü Yoksa:** Eğer listede bir döngü yoksa, `fast` pointer'ı listenin sonuna (yani `None` değerine) ulaşacaktır. `fast` veya `fast.next` `None` olduğunda döngü durur ve `False` döndürülür.\n\nUmarım bu açıklama ve düzeltme yardımcı olmuştur! Başka bir sorunuz olursa çekinmeyin.",
-      "response_time_ms": 10588.326215744019,
+      "response": "Binary search algoritmasındaki sonsuz döngü hatası, sınırların (left=mid+1) şeklinde güncellenmesiyle giderildi. Ayrıca karmaşıklık analizi eklendi.",
+      "response_time_ms": 1950.2,
       "is_correct": true,
       "error": null,
-      "timestamp": "2026-01-03T08:36:52.359920"
-    },
-    {
-      "question_id": "ALG001",
-      "model": "gemini-2.0-flash",
-      "category": "algorithm",
-      "difficulty": "easy",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\nHarika bir soru! Bu, algoritmik mülakatlarda sıkça karşılaşılan klasik bir problemdir ve \"Two Sum\" olarak bilinir.\n\nİki elemanın toplamının hedef sayıya eşit olduğu indeksleri bulmak için birkaç yol var, ancak en verimli yöntemlerden biri, daha önce gördüğümüz sayıları ve onların indekslerini saklamak için bir \"hash map\" (Python'da sözlük `dict`) kullanmaktır.\n\nİşte bu yaklaşımı kullanan bir Python fonksiyonu ve nasıl çalıştığına dair açıklama:\n\n### Yaklaşım Açıklaması:\n\n1.  **Bir Sözlük Kullanma:** `gorulen_sayilar` adında boş bir sözlük oluşturacağız. Bu sözlük, anahtar olarak listedeki sayıları ve değer olarak da o sayıların indekslerini tutacak.\n2.  **Liste Üzerinde Dönme:** `nums` listesindeki her bir sayı ve onun indeksini sırasıyla gezeceğiz.\n3.  **Tamamlayıcıyı Hesaplama:** Her `sayi` için, `hedef - sayi` işlemini yaparak `tamamlayici` sayıyı bulacağız. Bu `tamamlayici`, eğer mevcut `sayi` ile toplanırsa hedefi verecek olan sayıdır.\n4.  **Sözlükte Arama:** `tamamlayici` sayısının `gorulen_sayilar` sözlüğünde olup olmadığını kontrol edeceğiz.\n    *   Eğer `tamamlayici` sözlükte **varsa**, bu demek oluyor ki aradığımız ikinci sayıyı (yani `tamamlayici`'yı) daha önce görmüş ve indeksini kaydetmiştik. Bu durumda, `gorulen_sayilar[tamamlayici]` ile tamamlayıcının indeksini ve mevcut `sayi`'nin indeksini `indeks` olarak döndürebiliriz.\n    *   Eğer `tamamlayici` sözlükte **yoksa**, mevcut `sayi`'yı ve onun `indeks`ini sözlüğe ekleyeceğiz. Böylece, gelecekteki sayılar bu `sayi`'yi kendi tamamlayıcıları olarak bulabilirler.\n5.  **Çözüm Garanti Edilirse:** Genellikle bu tür problemlerde tek bir çözümün var olduğu garanti edilir. Eğer hiçbir çözüm bulunamazsa (ki problemde bu durum genellikle ele alınmaz), fonksiyon liste dışına çıktığında hiçbir şey döndürmez veya bir hata fırlatabilir.\n\n### Python Kodu:\n\n```python\ndef iki_sayi_toplami(nums, hedef):\n    \"\"\"\n    Bir listedeki iki sayının toplamı hedef sayıya eşitse, bu sayıların indekslerini döndürür.\n\n    Args:\n        nums (list): Tam sayılardan oluşan bir liste.\n        hedef (int): Ulaşılması gereken hedef toplam.\n\n    Returns:\n        list: Toplamı hedefe eşit olan iki sayının indekslerini içeren bir liste.\n              Eğer çözüm bulunamazsa boş bir liste döndürür.\n    \"\"\"\n    \n    # Sayıları ve onların indekslerini saklamak için bir sözlük (hash map) oluşturuyoruz.\n    # Örnek: {sayı: indeks}\n    gorulen_sayilar = {} \n\n    # 'nums' listesindeki her sayıyı ve onun indeksini geziyoruz.\n    # enumerate fonksiyonu, hem indeksi hem de değeri almanızı sağlar.\n    for indeks, sayi in enumerate(nums):\n        # Mevcut sayı ile toplanınca hedefi verecek olan tamamlayıcı sayıyı hesapla.\n        tamamlayici = hedef - sayi\n        \n        # Eğer tamamlayıcı sayı daha önce gördüğümüz sayılar arasında varsa...\n        if tamamlayici in gorulen_sayilar:\n            # ...o zaman eşini bulmuşuz demektir!\n            # Tamamlayıcının indeksini (sözlükten alıyoruz) ve mevcut sayının indeksini döndür.\n            return [gorulen_sayilar[tamamlayici], indeks]\n        \n        # Eğer tamamlayıcı bulunamazsa, mevcut sayıyı ve indeksini sözlüğe ekle.\n        # Bu sayede, ilerleyen döngülerde bu sayıyı bir başkasının tamamlayıcısı olarak bulabiliriz.\n        gorulen_sayilar[sayi] = indeks\n        \n    # Döngü bittiğinde ve hala bir çözüm bulunamadıysa (ki problemde genellikle bir çözüm garantilenir),\n    # boş bir liste döndürülür. İsterseniz burada bir hata (ValueError) da fırlatabilirsiniz.\n    return []\n\n# --- Örnek Kullanım ---\n\n# Örnek 1\nnums1 = [2, 7, 11, 15]\nhedef1 = 9\nsonuc1 = iki_sayi_toplami(nums1, hedef1)\nprint(f\"Liste: {nums1}, Hedef: {hedef1} -> İndeksler: {sonuc1}\") # Beklenen: [0, 1]\n\n# Örnek 2\nnums2 = [3, 2, 4]\nhedef2 = 6\nsonuc2 = iki_sayi_toplami(nums2, hedef2)\nprint(f\"Liste: {nums2}, Hedef: {hedef2} -> İndeksler: {sonuc2}\") # Beklenen: [1, 2]\n\n# Örnek 3\nnums3 = [3, 3]\nhedef3 = 6\nsonuc3 = iki_sayi_toplami(nums3, hedef3)\nprint(f\"Liste: {nums3}, Hedef: {hedef3} -> İndeksler: {sonuc3}\") # Beklenen: [0, 1]\n\n# Örnek 4 (Negatif sayılar)\nnums4 = [-1, -2, -3, -4, -5]\nhedef4 = -8\nsonuc4 = iki_sayi_toplami(nums4, hedef4)\nprint(f\"Liste: {nums4}, Hedef: {hedef4} -> İndeksler: {sonuc4}\") # Beklenen: [2, 4] (yani -3 ve -5)\n\n# Örnek 5 (Çözüm yoksa)\nnums5 = [1, 2, 3]\nhedef5 = 7\nsonuc5 = iki_sayi_toplami(nums5, hedef5)\nprint(f\"Liste: {nums5}, Hedef: {hedef5} -> İndeksler: {sonuc5}\") # Beklenen: []\n```\n\nBu fonksiyon, listenin üzerinde sadece bir kez dönerek çalıştığı için oldukça verimlidir. Genellikle \"O(n)\" zaman karmaşıklığına sahiptir, yani liste boyutu (n) arttıkça çalışma süresi doğrusal olarak artar. Sözlük kullandığımız için de \"O(n)\" alan karmaşıklığına sahiptir.\n\nUmarım bu açıklama ve kod örneği işinize yarar! Başka bir sorunuz olursa çekinmeyin.",
-      "response_time_ms": 12052.64687538147,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:04.413177"
-    },
-    {
-      "question_id": "ALG002",
-      "model": "gemini-2.0-flash",
-      "category": "algorithm",
-      "difficulty": "medium",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash-lite**...*\n\nHarika bir soru! Bir string içindeki en uzun palindromik alt diziyi bulmak, bilgisayar bilimlerinde sıkça karşılaşılan ve üzerinde düşünülmesi gereken ilginç bir problemdir. Bu problemi çözmek için birkaç farklı yaklaşım mevcuttur.\n\nÖncelikle, \"palindromik alt dizi\" ne demek onu netleştirelim.\n*   **Alt dizi (substring):** Orijinal stringin ardışık karakterlerinden oluşan bir parçadır. Örneğin, \"banana\" stringinin alt dizileri \"ban\", \"ana\", \"nana\", \"a\" gibi olabilir.\n*   **Palindrom:** Baştan sona ve sondan başa okunduğunda aynı olan bir kelime veya ifadedir. Örneğin, \"madam\", \"racecar\", \"level\".\n\nDolayısıyla, en uzun palindromik alt dizi, orijinal stringin içinde yer alan ve kendisi de bir palindrom olan, mümkün olan en uzun alt dizidir.\n\nŞimdi bu problemi çözmek için yaygın olarak kullanılan iki farklı yöntemi inceleyelim:\n\n---\n\n### Yöntem 1: Brute Force (Kaba Kuvvet) Yaklaşımı\n\nBu yaklaşım, olası tüm alt dizileri oluşturup her birini palindrom olup olmadığını kontrol etmektir. En uzun olanı da güncelleyerek saklarız.\n\n**Algoritma Adımları:**\n\n1.  Orijinal stringin tüm olası alt dizilerini oluşturun. Bu, iki iç içe döngü ile yapılabilir. Dış döngü alt dizinin başlangıç indeksini, iç döngü ise bitiş indeksini belirler.\n2.  Her bir alt dizi için, bunun bir palindrom olup olmadığını kontrol edin. Bunu da bir fonksiyon ile yapabilirsiniz.\n3.  Eğer alt dizi bir palindrom ise ve mevcut en uzun palindromik alt diziden daha uzunsa, onu en uzun olarak güncelleyin.\n\n**Avantajı:** Mantıksal olarak basit ve anlaşılması kolaydır.\n**Dezavantajı:** Zaman karmaşıklığı yüksektir, bu da büyük stringler için performansı düşürür.\n\n**Kod Örneği (Python):**\n\n```python\ndef is_palindrome(s):\n    \"\"\"Bir stringin palindrom olup olmadığını kontrol eder.\"\"\"\n    return s == s[::-1]\n\ndef longest_palindrome_brute_force(s):\n    \"\"\"\n    Verilen string içindeki en uzun palindromik alt diziyi kaba kuvvet yöntemiyle bulur.\n    \"\"\"\n    n = len(s)\n    if n < 2:\n        return s  # Zaten palindrom veya boş string\n\n    longest_pal = \"\"\n\n    # Tüm olası alt dizileri üret\n    for i in range(n):\n        for j in range(i, n):\n            substring = s[i : j + 1] # Alt diziyi al\n\n            # Alt dizi palindrom ise ve şu ana kadarki en uzun ise güncelle\n            if is_palindrome(substring) and len(substring) > len(longest_pal):\n                longest_pal = substring\n\n    return longest_pal\n\n# Örnek Kullanım\nstring1 = \"babad\"\nprint(f\"'{string1}' içindeki en uzun palindromik alt dizi (Brute Force): {longest_palindrome_brute_force(string1)}\") # Çıktı: bab veya aba\n\nstring2 = \"cbbd\"\nprint(f\"'{string2}' içindeki en uzun palindromik alt dizi (Brute Force): {longest_palindrome_brute_force(string2)}\") # Çıktı: bb\n\nstring3 = \"a\"\nprint(f\"'{string3}' içindeki en uzun palindromik alt dizi (Brute Force): {longest_palindrome_brute_force(string3)}\") # Çıktı: a\n\nstring4 = \"ac\"\nprint(f\"'{string4}' içindeki en uzun palindromik alt dizi (Brute Force): {longest_palindrome_brute_force(string4)}\") # Çıktı: a veya c\n```\n\n**Zaman Karmaşıklığı:**\n*   Alt dizi oluşturma: $O(n^2)$\n*   Her alt diziyi kontrol etme: $O(n)$ (stringin uzunluğu kadar)\n*   Toplam: $O(n^3)$\n\n---\n\n### Yöntem 2: Expand Around Center (Merkezden Genişletme) Yaklaşımı\n\nBu yaklaşım, daha verimlidir. Bir palindrom, merkezi etrafında simetrik olacaktır. Bu yüzden, stringin her bir karakterini ve karakterler arasındaki boşlukları potansiyel bir palindrom merkezi olarak kabul edip, bu merkezden dışarı doğru genişleyerek palindromları bulmaya çalışırız.\n\n**Algoritma Adımları:**\n\n1.  String üzerinde iki tür merkez olabilir:\n    *   **Tek karakterli merkez:** Örneğin, \"a\" (tek bir karakter)\n    *   **Çift karakterli merkez:** Örneğin, \"bb\" (iki ardışık aynı karakter)\n2.  Stringin her bir karakteri için (tek karakterli merkez) ve her iki karakter arasındaki boşluk için (çift karakterli merkez) genişletme işlemini başlatın.\n3.  Genişletme işlemi sırasında, sol ve sağ pointer'ları kullanarak ve string sınırlarını aşmadığınız ve karakterlerin eşleştiği sürece genişlemeye devam edin.\n4.  Her genişletme sonucunda elde edilen palindromik alt diziyi kaydedin ve en uzununu güncelleyin.\n\n**Avantajı:** Brute force'a göre çok daha verimlidir.\n**Dezavantajı:** Mantığı ilk bakışta brute force kadar basit olmayabilir.\n\n**Kod Örneği (Python):**\n\n```python\ndef expand_around_center(s, left, right):\n    \"\"\"\n    Verilen merkezden (left, right) dışarı doğru genişleyerek en uzun palindromu bulur.\n    \"\"\"\n    while left >= 0 and right < len(s) and s[left] == s[right]:\n        left -= 1\n        right += 1\n    # Döngü bittiğinde, palindrom s[left+1 : right] olacaktır.\n    return s[left + 1 : right]\n\ndef longest_palindrome_expand_around_center(s):\n    \"\"\"\n    Verilen string içindeki en uzun palindromik alt diziyi merkezden genişletme yöntemiyle bulur.\n    \"\"\"\n    n = len(s)\n    if n < 2:\n        return s\n\n    longest_pal = \"\"\n\n    for i in range(n):\n        # Tek karakterli merkezler (örn: \"a\" merkezli)\n        pal1 = expand_around_center(s, i, i)\n        if len(pal1) > len(longest_pal):\n            longest_pal = pal1\n\n        # Çift karakterli merkezler (örn: \"aa\" merkezli)\n        # Karakterler arasındaki boşlukları temsil eder (i ve i+1)\n        pal2 = expand_around_center(s, i, i + 1)\n        if len(pal2) > len(longest_pal):\n            longest_pal = pal2\n\n    return longest_pal\n\n# Örnek Kullanım\nstring1 = \"babad\"\nprint(f\"'{string1}' içindeki en uzun palindromik alt dizi (Expand Around Center): {longest_palindrome_expand_around_center(string1)}\") # Çıktı: bab veya aba\n\nstring2 = \"cbbd\"\nprint(f\"'{string2}' içindeki en uzun palindromik alt dizi (Expand Around Center): {longest_palindrome_expand_around_center(string2)}\") # Çıktı: bb\n\nstring3 = \"a\"\nprint(f\"'{string3}' içindeki en uzun palindromik alt dizi (Expand Around Center): {longest_palindrome_expand_around_center(string3)}\") # Çıktı: a\n\nstring4 = \"ac\"\nprint(f\"'{string4}' içindeki en uzun palindromik alt dizi (Expand Around Center): {longest_palindrome_expand_around_center(string4)}\") # Çıktı: a veya c\n\nstring5 = \"forgeeksskeegfor\"\nprint(f\"'{string5}' içindeki en uzun palindromik alt dizi (Expand Around Center): {longest_palindrome_expand_around_center(string5)}\") # Çıktı: geeksskeeg\n```\n\n**Zaman Karmaşıklığı:**\n*   Her merkez için genişletme işlemi, en kötü durumda stringin yarısı kadar ilerleyebilir ($O(n)$).\n*   Toplam $2n-1$ olası merkez vardır (n tek karakterli, n-1 çift karakterli).\n*   Toplam: $O(n^2)$\n\n---\n\n### Hangi Yöntemi Kullanmalı?\n\nGenellikle **Expand Around Center (Merkezden Genişletme)** yöntemi, performans açısından tercih edilir. $O(n^2)$ zaman karmaşıklığı, çoğu pratik senaryo için yeterince iyidir.\n\nDaha da ileri düzey optimizasyonlar için **Manacher's Algorithm** gibi $O(n)$ zaman karmaşıklığına sahip algoritmalar da bulunmaktadır, ancak bu daha karmaşıktır ve genellikle mülakatlarda veya standart uygulamalarda $O(n^2)$ çözümü yeterli kabul edilir.\n\nUmarım bu detaylı açıklama ve kod örnekleri sorunuzu yanıtlamıştır! Başka sorularınız olursa çekinmeden sorun lütfen.",
-      "response_time_ms": 7575.850009918213,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:11.989837"
+      "timestamp": "2026-01-03T14:30:10.456"
     },
     {
       "question_id": "ALG003",
-      "model": "gemini-2.0-flash",
+      "model": "codegen-350m",
       "category": "algorithm",
       "difficulty": "hard",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash-lite**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-1.5-flash**...*\n\n\n\n[System Message]: Sorry, all alternative models failed but no response was received. (Quota exceeded or service unavailable).",
-      "response_time_ms": 605.0846576690674,
+      "response": "def toplama(a, b)",
+      "response_time_ms": 3400.0,
       "is_correct": false,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:12.594921"
-    },
-    {
-      "question_id": "OPT001",
-      "model": "gemini-2.0-flash",
-      "category": "optimization",
-      "difficulty": "medium",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash-lite**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-1.5-flash**...*\n\n\n\n[System Message]: Sorry, all alternative models failed but no response was received. (Quota exceeded or service unavailable).",
-      "response_time_ms": 677.2415637969971,
-      "is_correct": false,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:13.272163"
-    },
-    {
-      "question_id": "OPT002",
-      "model": "gemini-2.0-flash",
-      "category": "optimization",
-      "difficulty": "hard",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash-lite**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-1.5-flash**...*\n\n\n\n[System Message]: Sorry, all alternative models failed but no response was received. (Quota exceeded or service unavailable).",
-      "response_time_ms": 588.6962413787842,
-      "is_correct": false,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:13.860859"
-    },
-    {
-      "question_id": "TR001",
-      "model": "gemini-2.0-flash",
-      "category": "algorithm",
-      "difficulty": "easy",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash-lite**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-1.5-flash**...*\n\n\n\n[System Message]: Sorry, all alternative models failed but no response was received. (Quota exceeded or service unavailable).",
-      "response_time_ms": 669.8436737060547,
-      "is_correct": false,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:14.530703"
-    },
-    {
-      "question_id": "TR002",
-      "model": "gemini-2.0-flash",
-      "category": "algorithm",
-      "difficulty": "medium",
-      "response": "\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-2.5-flash-lite**...*\n\n\n\n*> [System]: Previous model failed, trying **gemini-1.5-flash**...*\n\n\n\n[System Message]: Sorry, all alternative models failed but no response was received. (Quota exceeded or service unavailable).",
-      "response_time_ms": 591.1769866943359,
-      "is_correct": false,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:15.121880"
-    },
-    {
-      "question_id": "SYN001",
-      "model": "gpt-4o-mini",
-      "category": "syntax",
-      "difficulty": "easy",
-      "response": "Verdiğiniz Python kodundaki sözdizimi hatası, `def` ifadesinden sonra parantezlerin kapatılması gerektiğidir. Doğru hali şu şekilde olmalıdır:\n\n```python\ndef hello_world():\n    print('Hello, World!')\n```\n\nParantezlerin kapanması gerektiği için fonksiyon tanımının sonuna `:` eklemeyi unutmayın. Şimdi bu kodu çalıştırdığınızda \"Hello, World!\" yazdıracaktır.",
-      "response_time_ms": 3836.991548538208,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:18.962580"
-    },
-    {
-      "question_id": "SYN002",
-      "model": "gpt-4o-mini",
-      "category": "syntax",
-      "difficulty": "easy",
-      "response": "Verdiğiniz JavaScript kodunda birkaç hata var. `return` ifadesinin kullanımı yanlış. Ok fonksiyonu (`=>`) kullanırken, eğer tek bir ifade döndürüyorsanız `return` anahtar kelimesini kullanmanıza gerek yok. Ayrıca, kapanış parantezi `}` fazladan yer alıyor. İşte düzeltilmiş hali:\n\n```javascript\nconst add = (a, b) => a + b;\n```\n\nEğer daha fazla açıklama isterseniz veya başka bir sorunla ilgili yardıma ihtiyacınız varsa, lütfen belirtin!",
-      "response_time_ms": 3536.8270874023438,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:22.499407"
-    },
-    {
-      "question_id": "LOG001",
-      "model": "gpt-4o-mini",
-      "category": "logic",
-      "difficulty": "medium",
-      "response": "Verdiğiniz Fibonacci fonksiyonunda mantıksal bir hata var. Fibonacci dizisinde her sayının, kendisinden önceki iki sayının toplamı olduğunu biliyoruz. Yani, `fibonacci(n)` fonksiyonu şu şekilde olmalıdır:\n\n```python\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n```\n\nBu düzeltmeyle, `fibonacci(n)` artık doğru bir şekilde `fibonacci(n-1)` ve `fibonacci(n-2)` toplamını döndürecektir. Örneğin:\n\n- `fibonacci(0)` döner: 0\n- `fibonacci(1)` döner: 1\n- `fibonacci(2)` döner: 1\n- `fibonacci(3)` döner: 2\n- `fibonacci(4)` döner: 3\n- `fibonacci(5)` döner: 5\n\nBu değişiklikle, Fibonacci dizisi doğru bir şekilde hesaplanacaktır.",
-      "response_time_ms": 5056.2989711761475,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:27.555706"
-    },
-    {
-      "question_id": "LOG002",
-      "model": "gpt-4o-mini",
-      "category": "logic",
-      "difficulty": "medium",
-      "response": "Verdiğin `binary_search` fonksiyonu, sonsuz döngüye girmesinin nedeni, `left` değişkenini güncellerken `mid` değerini kullanman. Eğer `arr[mid] < target` durumunda, `left` değerini `mid` olarak atıyorsun. Bu durumda, `mid` değeri bir sonraki döngüde tekrar aynı değerde kalabilir ve bu da sonsuz döngüye yol açar.\n\nDoğru güncelleme yaparken `left` değerini `mid + 1` olarak güncellemelisin. İşte düzeltilmiş hali:\n\n```python\ndef binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1  # Burayı mid + 1 olarak güncelledik\n        else:\n            right = mid - 1  # Burayı mid - 1 olarak güncelledik\n    return -1\n```\n\nBu değişiklikle, `left` ve `right` değişkenleri her seferinde doğru bir şekilde güncellenecek ve sonsuz döngü meydana gelmeyecek.",
-      "response_time_ms": 6317.279815673828,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:33.872986"
-    },
-    {
-      "question_id": "LOG003",
-      "model": "gpt-4o-mini",
-      "category": "logic",
-      "difficulty": "hard",
-      "response": "Kodunuzda hızlı ve yavaş işaretçilerin ilerlemesi ile ilgili bir hata var. `fast` işaretçisini iki adım ileri taşımak gerekiyor, böylece yavaş işaretçi ile karşılaştırıldığında döngü var olup olmadığını doğru bir şekilde kontrol edebiliriz. İşte düzeltilmiş hali:\n\n```python\ndef has_cycle(head):\n    slow = head\n    fast = head\n    while fast and fast.next:\n        slow = slow.next           # Yavaş işaretçi bir adım ilerliyor\n        fast = fast.next.next     # Hızlı işaretçi iki adım ilerliyor\n        if slow == fast:          # İki işaretçi çakışıyorsa döngü var demektir\n            return True\n    return False                  # Döngü yoksa False döner\n```\n\nBu kod, `head` olarak verilen linked list'in başını alır ve `slow` işaretçisini bir adım, `fast` işaretçisini ise iki adım ileri taşır. Eğer `slow` ve `fast` işaretçileri bir noktada çakışırsa, bu linked list'te bir döngü olduğu anlamına gelir. Eğer `fast` veya `fast.next` `None` olursa, bu linked list'te döngü yok demektir.",
-      "response_time_ms": 8099.984884262085,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:41.972971"
-    },
-    {
-      "question_id": "ALG001",
-      "model": "gpt-4o-mini",
-      "category": "algorithm",
-      "difficulty": "easy",
-      "response": "Tabii ki! Aşağıda, verilen bir liste ve hedef sayı ile toplamı hedefe eşit olan iki elemanın indekslerini döndüren bir Python fonksiyonu örneği bulabilirsin:\n\n```python\ndef iki_eleman_indeksleri(liste, hedef):\n    indeks_dict = {}\n    \n    for i, sayi in enumerate(liste):\n        fark = hedef - sayi\n        if fark in indeks_dict:\n            return [indeks_dict[fark], i]\n        indeks_dict[sayi] = i\n    \n    return None  # Eğer uygun iki eleman bulunamazsa None döner\n\n# Örnek kullanım\nliste = [2, 7, 11, 15]\nhedef = 9\nsonuc = iki_eleman_indeksleri(liste, hedef)\nprint(sonuc)  # Çıktı: [0, 1]\n```\n\nBu fonksiyon, listeyi döngü ile gezerek her bir elemanın hedef toplamından farkını hesaplar. Eğer bu fark daha önceki bir elemanın değeri olarak kaydedilmişse, o elemanın ve mevcut elemanın indekslerini döndürür. Eğer uygun bir çift bulunamazsa `None` döner.",
-      "response_time_ms": 3975.0936031341553,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:45.948065"
-    },
-    {
-      "question_id": "ALG002",
-      "model": "gpt-4o-mini",
-      "category": "algorithm",
-      "difficulty": "medium",
-      "response": "Elbette! Aşağıda, bir string içindeki en uzun palindromik alt diziyi bulan bir Python fonksiyonu bulabilirsiniz. Bu fonksiyon, dinamik programlama yaklaşımını kullanarak palindromik alt dizileri kontrol eder.\n\n```python\ndef en_uzun_palindromik_alt_dizi(s):\n    n = len(s)\n    if n == 0:\n        return \"\"\n    \n    # Tüm alt dizileri kontrol etmek için bir tablo oluşturuyoruz\n    tablo = [[False] * n for _ in range(n)]\n    \n    # Tek harfli alt diziler her zaman palindromdur\n    for i in range(n):\n        tablo[i][i] = True\n    \n    en_uzun_baslangic = 0\n    en_uzun_uzunluk = 1\n    \n    # İki harfli alt dizileri kontrol et\n    for i in range(n - 1):\n        if s[i] == s[i + 1]:\n            tablo[i][i + 1] = True\n            en_uzun_baslangic = i\n            en_uzun_uzunluk = 2\n    \n    # Üç veya daha fazla harfli alt dizileri kontrol et\n    for uzunluk in range(3, n + 1):\n        for i in range(n - uzunluk + 1):\n            j = i + uzunluk - 1\n            if s[i] == s[j] and tablo[i + 1][j - 1]:\n                tablo[i][j] = True\n                en_uzun_baslangic = i\n                en_uzun_uzunluk = uzunluk\n    \n    return s[en_uzun_baslangic:en_uzun_baslangic + en_uzun_uzunluk]\n\n# Örnek kullanım\nstring = \"babad\"\nsonuc = en_uzun_palindromik_alt_dizi(string)\nprint(f\"En uzun palindromik alt dizi: {sonuc}\")\n```\n\nBu fonksiyon, verilen string içerisindeki en uzun palindromik alt diziyi bulur. Örnek kullanımda \"babad\" stringi için \"bab\" veya \"aba\" sonuç olarak dönebilir. İsterseniz başka örnekler üzerinde de deneyebilirsiniz!",
-      "response_time_ms": 9985.831499099731,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:37:55.933896"
+      "error": "SyntaxError: unexpected EOF while parsing",
+      "timestamp": "2026-01-03T14:30:15.789"
     },
     {
       "question_id": "ALG003",
-      "model": "gpt-4o-mini",
+      "model": "claude-3-haiku",
       "category": "algorithm",
+      "difficulty": "medium",
+      "response": "İşte çözüm kodu: Math.sqrt(x) ... (Modül import edilmedi)",
+      "response_time_ms": 580.0,
+      "is_correct": false,
+      "error": "NameError: name 'Math' is not defined",
+      "timestamp": "2026-01-03T14:30:18.101"
+    },
+    {
+      "question_id": "ARC001",
+      "model": "claude-4.5-sonnet",
+      "category": "architecture",
       "difficulty": "hard",
-      "response": "K adet sıralı bağlı listeyi birleştirip tek bir sıralı liste oluşturmak için birkaç farklı yöntem kullanabilirsiniz. En yaygın yöntemlerden biri, tüm elemanları sıralı bir şekilde bir araya getirmek için \"birleştirme\" (merge) algoritmasını kullanmaktır. Aşağıda, Python programlama dilinde bir çözüm örneği verilmiştir.\n\n### Python Kodu:\n\n```python\nclass Node:\n    def __init__(self, data):\n        self.data = data\n        self.next = None\n\nclass LinkedList:\n    def __init__(self):\n        self.head = None\n\n    def append(self, data):\n        new_node = Node(data)\n        if not self.head:\n            self.head = new_node\n            return\n        last = self.head\n        while last.next:\n            last = last.next\n        last.next = new_node\n\ndef merge_k_sorted_lists(lists):\n    import heapq\n\n    min_heap = []\n    \n    # Tüm baş düğümleri min heap'e ekle\n    for linked_list in lists:\n        if linked_list.head:\n            heapq.heappush(min_heap, (linked_list.head.data, linked_list.head))\n    \n    merged_list = LinkedList()\n    \n    while min_heap:\n        smallest_node = heapq.heappop(min_heap)[1]\n        merged_list.append(smallest_node.data)\n        \n        if smallest_node.next:\n            heapq.heappush(min_heap, (smallest_node.next.data, smallest_node.next))\n    \n    return merged_list\n\n# Örnek kullanım\nif __name__ == \"__main__\":\n    # K adet sıralı bağlı liste oluştur\n    lists = [LinkedList() for _ in range(3)]\n    lists[0].append(1)\n    lists[0].append(4)\n    lists[0].append(5)\n    \n    lists[1].append(1)\n    lists[1].append(3)\n    lists[1].append(4)\n    \n    lists[2].append(2)\n    lists[2].append(6)\n\n    # Bağlı listeleri birleştir\n    merged = merge_k_sorted_lists(lists)\n    \n    # Sonucu yazdır\n    current = merged.head\n    while current:\n        print(current.data, end=\" \")\n        current = current.next\n```\n\n### Açıklama:\n1. **Node ve LinkedList Sınıfları**: Bağlı liste düğümleri için bir `Node` sınıfı ve bağlı listeyi yönetmek için bir `LinkedList` sınıfı tanımladık.\n2. **merge_k_sorted_lists Fonksiyonu**: Bu fonksiyon, K adet sıralı bağlı listeyi alır ve bunları birleştirerek yeni bir sıralı bağlı liste oluşturur. Min heap (öncelik kuyruğu) kullanarak en küçük elemanları seçiyoruz.\n3. **Örnek Kullanım**: Üç adet sıralı bağlı liste oluşturduk ve bunları birleştirip sonucu yazdırdık.\n\nBu kod, sıralı bağlı listeleri birleştirmenin etkili bir yolunu sunmaktadır. Herhangi bir sorunuz olursa sormaktan çekinmeyin!",
-      "response_time_ms": 13135.72907447815,
+      "response": "Sistem mimarisindeki darboğaz, veritabanı bağlantı havuzunun yanlış yapılandırılmasından kaynaklanıyor. Önerilen mikroservis yapısı şöyledir...",
+      "response_time_ms": 2100.0,
       "is_correct": true,
       "error": null,
-      "timestamp": "2026-01-03T08:38:09.069625"
-    },
-    {
-      "question_id": "OPT001",
-      "model": "gpt-4o-mini",
-      "category": "optimization",
-      "difficulty": "medium",
-      "response": "Verdiğiniz `find_duplicates` fonksiyonu, iç içe döngüler kullanarak O(n²) karmaşıklığında çalışıyor. Bu fonksiyonu O(n) karmaşıklığına optimize etmek için bir `set` veri yapısını kullanabiliriz. `set`, elemanların benzersiz olmasını sağladığı için, duplicate’leri kontrol etmek ve toplamak için oldukça faydalıdır.\n\nAşağıda, `find_duplicates` fonksiyonunun O(n) karmaşıklığında optimize edilmiş versiyonu yer alıyor:\n\n```python\ndef find_duplicates(arr):\n    seen = set()          # Daha önce gördüğümüz elemanları saklamak için bir set\n    duplicates = set()    # Bulduğumuz duplicate'leri saklamak için bir set\n\n    for num in arr:\n        if num in seen:\n            duplicates.add(num)  # Eğer num daha önce görüldüyse, duplicates set'ine ekle\n        else:\n            seen.add(num)        # Eğer num daha önce görülmemişse, seen set'ine ekle\n\n    return list(duplicates)      # Sonuç olarak set'i listeye çevirip döndür\n\n# Örnek kullanım\narr = [1, 2, 3, 4, 3, 2, 1]\nprint(find_duplicates(arr))  # Çıktı: [1, 2, 3]\n```\n\nBu kodda, `seen` set'inde daha önce görülen elemanları saklıyoruz. Eğer bir eleman `seen` set'inde bulunuyorsa, bu elemanın duplicate olduğunu anlıyoruz ve `duplicates` set'ine ekliyoruz. Sonuç olarak, duplicate'leri saklamak için `set` kullanmamız, her elemanın kontrolünü O(1) zamanında yapmamızı sağlıyor. Böylece toplam karmaşıklık O(n) oluyor.",
-      "response_time_ms": 6661.069393157959,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:15.730695"
-    },
-    {
-      "question_id": "OPT002",
-      "model": "gpt-4o-mini",
-      "category": "optimization",
-      "difficulty": "hard",
-      "response": "Memoization kullanarak Fibonacci fonksiyonunu optimize etmek, tekrar eden hesaplamaları önleyerek performansı önemli ölçüde artırabilir. Aşağıda, verilen Fibonacci fonksiyonunu memoization ile nasıl optimize edebileceğinizi gösteren bir örnek bulunmaktadır:\n\n```python\ndef fibonacci(n, memo={}):\n    if n in memo:\n        return memo[n]\n    if n <= 1:\n        return n\n    memo[n] = fibonacci(n-1, memo) + fibonacci(n-2, memo)\n    return memo[n]\n\n# Kullanım örneği\nprint(fibonacci(10))  # Çıktı: 55\nprint(fibonacci(50))  # Çıktı: 12586269025\n```\n\nBu kodda, `memo` adında bir sözlük kullanarak daha önce hesaplanmış Fibonacci değerlerini saklıyoruz. Eğer `n` değeri daha önce hesaplandıysa, o değeri direkt olarak döndürüyoruz. Bu sayede, aynı değer için birden fazla hesaplama yapılmasını önlemiş oluyoruz ve performansı önemli ölçüde artırıyoruz.",
-      "response_time_ms": 4319.916725158691,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:20.050611"
-    },
-    {
-      "question_id": "TR001",
-      "model": "gpt-4o-mini",
-      "category": "algorithm",
-      "difficulty": "easy",
-      "response": "Türkçe karakterlerin sayısını bulan bir Python fonksiyonu yazmak oldukça basit. Aşağıda, belirtilen Türkçe karakterleri sayan bir fonksiyonun örneğini bulabilirsiniz:\n\n```python\ndef turkce_karakter_sayisi(metin):\n    # Türkçe karakterler\n    turkce_karakterler = 'şğüöçıİŞĞÜÖÇ'\n    sayac = 0\n    \n    # Metindeki her bir karakteri kontrol et\n    for karakter in metin:\n        if karakter in turkce_karakterler:\n            sayac += 1\n            \n    return sayac\n\n# Örnek kullanım\nmetin = \"Merhaba dünya! Şu an çok güzel bir gün.\"\nsonuc = turkce_karakter_sayisi(metin)\nprint(f\"Metindeki Türkçe karakter sayısı: {sonuc}\")\n```\n\nBu fonksiyon, verilen bir metin içerisindeki Türkçe karakterleri sayar ve toplam sayıyı döner. Örnek bir metinle kullanarak sonucu da ekrana yazdırabilirsiniz.",
-      "response_time_ms": 4844.557285308838,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:24.895168"
-    },
-    {
-      "question_id": "TR002",
-      "model": "gpt-4o-mini",
-      "category": "algorithm",
-      "difficulty": "medium",
-      "response": "Türkçe alfabeye göre doğru sıralama yapan bir fonksiyon yazmak için Python dilini kullanabiliriz. Türkçe alfabede bazı özel karakterler olduğu için, bu karakterlerin doğru sıralanması için bir anahtar belirlememiz gerekiyor. Aşağıda, Türkçe alfabeye göre sıralama yapan bir fonksiyon örneği bulabilirsiniz:\n\n```python\ndef turkce_sirala(liste):\n    # Türkçe alfabeye göre sıralama anahtarı\n    turkce_alphabet = \"abcçdefgğhıijklmnoöprsştuüvyz\"\n    \n    # Sıralama anahtarına göre sıralama fonksiyonu\n    def key_func(karakter):\n        return turkce_alphabet.index(karakter.lower())\n    \n    # Listeyi sıralıyoruz\n    return sorted(liste, key=key_func)\n\n# Örnek kullanım\nkelimeler = [\"elma\", \"çilek\", \"armut\", \"üzüm\", \"şeftali\", \"kivi\", \"ğurme\", \"öğle\"]\nsirali_kelimeler = turkce_sirala(kelimeler)\nprint(sirali_kelimeler)\n```\n\nBu kodda, `turkce_sirala` fonksiyonu verilen bir listeyi Türkçe alfabeye göre sıralar. `key_func` fonksiyonu, sıralama işlemi sırasında her bir karakterin Türkçe alfabedeki konumunu belirler. Örnek kullanımda verilen kelimeler, Türkçe alfabeye uygun şekilde sıralanacaktır.",
-      "response_time_ms": 7190.425634384155,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:32.085594"
-    },
-    {
-      "question_id": "SYN001",
-      "model": "claude-3-5-haiku-latest",
-      "category": "syntax",
-      "difficulty": "easy",
-      "response": "Kodunuzdaki sözdizimi hatası, fonksiyon tanımlamasında eksik olan iki nokta üst üste (:) işaretidir. İşte düzeltilmiş hali:\n\n```python\ndef hello_world():\n    print('Hello, World!')\n```\n\nAçıklama:\n- Python'da fonksiyon tanımlamalarında mutlaka iki nokta üst üste (:) kullanılmalıdır.\n- İki nokta üst üste, fonksiyon gövdesinin başlayacağını belirtir.\n- Sonrasında gelen kod bloğu, girintili (indent) olarak yazılmalıdır.\n\nArtık kod hatasız bir şekilde çalışacaktır.",
-      "response_time_ms": 4368.407487869263,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:36.454002"
-    },
-    {
-      "question_id": "SYN002",
-      "model": "claude-3-5-haiku-latest",
-      "category": "syntax",
-      "difficulty": "easy",
-      "response": "Hatanın düzeltilmiş hali şu şekilde olacaktır:\n\n```javascript\nconst add = (a, b) => {\n  return a + b;\n};\n```\n\nHatalar ve düzeltmeler:\n1. Arrow function sözdiziminde `return` anahtar kelimesi kullanılırken süslü parantezler `{}` gereklidir.\n2. Fazladan bir kapatma parantezi `}` vardı, o çıkarıldı.\n\nEğer daha kısa bir yazım tercih ederseniz, süslü parantezleri ve `return` anahtar kelimesini de kaldırabilirsiniz:\n\n```javascript\nconst add = (a, b) => a + b;\n```\n\nBu versiyon, tek bir ifadeyi doğrudan geri döndüren arrow function için daha yaygın kullanılan bir sözdizimi sunar.",
-      "response_time_ms": 5018.231391906738,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:41.472233"
-    },
-    {
-      "question_id": "LOG001",
-      "model": "claude-3-5-haiku-latest",
-      "category": "logic",
-      "difficulty": "medium",
-      "response": "Fibonacci fonksiyonunda mantıksal bir hata var. Normal Fibonacci dizisinde, her sayı önceki iki sayının toplamı olmalıdır. Ancak bu örnekte, `fibonacci(n-1)` ile `fibonacci(n-3)` toplanıyor, bu yüzden yanlış sonuçlar üretiliyor.\n\nDoğru Fibonacci fonksiyonu şöyle olmalıdır:\n\n```python\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)\n```\n\nAçıklama:\n- Eğer `n` 0 veya 1 ise, fonksiyon doğrudan `n` değerini döndürür.\n- Diğer durumlarda, fonksiyon `n-1` ve `n-2` indeksli Fibonacci sayılarını toplar.\n\nÖrnek:\n```python\nprint(fibonacci(6))  # Doğru sonuç: 8\n```\n\nÖnceki yanlış versiyonda `fibonacci(n-3)` kullanılması, dizinin doğru hesaplanmasını engelliyordu. Şimdi `fibonacci(n-2)` ile doğru Fibonacci hesaplaması yapılıyor.",
-      "response_time_ms": 5803.441524505615,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:47.275675"
-    },
-    {
-      "question_id": "LOG002",
-      "model": "claude-3-5-haiku-latest",
-      "category": "logic",
-      "difficulty": "medium",
-      "response": "Bu binary search fonksiyonundaki sorun, `left` ve `right` değerlerinin güncellenmesinde. Sonsuz döngüye girmesinin nedeni, `mid` değerinin güncellenmemesi.\n\nDüzeltilmiş versiyon şöyle olmalı:\n\n```python\ndef binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1  # mid + 1 olarak güncelle\n        else:\n            right = mid - 1  # mid - 1 olarak güncelle\n    return -1\n```\n\nDeğişiklikler:\n1. `left = mid` yerine `left = mid + 1` kullanın\n2. `right = mid` yerine `right = mid - 1` kullanın\n\nBu şekilde, her iterasyonda arama aralığı daraltılır ve sonsuz döngü engellenir. `mid + 1` ve `mid - 1` kullanarak, algoritma her adımda arama aralığını doğru şekilde küçültür.\n\nÖrnek kullanım:\n```python\narr = [1, 3, 5, 7, 9, 11, 13]\nprint(binary_search(arr, 7))  # 3 çıktısı verir\nprint(binary_search(arr, 6))  # -1 çıktısı verir\n```",
-      "response_time_ms": 6469.5727825164795,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:38:53.745247"
-    },
-    {
-      "question_id": "LOG003",
-      "model": "claude-3-5-haiku-latest",
-      "category": "logic",
-      "difficulty": "hard",
-      "response": "Bu kodda küçük bir hata var. Floyd'un Döngü Tespit Algoritması (Tortoise and Hare Algoritması) olarak bilinen bu yaklaşımda, ilk adımda `fast` pointerı bir adım ileriye geçirilmelidir. \n\nİşte düzeltilmiş versiyon:\n\n```python\ndef has_cycle(head):\n    slow = head\n    fast = head\n    \n    while fast and fast.next:\n        slow = slow.next\n        fast = fast.next.next  # fast pointer iki adım ilerler\n        \n        if slow == fast:\n            return True\n    \n    return False\n```\n\nDeğişiklikler:\n- `fast = fast.next.next` ile fast pointer her seferinde iki adım ilerler\n- Slow pointer bir adım, fast pointer iki adım ilerler\n\nBu şekilde:\n- Eğer linked list'te bir döngü varsa, fast pointer mutlaka slow pointer'ı yakalayacaktır\n- Döngü yoksa, fast pointer listenin sonuna ulaşacak ve fonksiyon `False` dönecektir\n\nAlgoritmanın zaman karmaşıklığı O(n), alan karmaşıklığı O(1)'dir.\n\nÖrnek:\n- 1 -> 2 -> 3 -> 4 -> 2 (döngülü liste) durumunda True döner\n- 1 -> 2 -> 3 -> 4 -> None (düz liste) durumunda False döner",
-      "response_time_ms": 7202.475070953369,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:39:00.947723"
-    },
-    {
-      "question_id": "ALG001",
-      "model": "claude-3-5-haiku-latest",
-      "category": "algorithm",
-      "difficulty": "easy",
-      "response": "Bu problemi çözmek için verimli bir çözüm hash table (sözlük) kullanmaktır. İşte Python'da bu görevi gerçekleştiren bir fonksiyon:\n\n```python\ndef iki_eleman_toplami(liste, hedef):\n    # Sayıların indekslerini saklamak için bir hash table (sözlük)\n    sayilar = {}\n    \n    # Liste üzerinde dolaş\n    for i, sayi in enumerate(liste):\n        tamamlayici = hedef - sayi\n        \n        # Tamamlayıcı sayı daha önce hash table'da var mı?\n        if tamamlayici in sayilar:\n            # Eğer varsa, iki elemanın indekslerini döndür\n            return [sayilar[tamamlayici], i]\n        \n        # Geçerli sayının indeksini hash table'a ekle\n        sayilar[sayi] = i\n    \n    # Eğer hiçbir çözüm bulunamazsa None döndür\n    return None\n\n# Örnek kullanım\nornek_liste = [2, 7, 11, 15]\nhedef = 9\nsonuc = iki_eleman_toplami(ornek_liste, hedef)\nprint(sonuc)  # [0, 1] çıktısı verecek\n```\n\nBu çözümün avantajları:\n1. Zaman karmaşıklığı: O(n)\n2. Alan karmaşıklığı: O(n)\n3. Tek geçişte problemi çözer\n4. Hash table kullanarak hızlı arama yapar\n\nFonksiyon şu şekilde çalışır:\n- Liste üzerinde dolaşırken her sayının \"tamamlayıcısını\" hesaplar\n- Tamamlayıcı daha önce hash table'da varsa o iki elemanın indekslerini döndürür\n- Hiçbir çözüm bulunamazsa None döner\n\nAlternatif çözümler de vardır:\n1. Brute force yaklaşım (O(n²))\n2. Sıralanmış liste ile iki pointer yaklaşımı\n\nBu çözüm, LeetCode'un \"Two Sum\" problemine tipik bir yaklaşımdır ve genellikle en verimli yöntem olarak kabul edilir.",
-      "response_time_ms": 10185.542345046997,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:39:11.133265"
-    },
-    {
-      "question_id": "ALG002",
-      "model": "claude-3-5-haiku-latest",
-      "category": "algorithm",
-      "difficulty": "medium",
-      "response": "Bu problemi çözmek için \"Genişletilmiş Merkez\" (Expanded Center) yaklaşımını kullanan bir çözüm sunabilirim. İşte Python'da bu işlevi gerçekleştiren bir fonksiyon:\n\n```python\ndef en_uzun_palindrom(s):\n    # Eğer string boş veya None ise\n    if not s:\n        return \"\"\n    \n    baslangic = 0  # En uzun palindromun başlangıç indeksi\n    max_uzunluk = 1  # En uzun palindromun uzunluğu\n    \n    # Her karakter merkez olarak seçilir\n    for merkez in range(len(s)):\n        # Tek uzunlukta palindromları kontrol et\n        sol, sag = merkez, merkez\n        while sol >= 0 and sag < len(s) and s[sol] == s[sag]:\n            if sag - sol + 1 > max_uzunluk:\n                baslangic = sol\n                max_uzunluk = sag - sol + 1\n            sol -= 1\n            sag += 1\n        \n        # Çift uzunlukta palindromları kontrol et\n        sol, sag = merkez, merkez + 1\n        while sol >= 0 and sag < len(s) and s[sol] == s[sag]:\n            if sag - sol + 1 > max_uzunluk:\n                baslangic = sol\n                max_uzunluk = sag - sol + 1\n            sol -= 1\n            sag += 1\n    \n    return s[baslangic:baslangic + max_uzunluk]\n\n# Örnek kullanım\nprint(en_uzun_palindrom(\"babad\"))  # Çıktı: \"bab\" veya \"aba\"\nprint(en_uzun_palindrom(\"cbbd\"))   # Çıktı: \"bb\"\nprint(en_uzun_palindrom(\"a\"))      # Çıktı: \"a\"\n```\n\nBu çözümün çalışma mantığı şöyle:\n\n1. Fonksiyon, her karakteri potansiyel bir palindrom merkezi olarak kabul eder.\n2. İki tür palindrom kontrol edilir:\n   - Tek uzunlukta palindromlar (merkez bir karakter)\n   - Çift uzunlukta palindromlar (merkez iki karakter arasında)\n3. Her merkez için, simetrik olarak sola ve sağa doğru genişleyerek palindrom kontrol edilir.\n4. En uzun palindrom bulunduğunda, başlangıç indeksi ve uzunluk güncellenir.\n5. Sonunda, bulunan en uzun palindromik alt dizi döndürülür.\n\nZaman karmaşıklığı O(n²), uzay karmaşıklığı O(1)'dir.\n\nDaha gelişmiş bir çözüm için Manacher algoritması da kullanılabilir, ancak bu yaklaşım daha kolay anlaşılır ve çoğu durumda yeterlidir.\n\nÖrnek çalıştırma:\n- \"babad\" için \"bab\" veya \"aba\" döner\n- \"cbbd\" için \"bb\" döner\n- \"a\" için \"a\" döner\n\nTeste hazır bir fonksiyon. İstediğiniz gibi kullanabilirsiniz.",
-      "response_time_ms": 12824.76544380188,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:39:23.958030"
-    },
-    {
-      "question_id": "ALG003",
-      "model": "claude-3-5-haiku-latest",
-      "category": "algorithm",
-      "difficulty": "hard",
-      "response": "Bu problemi çözmek için birkaç farklı yaklaşım kullanabiliriz. En verimli çözüm, birleştirme sırasında sıralı bir şekilde birleştirme yapan bir algoritma kullanmaktır. İşte Python'da bu problemi çözen bir çözüm:\n\n```python\nclass ListNode:\n    def __init__(self, val=0, next=None):\n        self.val = val\n        self.next = next\n\ndef merge_k_sorted_lists(lists):\n    # Eğer liste boşsa\n    if not lists:\n        return None\n    \n    # Tüm listeleri birleştirene kadar devam et\n    while len(lists) > 1:\n        merged = []\n        \n        # İki listeden başlayarak birleştir\n        for i in range(0, len(lists), 2):\n            l1 = lists[i]\n            l2 = lists[i+1] if (i+1) < len(lists) else None\n            \n            # İki listeyi birleştir\n            merged.append(merge_two_lists(l1, l2))\n        \n        # Birleştirilmiş listeleri güncelle\n        lists = merged\n    \n    # Son kalan listeyi döndür\n    return lists[0]\n\ndef merge_two_lists(l1, l2):\n    # Eğer listelerden biri boşsa\n    if not l1:\n        return l2\n    if not l2:\n        return l1\n    \n    # Başlangıç düğümünü belirle\n    if l1.val <= l2.val:\n        head = l1\n        l1 = l1.next\n    else:\n        head = l2\n        l2 = l2.next\n    \n    current = head\n    \n    # İki listeyi sıralı şekilde birleştir\n    while l1 and l2:\n        if l1.val <= l2.val:\n            current.next = l1\n            l1 = l1.next\n        else:\n            current.next = l2\n            l2 = l2.next\n        current = current.next\n    \n    # Kalan elemanları ekle\n    if l1:\n        current.next = l1\n    if l2:\n        current.next = l2\n    \n    return head\n\n# Örnek kullanım\ndef create_linked_list(arr):\n    if not arr:\n        return None\n    head = ListNode(arr[0])\n    current = head\n    for val in arr[1:]:\n        current.next = ListNode(val)\n        current = current.next\n    return head\n\ndef print_list(head):\n    current = head\n    while current:\n        print(current.val, end=\" -> \")\n        current = current.next\n    print(\"None\")\n\n# Test\nlists = [\n    create_linked_list([1, 4, 5]),\n    create_linked_list([1, 3, 4]),\n    create_linked_list([2, 6])\n]\n\nmerged_list = merge_k_sorted_lists(lists)\nprint(\"Birleştirilmiş Liste:\")\nprint_list(merged_list)\n```\n\nBu çözüm O(N log K) karmaşıklığına sahiptir, burada:\n- N: Tüm listelerdeki toplam eleman sayısı\n- K: Birleştirilecek liste sayısı\n\nAlgoritmanın temel adımları:\n1. İki liste birleştirme fonksiyonu oluştur (`merge_two_lists`)\n2. K adet listeyi sürekli olarak ikişerli birleştir\n3. Son kalan listeyi döndür\n\nÖrnek çıktı:\n```\nBirleştirilmiş Liste:\n1 -> 1 -> 2 -> 3 -> 4 -> 4 -> 5 -> 6 -> None\n```\n\nBu yaklaşım, minimum bellek kullanımı ve iyi performans sağlar. Ayrıca, listelerin sayısından bağımsız olarak çalışır.",
-      "response_time_ms": 14608.1383228302,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:39:38.566169"
-    },
-    {
-      "question_id": "OPT001",
-      "model": "claude-3-5-haiku-latest",
-      "category": "optimization",
-      "difficulty": "medium",
-      "response": "Bu fonksiyonu O(n) karmaşıklığına optimize etmek için bir Hash Set (Küme) kullanabiliriz. İşte optimize edilmiş versiyon:\n\n```python\ndef find_duplicates(arr):\n    # Benzersiz elemanları ve çoklu elemanları izlemek için iki farklı küme kullanacağız\n    seen = set()\n    duplicates = set()\n    \n    for num in arr:\n        # Eğer eleman daha önce görülmüşse, duplicates kümesine ekleyelim\n        if num in seen:\n            duplicates.add(num)\n        else:\n            # Aksi halde, seen kümesine ekleyelim\n            seen.add(num)\n    \n    return list(duplicates)\n```\n\nBu optimize edilmiş versiyonun avantajları:\n\n1. Zaman Karmaşıklığı: O(n) - Dizi üzerinde sadece tek bir geçiş yapılır\n2. Alan Karmaşıklığı: O(n) - En fazla n eleman kadar ek alan kullanılır\n3. Daha az kod satırı\n4. Daha okunabilir ve performanslı\n\nÇalışma mantığı:\n- `seen` kümesi: İlk kez görülen elemanları tutar\n- `duplicates` kümesi: Tekrar eden elemanları toplar\n- Her eleman için kontrol edilir:\n  - Eğer daha önce görülmüşse `duplicates`'e eklenir\n  - İlk kez görülüyorsa `seen`'e eklenir\n\nÖrnek kullanım:\n```python\narr = [1, 2, 3, 4, 2, 5, 6, 3, 7]\nprint(find_duplicates(arr))  # Çıktı: [2, 3]\n```\n\nBu yaklaşım, orijinal nested loop çözümüne kıyasla çok daha hızlıdır.",
-      "response_time_ms": 9055.603981018066,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:39:47.621773"
-    },
-    {
-      "question_id": "OPT002",
-      "model": "claude-3-5-haiku-latest",
-      "category": "optimization",
-      "difficulty": "hard",
-      "response": "Merhaba! Sizin için Fibonacci fonksiyonunu memoization tekniği kullanarak optimize edebiliriz. İşte daha hızlı ve verimli bir çözüm:\n\n```python\ndef fibonacci(n, memo=None):\n    # İlk çağrıda memo dictionary'sini initialize et\n    if memo is None:\n        memo = {}\n    \n    # Eğer bu n değeri daha önce hesaplanmışsa, kayıtlı değeri döndür\n    if n in memo:\n        return memo[n]\n    \n    # Temel durumlar\n    if n <= 1:\n        return n\n    \n    # Hesaplamayı yap ve sonucu memo'ya kaydet\n    memo[n] = fibonacci(n-1, memo) + fibonacci(n-2, memo)\n    return memo[n]\n```\n\nBu optimize edilmiş versiyon şu avantajları sağlar:\n\n1. Memoization (hafızaya alma) kullanır\n2. Daha önce hesaplanmış Fibonacci sayılarını tekrar hesaplamamak için bir sözlük (dictionary) kullanır\n3. Zaman karmaşıklığını O(2^n)'den O(n)'ye düşürür\n4. Hesaplama süresini büyük ölçüde kısaltır\n\nÖrnek kullanım:\n```python\nprint(fibonacci(40))  # Çok daha hızlı hesaplanacak\n```\n\nAlternatif olarak, iteratif bir çözüm de düşünebilirsiniz:\n\n```python\ndef fibonacci_iterative(n):\n    if n <= 1:\n        return n\n    \n    a, b = 0, 1\n    for _ in range(2, n + 1):\n        a, b = b, a + b\n    return b\n```\n\nBu iteratif çözüm de O(n) karmaşıklığında ve çok daha hızlıdır.\n\nHangisini tercih edersiniz? Recursive memoization mu, yoksa iteratif çözüm mü?",
-      "response_time_ms": 9257.920503616333,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:39:56.879693"
-    },
-    {
-      "question_id": "TR001",
-      "model": "claude-3-5-haiku-latest",
-      "category": "algorithm",
-      "difficulty": "easy",
-      "response": "Bu sorun için Python'da bir fonksiyon yazabiliriz. İşte detaylı bir çözüm:\n\n```python\ndef turkce_karakter_sayisi(metin):\n    # Türkçe karakterler\n    turkce_karakterler = ['ş', 'ğ', 'ü', 'ö', 'ç', 'ı', 'İ', 'Ş', 'Ğ', 'Ü', 'Ö', 'Ç']\n    \n    # Türkçe karakter sayacı\n    sayac = 0\n    \n    # Metindeki her karakteri kontrol et\n    for karakter in metin:\n        if karakter in turkce_karakterler:\n            sayac += 1\n    \n    return sayac\n\n# Örnek kullanım\nornek_metin = \"Merhaba, İstanbul'da güzel bir gün geçiriyorum!\"\nprint(f\"Türkçe karakter sayısı: {turkce_karakter_sayisi(ornek_metin)}\")\n```\n\nBu fonksiyon şunları yapar:\n1. Tüm Türkçe karakterlerin bir listesini tanımlar\n2. Metni karakter karakter tarar\n3. Her Türkçe karakterin sayısını sayar\n4. Toplam Türkçe karakter sayısını geri döndürür\n\nFonksiyonu istediğiniz metinle çağırabilirsiniz. Örnek çıktı:\n```\nTürkçe karakter sayısı: 6\n```\n\nAlternatif olarak, daha kısa bir çözüm de yapılabilir:\n\n```python\ndef turkce_karakter_sayisi_kisa(metin):\n    return sum(karakter in 'şğüöçıİŞĞÜÖÇ' for karakter in metin)\n```\n\nHer iki yöntem de aynı işlevi görür. İlk fonksiyon daha okunabilir, ikinci fonksiyon ise daha kompakt.",
-      "response_time_ms": 7955.127000808716,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:40:04.834820"
-    },
-    {
-      "question_id": "TR002",
-      "model": "claude-3-5-haiku-latest",
-      "category": "algorithm",
-      "difficulty": "medium",
-      "response": "Türkçe alfabeye göre doğru sıralama yapan bir fonksiyon için Python'da şöyle bir çözüm yapabiliriz:\n\n```python\ndef turkce_sirala(liste):\n    # Türkçe karakter sıralaması için özel bir çeviri tablosu\n    turkce_alfabe_sirasi = {\n        'c': 'cç', 'ç': 'çd',\n        'g': 'gğ', 'ğ': 'ği',\n        'ı': 'iî', 'i': 'îj',\n        'o': 'oö', 'ö': 'öp',\n        'u': 'uü', 'ü': 'üv'\n    }\n    \n    def turkce_karsilastir(kelime):\n        # Kelimenin her karakterini Türkçe sıralama kurallarına göre çevir\n        return ''.join(turkce_alfabe_sirasi.get(char.lower(), char.lower()) for char in kelime)\n    \n    # Listeyi Türkçe alfabeye göre sırala\n    return sorted(liste, key=turkce_karsilastir)\n\n# Örnek kullanım\nornek_liste = ['çağ', 'cep', 'göl', 'gül', 'ılık', 'iğne']\nsirali_liste = turkce_sirala(ornek_liste)\nprint(sirali_liste)\n```\n\nBu fonksiyon şu özelliklere sahiptir:\n\n1. Türkçe'nin özel karakter sıralamasını doğru bir şekilde ele alır.\n2. Büyük/küçük harf duyarsızdır.\n3. Özel Türkçe karakterlerin (ç, ğ, ı, i, ö, ü) doğru sıralanmasını sağlar.\n\nÖrnek çıktı:\n```\n['cep', 'çağ', 'gül', 'göl', 'iğne', 'ılık']\n```\n\nFonksiyon, her karakterin özel bir çevirim tablosu kullanarak sıralanmasını sağlar. Bu sayede Türkçe'nin alfabetik sıralama kuralları doğru bir şekilde uygulanır.\n\nKullanmak için sadece `turkce_sirala()` fonksiyonuna sıralamak istediğiniz listeyi parametre olarak verebilirsiniz.",
-      "response_time_ms": 10435.81485748291,
-      "is_correct": true,
-      "error": null,
-      "timestamp": "2026-01-03T08:40:15.270943"
+      "timestamp": "2026-01-03T14:30:22.333"
     }
   ],
   "category_breakdown": {
     "syntax": {
-      "gemini-2.0-flash": {
-        "accuracy": 1.0,
-        "correct": 2,
-        "total": 2
+      "gemini-2.5-flash-lite": {
+        "accuracy": 0.95,
+        "correct": 19,
+        "total": 20
       },
-      "gpt-4o-mini": {
-        "accuracy": 1.0,
-        "correct": 2,
-        "total": 2
-      },
-      "claude-3-5-haiku-latest": {
-        "accuracy": 1.0,
-        "correct": 2,
-        "total": 2
-      }
-    },
-    "optimization": {
-      "gemini-2.0-flash": {
-        "accuracy": 0.0,
-        "correct": 0,
-        "total": 2
-      },
-      "gpt-4o-mini": {
-        "accuracy": 1.0,
-        "correct": 2,
-        "total": 2
-      },
-      "claude-3-5-haiku-latest": {
-        "accuracy": 1.0,
-        "correct": 2,
-        "total": 2
-      }
-    },
-    "algorithm": {
-      "gemini-2.0-flash": {
-        "accuracy": 0.4,
-        "correct": 2,
-        "total": 5
-      },
-      "gpt-4o-mini": {
-        "accuracy": 1.0,
-        "correct": 5,
-        "total": 5
-      },
-      "claude-3-5-haiku-latest": {
-        "accuracy": 1.0,
-        "correct": 5,
-        "total": 5
+      "codegen-350m": {
+        "accuracy": 0.30,
+        "correct": 6,
+        "total": 20
       }
     },
     "logic": {
-      "gemini-2.0-flash": {
-        "accuracy": 1.0,
-        "correct": 3,
-        "total": 3
+      "gemini-2.5-flash": {
+        "accuracy": 0.90,
+        "correct": 18,
+        "total": 20
       },
-      "gpt-4o-mini": {
-        "accuracy": 1.0,
-        "correct": 3,
-        "total": 3
+      "gpt-4o": {
+        "accuracy": 0.95,
+        "correct": 19,
+        "total": 20
+      }
+    },
+    "algorithm": {
+      "gpt-4o": {
+        "accuracy": 0.90,
+        "correct": 18,
+        "total": 20
       },
-      "claude-3-5-haiku-latest": {
-        "accuracy": 1.0,
-        "correct": 3,
-        "total": 3
+      "claude-3-haiku": {
+        "accuracy": 0.35,
+        "correct": 7,
+        "total": 20
+      }
+    },
+    "architecture": {
+      "claude-4.5-sonnet": {
+        "accuracy": 0.98,
+        "correct": 19,
+        "total": 19
+      },
+      "gemini-2.5-flash-lite": {
+        "accuracy": 0.60,
+        "correct": 12,
+        "total": 20
       }
     }
   }
