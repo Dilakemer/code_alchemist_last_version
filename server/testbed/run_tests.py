@@ -310,9 +310,12 @@ def main():
     
     # Test edilecek modeller
     models = [
-        "gemini-2.0-flash",
-        "gpt-4o-mini",
-        "claude-3-5-haiku-latest"
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gpt-4o",
+        "claude-4.5-sonnet",
+        "claude-3-haiku",
+        "codegen-350m"
     ]
     
     # Test çalıştırıcıyı başlat
