@@ -280,6 +280,21 @@
                 "sorting",
                 "locale"
             ]
+        },
+        {
+            "id": "ARC001",
+            "category": "architecture",
+            "difficulty": "hard",
+            "language": "text",
+            "title": "Yüksek Ölçekli Sohbet Uygulaması Mimarisi",
+            "question": "1 milyon eşzamanlı kullanıcıyı destekleyecek, gerçek zamanlı bir mesajlaşma uygulaması için sistem mimarisini tasarlayın. Veritabanı seçimi, ölçeklenebilir mesaj kuyruğu ve önbellekleme stratejilerini belirtin.",
+            "expected_output": "Önerilen stack: WebSocket Gateway (Go/Node.js), Redis Pub/Sub (Anlık mesajlaşma), Apache Kafka (Mesaj kalıcılığı ve asenkron işlem), Cassandra/ScyllaDB (Yazma yoğunluklu mesaj geçmişi), CDN (Medya içerikleri). Horizontal scaling için Load Balancer (Nginx/HAProxy).",
+            "tags": [
+                "system-design",
+                "architecture",
+                "scalability",
+                "high-concurrency"
+            ]
         }
     ]
 }

@@ -45,7 +45,18 @@
                 "correctness_preserved",
                 "explanation_quality"
             ],
-            "weight": 0.20
+            "weight": 0.10
+        },
+        "architecture": {
+            "name": "Sistem Mimarisi",
+            "name_en": "System Architecture",
+            "description": "Yazılım mimarisi ve yüksek ölçekli sistem tasarımı analizi",
+            "metrics": [
+                "design_viability",
+                "scalability",
+                "completeness"
+            ],
+            "weight": 0.10
         }
     },
     "difficulty_levels": {
