@@ -111,7 +111,7 @@ else:
 
 # --- 2. CLAUDE KONFIGURASYONU ---
 # Varsayılan model olarak hızlı ve zeki olan Sonnet 4.5'i seçtik
-ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-sonnet-4-5-20250929')
+ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-3-5-sonnet-20241022')
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 claude_client = None
