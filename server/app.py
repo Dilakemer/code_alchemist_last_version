@@ -76,6 +76,14 @@ CORS(app)
 db.init_app(app)
 jwt = JWTManager(app)
 
+# Veritabanı tablolarını otomatik oluştur (Render Deployment Fix)
+try:
+    with app.app_context():
+        db.create_all()
+        print("✅ Database tables created successfully.")
+except Exception as e:
+    print(f"⚠️ Initial database creation check failed: {e}")
+
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
     print(f"JWT Invalid: {error}")
