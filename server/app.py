@@ -46,7 +46,11 @@ if not os.getenv('GEMINI_API_KEY'):
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
 # Veritabanı dosyasını instance klasöründe tutuyoruz (Flask standardı)
-db_path = os.path.join(basedir, 'instance', 'codebrain.db')
+instance_path = os.path.join(basedir, 'instance')
+if not os.path.exists(instance_path):
+    os.makedirs(instance_path, exist_ok=True)
+
+db_path = os.path.join(instance_path, 'codebrain.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # JWT Security: Require strong secret key in production
