@@ -35,9 +35,36 @@ body {
   transition: none !important;
 }
 
+
 /* Smooth theme switch indicator */
 [data-theme] {
   transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================= */
+/* SCROLL PERFORMANCE OPTIMIZATION              */
+/* ============================================= */
+
+/* Enable GPU acceleration for smooth scrolling */
+.overflow-y-auto,
+.custom-scrollbar {
+  will-change: scroll-position;
+  -webkit-overflow-scrolling: touch;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Optimize animations for chat messages */
+.animate-fadeIn,
+.animate-slideUp,
+.animate-scaleIn {
+  will-change: opacity, transform;
+  transform: translateZ(0);
+}
+
+/* Chat message containers - prevent layout shifts */
+.flex.flex-col.h-full > div {
+  contain: layout style;
 }
 
 /* ============================================= */

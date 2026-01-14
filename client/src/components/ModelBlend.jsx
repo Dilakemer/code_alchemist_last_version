@@ -368,28 +368,32 @@ const ModelBlend = ({ apiBase, authHeaders, onClose, onSelectResponse }) => {
 
                             {/* Reasoning (Referee) Section */}
                             {reasoning && (
-                                <div className="mt-6 bg-gradient-to-br from-blue-900/20 to-cyan-900/20 border border-cyan-500/30 rounded-xl overflow-hidden transition-all duration-300">
+                                <div className="mt-6 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border-2 border-cyan-500/50 rounded-xl overflow-hidden shadow-lg shadow-cyan-900/20 transition-all duration-300">
                                     <button
                                         onClick={() => setShowReasoning(!showReasoning)}
-                                        className="w-full flex items-center justify-between p-4 text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+                                        className="w-full flex items-center justify-between p-4 text-cyan-200 hover:bg-cyan-500/10 transition-colors"
                                     >
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xl">⚖️</span>
-                                            <h4 className="font-bold text-xs tracking-wide uppercase">AI Hakem Değerlendirmesi</h4>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-2xl">⚖️</span>
+                                            <h4 className="font-bold text-sm tracking-widest uppercase bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 to-blue-300">
+                                                AI Hakem Değerlendirmesi
+                                            </h4>
                                         </div>
-                                        <span className={`transform transition-transform duration-300 ${showReasoning ? 'rotate-180' : ''}`}>
-                                            ▼
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] items-center gap-1 font-mono text-cyan-400 flex">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                                                AI REASONING LAYER
+                                            </span>
+                                            <span className={`transform transition-transform duration-300 ${showReasoning ? 'rotate-180' : ''}`}>
+                                                ▼
+                                            </span>
+                                        </div>
                                     </button>
 
                                     {showReasoning && (
                                         <div className="p-5 pt-0 animate-fadeIn">
-                                            <div className="prose prose-invert prose-sm max-w-none text-cyan-50/90 leading-relaxed border-t border-cyan-500/20 pt-4">
+                                            <div className="prose prose-invert prose-sm max-w-none text-cyan-50/90 leading-relaxed border-t border-cyan-500/20 pt-4 font-light tracking-wide">
                                                 <ReactMarkdown>{reasoning}</ReactMarkdown>
-                                            </div>
-                                            <div className="mt-4 flex items-center gap-2 text-[10px] text-cyan-500/60 font-medium">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></div>
-                                                <span>EXPLAINABLE AI LAYER ACTIVE</span>
                                             </div>
                                         </div>
                                     )}

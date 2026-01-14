@@ -1,9 +1,88 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import SimilarSolutions from './SimilarSolutions';
 import PromptTemplates from './PromptTemplates';
+import useTypingEffect from '../hooks/useTypingEffect';
+
+
+const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId }) => {
+  // Smooth typing effect
+  const displayedText = useTypingEffect(content, isStreaming);
+
+  return (
+    <ReactMarkdown
+      components={{
+        code({ node, inline, className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const codeString = String(children).replace(/\n$/, '');
+          const codeBlockId = `${messageId}-${match ? match[1] : 'code'}-${codeString.slice(0, 20)}`;
+
+          return !inline && match ? (
+            <div className="relative group my-4">
+              <div className="flex items-center justify-between bg-gray-900 px-4 py-2 rounded-t-lg border-b border-gray-700">
+                <span className="text-xs text-gray-400 font-mono uppercase">{match[1]}</span>
+                <button
+                  onClick={() => onCopyCode(codeString, codeBlockId)}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
+                  title="Copy Code"
+                >
+                  {copiedCodeId === codeBlockId ? (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-green-400">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <SyntaxHighlighter
+                style={syntaxTheme}
+                language={match[1]}
+                PreTag="div"
+                customStyle={{
+                  margin: 0,
+                  borderTopLeftRadius: 0,
+                  borderTopRightRadius: 0,
+                  borderBottomLeftRadius: '0.5rem',
+                  borderBottomRightRadius: '0.5rem'
+                }}
+                {...props}
+              >
+                {codeString}
+              </SyntaxHighlighter>
+            </div>
+          ) : (
+            <code className={`${className || ''} bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300`} {...props}>
+              {children}
+            </code>
+          );
+        },
+        img({ node, ...props }) {
+          return (
+            <img
+              {...props}
+              className="max-w-full max-h-[500px] h-auto rounded-lg border border-gray-700 shadow-md my-4 object-contain"
+              loading="lazy"
+              alt={props.alt || "AI Generated Image"}
+            />
+          );
+        }
+      }}
+    >
+      {displayedText}
+    </ReactMarkdown>
+  );
+});
 
 const ChatInterface = ({
   history,
@@ -24,11 +103,53 @@ const ChatInterface = ({
 }) => {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
+  const scrollTimeoutRef = useRef(null);
   const [expandedHistoryId, setExpandedHistoryId] = useState(null);
   const [expandedReasoning, setExpandedReasoning] = useState(new Set());
   const [copiedId, setCopiedId] = useState(null);
   const [copiedCodeId, setCopiedCodeId] = useState(null);
   const [favorites, setFavorites] = useState(new Set());
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const checkType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+        const blob = new Blob(chunks, { type: checkType });
+        const ext = checkType === 'audio/webm' ? 'webm' : 'm4a';
+        const file = new File([blob], `voice_message_${Date.now()}.${ext}`, { type: checkType });
+
+        setImage(file);
+
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setRecording(true);
+      setMediaRecorder(recorder);
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      alert('Microphone access denied or not available.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+      setRecording(false);
+      setMediaRecorder(null);
+    }
+  };
 
   // Select theme based on current theme prop
   const syntaxTheme = theme === 'light' ? prism : atomDark;
@@ -46,6 +167,7 @@ const ChatInterface = ({
         .catch(err => console.error('Error loading favorites:', err));
     }
   }, [user, authHeaders, apiBase]);
+
 
   const toggleFavorite = async (historyId) => {
     if (!user) {
@@ -130,8 +252,34 @@ const ChatInterface = ({
     }
   };
 
+  // Optimized scroll effect - prevents jitter during message streaming
+  // Optimized scroll effect - prevents jitter during message streaming
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Clear any existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    const scrollToBottom = () => {
+      if (bottomRef.current) {
+        // Only force scroll if we are already near the bottom or it's a new message
+        // This prevents fighting the user if they scrolled up to read history
+        const parent = bottomRef.current.parentElement;
+        if (parent) {
+          const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 300;
+          if (isNearBottom || loading) {
+            bottomRef.current.scrollIntoView({
+              behavior: 'smooth',
+              block: 'nearest'
+            });
+          }
+        }
+      }
+    };
+
+    // Use requestAnimationFrame for performance
+    requestAnimationFrame(scrollToBottom);
+
   }, [history, loading]);
 
   const handleKeyDown = (e) => {
@@ -381,67 +529,14 @@ const ChatInterface = ({
                     <span className="text-gray-400">{formatDateOnly(turn.timestamp)}</span>
                   </p>
                   <div className="prose prose-invert prose-sm max-w-none">
-                    <ReactMarkdown
-                      components={{
-                        code({ node, inline, className, children, ...props }) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const codeString = String(children).replace(/\n$/, '');
-                          const codeBlockId = `${turn.id}-${match ? match[1] : 'code'}-${codeString.slice(0, 20)}`;
-
-                          return !inline && match ? (
-                            <div className="relative group my-4">
-                              {/* Header bar with language and copy button */}
-                              <div className="flex items-center justify-between bg-gray-900 px-4 py-2 rounded-t-lg border-b border-gray-700">
-                                <span className="text-xs text-gray-400 font-mono uppercase">{match[1]}</span>
-                                <button
-                                  onClick={() => copyCodeToClipboard(codeString, codeBlockId)}
-                                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
-                                  title="Copy Code"
-                                >
-                                  {copiedCodeId === codeBlockId ? (
-                                    <>
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                      </svg>
-                                      <span className="text-green-400">Copied!</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                      </svg>
-                                      <span>Copy</span>
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                              {/* Code block */}
-                              <SyntaxHighlighter
-                                style={syntaxTheme}
-                                language={match[1]}
-                                PreTag="div"
-                                customStyle={{
-                                  margin: 0,
-                                  borderTopLeftRadius: 0,
-                                  borderTopRightRadius: 0,
-                                  borderBottomLeftRadius: '0.5rem',
-                                  borderBottomRightRadius: '0.5rem'
-                                }}
-                                {...props}
-                              >
-                                {codeString}
-                              </SyntaxHighlighter>
-                            </div>
-                          ) : (
-                            <code className={`${className || ''} bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300`} {...props}>
-                              {children}
-                            </code>
-                          );
-                        }
-                      }}
-                    >
-                      {turn.ai_response}
-                    </ReactMarkdown>
+                    <SmartMarkdown
+                      content={turn.ai_response}
+                      isStreaming={loading && index === history.length - 1}
+                      syntaxTheme={syntaxTheme}
+                      onCopyCode={copyCodeToClipboard}
+                      copiedCodeId={copiedCodeId}
+                      messageId={turn.id}
+                    />
                   </div>
 
                   {/* Reasoning / Explainable AI Layer */}
@@ -601,6 +696,23 @@ const ChatInterface = ({
                   alt="Preview"
                   className="h-20 w-auto rounded-lg border border-fuchsia-500/50 shadow-lg"
                 />
+              ) : image.type?.startsWith('audio/') ? (
+                <div className="flex items-center gap-3 bg-gray-800/80 px-4 py-3 rounded-lg border border-fuchsia-500/50">
+                  <div className="flex items-center justify-center w-10 h-10 bg-fuchsia-600/30 rounded-full">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-fuchsia-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 10.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-5v-2.07z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm text-fuchsia-300 font-medium">🎤 Voice Message</span>
+                    <span className="text-xs text-gray-500">{(image.size / 1024).toFixed(1)} KB</span>
+                  </div>
+                  <audio
+                    src={URL.createObjectURL(image)}
+                    controls
+                    className="h-8 max-w-[200px]"
+                  />
+                </div>
               ) : (
                 <div className="flex items-center gap-2 bg-gray-800/80 px-4 py-2 rounded-lg border border-fuchsia-500/50">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-fuchsia-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -647,29 +759,46 @@ const ChatInterface = ({
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type your question here..."
-                className="w-full bg-gray-800/50 p-4 pr-12 rounded-xl border border-gray-700 focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 outline-none resize-none h-[60px] custom-scrollbar shadow-inner"
+                placeholder={recording ? "Listening..." : "Type your question here..."}
+                className={`w-full bg-gray-800/50 p-4 pr-24 rounded-xl border ${recording ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-700'} focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 outline-none resize-none h-[60px] custom-scrollbar shadow-inner transition-colors`}
               />
-              <button
-                onClick={onAsk}
-                disabled={loading || (!question.trim() && !image)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-lg transition-all shadow-lg shadow-fuchsia-900/20"
-              >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                  </svg>
+
+              {/* Mic Button & Send Button Container */}
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {/* Mic Button */}
+                {!loading && !image && (
+                  <button
+                    onClick={recording ? stopRecording : startRecording}
+                    className={`p-2 rounded-lg transition-all ${recording ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                    title={recording ? "Stop Recording" : "Voice Message"}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 10.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-5v-2.07z" clipRule="evenodd" />
+                    </svg>
+                  </button>
                 )}
-              </button>
+
+                <button
+                  onClick={onAsk}
+                  disabled={loading || (!question.trim() && !image)}
+                  className="p-2 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-lg transition-all shadow-lg shadow-fuchsia-900/20"
+                >
+                  {loading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Action Buttons Group */}
             <div className="flex flex-col gap-2">
               <input
                 type="file"
-                accept="image/*,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m,.pdf,.doc,.docx"
+                accept="image/*,audio/*,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m,.pdf,.doc,.docx"
                 className="hidden"
                 ref={fileInputRef}
                 onChange={handleFileSelect}
@@ -682,7 +811,7 @@ const ChatInterface = ({
                   ? 'bg-fuchsia-900/30 border-fuchsia-500 text-fuchsia-300'
                   : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-fuchsia-400 hover:border-fuchsia-500/50'
                   }`}
-                title="Attach Photo/Document"
+                title="Attach Photo/Audio/Document"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

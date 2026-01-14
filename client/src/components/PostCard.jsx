@@ -195,8 +195,34 @@ const PostCard = ({ post, onLike, onSelect, apiBase, user, authHeaders, onDelete
                 )}
 
                 {post.image_url && (
-                    <div className="mb-4 rounded-lg overflow-hidden border border-gray-800 max-h-60">
-                        <img src={post.image_url} alt="Post attachment" className="w-full h-full object-cover" />
+                    <div className="mb-4">
+                        {/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(post.image_url) ? (
+                            <div className="rounded-lg overflow-hidden border border-gray-800 max-h-96 bg-black/40 flex justify-center">
+                                <img src={post.image_url} alt="Post attachment" className="max-w-full h-auto max-h-96 object-contain" />
+                            </div>
+                        ) : (
+                            <a
+                                href={post.image_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 p-3 rounded-lg border border-gray-700 bg-gray-800/50 hover:bg-gray-800 transition-colors group"
+                            >
+                                <div className="p-2 rounded bg-gray-700 text-fuchsia-400 group-hover:text-fuchsia-300">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium text-gray-200 truncate">
+                                        {decodeURIComponent(post.image_url.split('/').pop())}
+                                    </div>
+                                    <div className="text-xs text-gray-400">Click to view file</div>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                            </a>
+                        )}
                     </div>
                 )}
 
@@ -281,9 +307,24 @@ const PostCard = ({ post, onLike, onSelect, apiBase, user, authHeaders, onDelete
                 <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <div className="bg-gray-900 border border-red-900/50 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
                         <h3 className="text-lg font-bold text-white mb-2">Delete Post</h3>
-                        <p className="text-sm text-gray-400 mb-6">
-                            This post and all its comments will be permanently deleted. Do you want to continue?
+                        <p className="text-sm text-gray-400 mb-4">
+                            Bu gönderi ve tüm yorumları kalıcı olarak silinecek. Devam etmek istiyor musunuz?
                         </p>
+
+                        <div className="bg-black/40 border border-gray-800 rounded-lg p-3 mb-6 text-left">
+                            <p className="text-white font-medium text-sm line-clamp-3 mb-2">"{post.user_question}"</p>
+
+                            {/* Image Preview in Delete Modal */}
+                            {post.image_url && /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(post.image_url) && (
+                                <div className="rounded-md overflow-hidden border border-gray-700 bg-black/20 mt-2 max-h-32 flex justify-center">
+                                    <img
+                                        src={post.image_url}
+                                        alt="Post preview"
+                                        className="h-full w-auto object-contain max-h-32"
+                                    />
+                                </div>
+                            )}
+                        </div>
                         <div className="flex gap-3">
                             <button
                                 onClick={() => setDeleteModalOpen(false)}

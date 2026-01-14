@@ -51,6 +51,7 @@ class Answer(db.Model):
     author = db.Column(db.String(120), nullable=False)
     body = db.Column(db.Text, nullable=False)
     code_snippet = db.Column(db.Text)
+    image_path = db.Column(db.String(255), nullable=True)
     likes = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 

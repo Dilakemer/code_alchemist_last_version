@@ -14,6 +14,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
     const [updating, setUpdating] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
     const [imageLoading, setImageLoading] = useState(false);
+    const [analyzing, setAnalyzing] = useState(false);
     const fileInputRef = useRef(null);
 
     // Followers/Following list states
@@ -80,7 +81,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
 
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl flex flex-col relative">
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl h-[85vh] flex flex-col relative shadow-2xl overflow-hidden">
                 {canGoBack && (
                     <button
                         onClick={onBack}
@@ -108,39 +109,38 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                 ) : user ? (
                     <>
                         {/* Profile Header */}
-                        <div className="flex flex-col items-center p-6 border-b border-gray-800">
-                            <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-600 p-1 mb-4">
-                                <div className="w-full h-full rounded-full bg-gray-900 overflow-hidden flex items-center justify-center">
-                                    {avatarUrl ? (
-                                        <img
-                                            src={avatarUrl}
-                                            alt={user.display_name}
-                                            className="w-full h-full object-cover"
-                                            onError={(e) => {
-                                                e.currentTarget.style.display = 'none';
-                                                e.currentTarget.nextSibling.style.display = 'block';
-                                            }}
-                                        />
-                                    ) : null}
-                                    <span
-                                        className="text-3xl font-bold text-white uppercase"
-                                        style={{ display: avatarUrl ? 'none' : 'block' }}
-                                    >
-                                        {user.display_name?.[0]}
-                                    </span>
+                        <div className="flex flex-col items-center p-4 border-b border-gray-800 shrink-0">
+                            <div className="flex items-center gap-4 mb-3 w-full px-4">
+                                <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-600 p-1 shrink-0">
+                                    <div className="w-full h-full rounded-full bg-gray-900 overflow-hidden flex items-center justify-center">
+                                        {avatarUrl ? (
+                                            <img
+                                                src={avatarUrl}
+                                                alt={user.display_name}
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                    e.currentTarget.nextSibling.style.display = 'block';
+                                                }}
+                                            />
+                                        ) : null}
+                                        <span
+                                            className="text-xl font-bold text-white uppercase"
+                                            style={{ display: avatarUrl ? 'none' : 'block' }}
+                                        >
+                                            {user.display_name?.[0]}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="flex-1 text-left">
+                                    <h2 className="text-lg font-bold text-white leading-tight">{user.display_name}</h2>
+                                    <p className="text-gray-400 text-xs mb-1">Since: {user.created_at}</p>
+                                    {bio && <p className="text-xs text-gray-500 line-clamp-2">{bio}</p>}
                                 </div>
                             </div>
 
-                            {bio && (
-                                <p className="text-sm text-gray-400 text-center mb-2 px-4">
-                                    {bio}
-                                </p>
-                            )}
-
-                            <h2 className="text-xl font-bold text-white mb-1">{user.display_name}</h2>
-                            <p className="text-gray-400 text-sm mb-4">Member since: {user.created_at}</p>
-
-                            <div className="flex gap-6 mb-4">
+                            <div className="flex gap-4 w-full justify-center bg-gray-800/30 py-2 rounded-lg">
                                 <button
                                     onClick={async () => {
                                         setActiveListTab('followers');
@@ -164,10 +164,10 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                             setListLoading(false);
                                         }
                                     }}
-                                    className="text-center hover:bg-gray-800/50 px-3 py-2 rounded-lg transition-colors"
+                                    className="text-center hover:bg-gray-800/50 px-3 py-1 rounded transition-colors"
                                 >
-                                    <div className="text-lg font-bold text-white">{user.followers_count || 0}</div>
-                                    <div className="text-xs text-gray-500">Followers</div>
+                                    <div className="text-sm font-bold text-white">{user.followers_count || 0}</div>
+                                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">Followers</div>
                                 </button>
                                 <button
                                     onClick={async () => {
@@ -192,55 +192,139 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                             setListLoading(false);
                                         }
                                     }}
-                                    className="text-center hover:bg-gray-800/50 px-3 py-2 rounded-lg transition-colors"
+                                    className="text-center hover:bg-gray-800/50 px-3 py-1 rounded transition-colors"
                                 >
-                                    <div className="text-lg font-bold text-white">{user.following_count || 0}</div>
-                                    <div className="text-xs text-gray-500">Following</div>
+                                    <div className="text-sm font-bold text-white">{user.following_count || 0}</div>
+                                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">Following</div>
                                 </button>
-                                <div className="text-center px-3 py-2">
-                                    <div className="text-lg font-bold text-white">{posts.length}</div>
-                                    <div className="text-xs text-gray-500">Posts</div>
+                                <div className="text-center px-3 py-1">
+                                    <div className="text-sm font-bold text-white">{posts.length}</div>
+                                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">Posts</div>
                                 </div>
                             </div>
-
-                            {/* Follow Button */}
-                            {currentUser && currentUser.id !== userId && (
-                                <FollowButton
-                                    userId={userId}
-                                    initialIsFollowing={user.is_following}
-                                    apiBase={apiBase}
-                                    authHeaders={authHeaders}
-                                    onFollowChange={(newStatus) => {
-                                        setProfileData(prev => ({
-                                            ...prev,
-                                            user: {
-                                                ...prev.user,
-                                                is_following: newStatus,
-                                                followers_count: (prev.user.followers_count || 0) + (newStatus ? 1 : -1)
-                                            }
-                                        }));
-                                    }}
-                                    onShowAlert={onShowAlert}
-                                />
-                            )}
-
-                            {/* Settings Button for own profile */}
-                            {isOwnProfile && (
-                                <button
-                                    onClick={() => {
-                                        setShowSettings(!showSettings);
-                                        setDisplayName(user.display_name || '');
-                                    }}
-                                    className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    </svg>
-                                    {showSettings ? 'Back' : 'Settings'}
-                                </button>
-                            )}
                         </div>
+
+                        {/* AI Profile Insight Card */}
+                        {isOwnProfile && (
+                            <div className="w-full px-6 mb-4">
+                                <div className="bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700/50 rounded-xl p-4 relative overflow-hidden group">
+                                    <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 text-fuchsia-500" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                                        </svg>
+                                    </div>
+
+                                    <div className="flex items-start justify-between relative z-10">
+                                        <div>
+                                            <h3 className="text-fuchsia-400 font-bold text-sm mb-1 uppercase tracking-wider flex items-center gap-2">
+                                                <span className="animate-pulse">✨</span> AI Persona Insight
+                                            </h3>
+                                            {user.preferences ? (
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-white font-bold text-lg">{user.preferences.persona || 'General User'}</span>
+                                                        <span className="px-2 py-0.5 rounded-full bg-fuchsia-900/50 text-fuchsia-300 text-xs border border-fuchsia-500/30">
+                                                            {user.preferences.expertise || 'Beginner'}
+                                                        </span>
+                                                    </div>
+                                                    {user.preferences.interests && (
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {user.preferences.interests.map((tag, i) => (
+                                                                <span key={i} className="text-xs text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#{tag}</span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <p className="text-gray-400 text-xs max-w-xs">
+                                                    Analyze your chat history to let AI understand your style and expertise.
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <button
+                                            onClick={async () => {
+                                                setAnalyzing(true);
+                                                try {
+                                                    const res = await fetch(`${apiBase}/api/auth/profile/analyze`, {
+                                                        method: 'POST',
+                                                        headers: authHeaders
+                                                    });
+                                                    const data = await res.json();
+                                                    if (res.ok) {
+                                                        setProfileData(prev => ({
+                                                            ...prev,
+                                                            user: data.user // Update user with new preferences
+                                                        }));
+                                                        // Optional: Trigger a parent update if needed
+                                                        if (onUserUpdate) onUserUpdate(data.user);
+                                                    } else {
+                                                        // Show detailed error if available
+                                                        const errMsg = data.details ? `${data.error}\nDetails: ${data.details}` : (data.error || data.message || 'Analysis failed.');
+                                                        alert(errMsg);
+                                                    }
+                                                } catch (err) {
+                                                    console.error(err);
+                                                    alert(`Connection error: ${err.message}`);
+                                                } finally {
+                                                    setAnalyzing(false);
+                                                }
+                                            }}
+                                            disabled={analyzing}
+                                            className="bg-gray-800 hover:bg-gray-700 text-white text-xs px-3 py-2 rounded-lg border border-gray-600 transition-colors flex items-center gap-2"
+                                        >
+                                            {analyzing ? (
+                                                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                            ) : (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                                                </svg>
+                                            )}
+                                            {user.preferences ? 'Refresh' : 'Analyze Me'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Follow Button */}
+                        {currentUser && currentUser.id !== userId && (
+                            <FollowButton
+                                userId={userId}
+                                initialIsFollowing={user.is_following}
+                                apiBase={apiBase}
+                                authHeaders={authHeaders}
+                                onFollowChange={(newStatus) => {
+                                    setProfileData(prev => ({
+                                        ...prev,
+                                        user: {
+                                            ...prev.user,
+                                            is_following: newStatus,
+                                            followers_count: (prev.user.followers_count || 0) + (newStatus ? 1 : -1)
+                                        }
+                                    }));
+                                }}
+                                onShowAlert={onShowAlert}
+                            />
+                        )}
+
+                        {/* Settings Button for own profile */}
+                        {isOwnProfile && (
+                            <button
+                                onClick={() => {
+                                    setShowSettings(!showSettings);
+                                    setDisplayName(user.display_name || '');
+                                }}
+                                className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                {showSettings ? 'Back' : 'Settings'}
+                            </button>
+                        )}
+
 
                         {/* Followers/Following List Modal */}
                         {activeListTab && (
@@ -481,7 +565,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                     <div className="p-8 text-center text-gray-500">User not found</div>
                 )}
             </div>
-        </div>
+        </div >
     );
 };
 

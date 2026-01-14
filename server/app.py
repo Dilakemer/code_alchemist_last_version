@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import time
 import random
@@ -114,17 +115,108 @@ else:
 OPENAI_MODEL = os.getenv('OPENAI_MODEL_NAME', 'gpt-4o')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
+
 openai_client = None
+openai_init_error = None
+
 if OPENAI_API_KEY:
     try:
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        print("OpenAI client initialized successfully.")
     except Exception as e:
+        openai_init_error = str(e)
         print(f"Warning: Failed to initialize OpenAI client: {e}")
 else:
     print("Warning: OPENAI_API_KEY not defined. GPT calls disabled.")
 
 
 # --- MODEL FONKSİYONLARI ---
+
+# --- YARDIMCI FONKSİYONLAR ---
+def transcribe_audio_with_gemini(audio_path):
+    """Gemini kullanarak ses dosyasını metne çevirir."""
+    try:
+        if not GEMINI_API_KEY:
+            return None
+            
+        import google.generativeai as genai
+        import mimetypes
+        
+        mime_type, _ = mimetypes.guess_type(audio_path)
+        # Fallback mime types
+        if not mime_type:
+            ext = os.path.splitext(audio_path)[1].lower()
+            if ext == '.mp3': mime_type = 'audio/mpeg'
+            elif ext == '.wav': mime_type = 'audio/wav'
+            elif ext == '.m4a': mime_type = 'audio/mp4'
+            elif ext == '.webm': mime_type = 'audio/webm'
+            else: mime_type = 'audio/mp3'
+
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        
+        with open(audio_path, 'rb') as audio_file:
+            audio_bytes = audio_file.read()
+            
+        # SDK supports dictionary for inline data
+        audio_part = {
+            "mime_type": mime_type,
+            "data": audio_bytes
+        }
+        
+        response = model.generate_content([
+            audio_part, 
+            "Please transcribe this audio exactly as it is spoken. Do not add any commentary. Just return the text."
+        ])
+        
+        if response and response.text:
+            return response.text.strip()
+        return None
+    except Exception as e:
+        print(f"Transcription error: {e}")
+        return None
+
+def generate_image_with_dalle(prompt):
+    """OpenAI DALL-E 3 kullanarak resim oluşturur."""
+    if not openai_client:
+        return "Error: OpenAI API key not found."
+    
+    try:
+        print(f"Generating image for prompt: {prompt}")
+        response = openai_client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        
+        image_url = response.data[0].url
+        
+        # Resmi indirip yerel olarak kaydet (URL'lerin süresi doluyor)
+        import requests
+        from datetime import datetime
+        
+        img_data = requests.get(image_url).content
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"generated_{timestamp}.png"
+        
+        # Klasör yoksa oluştur
+        save_dir = os.path.join(app.root_path, 'static', 'generated')
+        os.makedirs(save_dir, exist_ok=True)
+        
+        save_path = os.path.join(save_dir, filename)
+        
+        with open(save_path, 'wb') as handler:
+            handler.write(img_data)
+            
+        # Frontend için erişilebilir URL döndür
+        base_url = request.host_url.rstrip('/')
+        local_url = f"{base_url}/static/generated/{filename}"
+        return f"![Generated Image]({local_url})\n\n**Generated for:** *{prompt}*"
+        
+    except Exception as e:
+        print(f"DALL-E Error: {e}")
+        return f"Sorry, I couldn't generate the image. Error: {str(e)}"
 
 def generate_gemini_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None):
     """Gemini API çağrısı yapar. Sadece seçilen modeli kullanır."""
@@ -200,7 +292,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         f"{style_prompt}"
         "If the user asks a question about code, software, or a technical topic, "
         "provide detailed technical assistance and give code examples if necessary. "
-        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish).",
+        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
+        "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)) unless the system has provided them. If the user asks for an image and you are responding as text, explain that you are a text model or ask them to be more specific to trigger the image generator.",
     ]
 
     if history_context:
@@ -272,7 +365,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
                 print(f"Word read error: {e}")
         
         else:
-            # Resim dosyası - Gemini için Part nesnesi kullan
+            # Resim veya Ses dosyası - Gemini için Part nesnesi kullan
             try:
                 import PIL.Image
                 import base64
@@ -280,26 +373,75 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
                 
                 # MIME type'ı tespit et
                 mime_type, _ = mimetypes.guess_type(image_path)
-                if not mime_type or not mime_type.startswith('image/'):
-                    mime_type = 'image/jpeg'  # Varsayılan
                 
-                # Resmi base64'e çevir
-                with open(image_path, 'rb') as img_file:
-                    image_data = base64.b64encode(img_file.read()).decode('utf-8')
-                
-                # Gemini Part nesnesi oluştur
-                image_part = genai.protos.Part(
-                    inline_data=genai.protos.Blob(
-                        mime_type=mime_type,
-                        data=base64.b64decode(image_data)
-                    )
-                )
-                
-                prompt_parts.append(image_part)
-                prompt_parts.append("Answer the question related to this image.")
-                print(f"Image added successfully: {os.path.basename(image_path)} ({mime_type})")
+                # Ses dosyası kontrolü
+                audio_extensions = ['.mp3', '.wav', '.webm', '.m4a', '.ogg', '.aac', '.flac']
+                if any(file_ext == ext for ext in audio_extensions):
+                    if not mime_type or not mime_type.startswith('audio/'):
+                        if file_ext == '.webm': mime_type = 'audio/webm'
+                        elif file_ext == '.mp3': mime_type = 'audio/mpeg'
+                        elif file_ext == '.wav': mime_type = 'audio/wav'
+                        elif file_ext == '.m4a': mime_type = 'audio/mp4'
+                        elif file_ext == '.ogg': mime_type = 'audio/ogg'
+                        elif file_ext == '.aac': mime_type = 'audio/aac'
+                        elif file_ext == '.flac': mime_type = 'audio/flac'
+                    
+                    print(f"Audio processing: {image_path} ({mime_type})")
+                    
+                    with open(image_path, 'rb') as audio_file:
+                        audio_bytes = audio_file.read()
+                    
+                    print(f"Audio file size: {len(audio_bytes)} bytes")
+                    
+                    # SDK dictionary format
+                    audio_part = {
+                        "mime_type": mime_type,
+                        "data": audio_bytes
+                    }
+                    prompt_parts.append(audio_part)
+                    
+                    # Eğer kullanıcı metin yazmadıysa, ses mesajı için özel talimat ekle
+                    if not question.strip() or question.strip() == 'Hello':
+                        prompt_parts.append(
+                            "The user has sent a voice message. Please:\n"
+                            "1. First, transcribe what the user said in the audio.\n"
+                            "2. Then, respond to their message/question appropriately.\n"
+                            "Format your response as:\n"
+                            "**You said:** [transcription]\n\n"
+                            "[Your response to their message]"
+                        )
+                    else:
+                        prompt_parts.append(
+                            "The user has sent a voice message along with their text. "
+                            "Listen to the audio and consider both the audio content and the written text when responding."
+                        )
+                    print("Audio part added to prompt successfully")
+                    
+                else:
+                    # Resim (Default fallback)
+                    if not mime_type or not mime_type.startswith('image/'):
+                        mime_type = 'image/jpeg'  # Varsayılan
+                    
+                    # Resmi base64'e çevir
+                    with open(image_path, 'rb') as img_file:
+                        image_bytes = img_file.read()
+                    
+                    # SDK dictionary format
+                    image_part = {
+                        "mime_type": mime_type,
+                        "data": image_bytes
+                    }
+                    
+                    prompt_parts.append(image_part)
+                    prompt_parts.append("Answer the question related to this image.")
+                    print(f"Image added successfully: {os.path.basename(image_path)} ({mime_type})")
+
             except Exception as e:
-                print(f"Image upload error: {e}")
+                print(f"Media upload error: {e}")
+                import traceback
+                traceback.print_exc()
+                yield f"Error processing media file: {str(e)}"
+                return
 
     # Sadece kod varsa veya teknik soru gibiyse maddeler halinde yanıtla
     if code and code.strip():
@@ -380,9 +522,9 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
         "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
         f"{persona_info}"
         f"{style_prompt}"
-        "If the user asks a question about code, software, or a technical topic, "
         "provide detailed technical assistance and give code examples if necessary (in Markdown code block). "
         "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
+        "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)). If the user asks for an image, explain that you are a text model."
     )
 
     user_message = f"Question: {question.strip() or 'Unspecified'}"
@@ -491,7 +633,10 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
 def generate_gpt_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None):
     """OpenAI GPT API'sini kullanarak cevap üretir (Streaming)."""
     if not openai_client:
-        yield "Error: OPENAI_API_KEY missing."
+        if openai_init_error:
+            yield f"Error: OpenAI client init failed: {openai_init_error}"
+        else:
+            yield "Error: OPENAI_API_KEY missing."
         return
 
     if requested_model and 'gpt' in requested_model:
@@ -690,7 +835,8 @@ def summarize_answer(answer: str) -> str:
             for model_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash-8b']:
                 try:
                     model = genai.GenerativeModel(model_name)
-                    summary_result = model.generate_content(summary_prompt)
+                    # Timeout ekle: 10 saniye içinde özetlemezse geç
+                    summary_result = model.generate_content(summary_prompt, request_options={'timeout': 10000})
                     summary_text = getattr(summary_result, "text", "")
                     if summary_text:
                         return summary_text.strip()
@@ -733,6 +879,13 @@ def update_user_taste(user, model_used, answer_text, user_question=""):
     if not user:
         return
     
+    # DetachedInstanceError fix: Re-fetch or merge user in the current session
+    try:
+        user = db.session.merge(user)
+    except Exception as e:
+        print(f"User merge error: {e}")
+        return
+
     prefs = get_user_preferences(user)
     
     # 1. Model kullanımını takip et
@@ -881,7 +1034,7 @@ def serialize_history(item: History) -> dict:
         'summary': item.summary or "",
         'likes': item.likes or 0,
         'answer_count': item.answers.count() if hasattr(item, 'answers') else 0,
-        'image_url': f"/uploads/{os.path.basename(item.image_path)}" if item.image_path else None,
+        'image_url': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(item.image_path)}" if item.image_path else None,
         'author_name': author_name,
         'author_id': author_id,
         'author_image': author_image,
@@ -925,17 +1078,26 @@ def serialize_answer(answer: Answer) -> dict:
         'body': answer.body,
         'code_snippet': answer.code_snippet,
         'likes': answer.likes or 0,
+        'image_url': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(answer.image_path)}" if answer.image_path else None,
         'created_at': answer.created_at.strftime('%Y-%m-%d %H:%M'),
     }
 
 def serialize_user(user: User) -> dict:
+    prefs = {}
+    if user.preferences:
+        try:
+            prefs = json.loads(user.preferences)
+        except:
+            pass
+            
     return {
         'id': user.id,
         'email': user.email,
         'display_name': user.display_name,
         'is_admin': user.is_admin,
-        'profile_image': f"/uploads/{os.path.basename(user.profile_image)}" if user.profile_image else None,
-        'created_at': user.created_at.strftime('%Y-%m-%d %H:%M')
+        'profile_image': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(user.profile_image)}" if user.profile_image else None,
+        'created_at': user.created_at.strftime('%Y-%m-%d %H:%M'),
+        'preferences': prefs
     }
 
 def hash_password(password: str) -> str:
@@ -1115,6 +1277,136 @@ def upload_profile_image():
         'user': serialize_user(user),
         'message': 'Profile picture updated.'
     })
+
+
+@app.route('/api/auth/profile/analyze', methods=['POST'])
+@jwt_required()
+def analyze_profile():
+    """Analyzes user history to generate an adaptive AI profile."""
+    user = get_current_user()
+    
+    # 1. Fetch recent history (Last 20 interactions)
+    recent_history = History.query.filter_by(conversation_id=None).first() # Fallback logic check
+    # Actually we need all history for this user, possibly across conversations
+    # Join with Conversation to filter by user_id
+    
+    history_items = db.session.query(History).join(Conversation).filter(
+        Conversation.user_id == user.id
+    ).order_by(History.timestamp.desc()).limit(20).all()
+    
+    if not history_items:
+        return jsonify({'message': 'Not enough history to analyze. Chat more!'}), 200
+        
+    conversation_text = ""
+    for h in reversed(history_items): # Chronological order
+        conversation_text += f"User: {h.user_question}\n"
+        if h.code_snippet:
+            conversation_text += f"User Code: {h.code_snippet}\n"
+            
+    # 2. Construct Analysis Prompt
+    prompt = f"""
+    Analyze the following user's conversation history with a coding assistant.
+    Determine the following profile attributes based on their questions and code:
+    
+    1. 'expertise': "Beginner", "Intermediate", or "Advanced".
+    2. 'interests': A list of top 3 technical topics they are interested in (e.g., "Python", "React", "Algorithms").
+    3. 'persona': A short title for this user (e.g., "Frontend Learner", "Data Scientist", "System Architect").
+    4. 'response_style': "concise" (if they ask for quick fixes) or "detailed" (if they ask for explanations).
+    
+    Output ONLY valid JSON in this format:
+    {{
+        "expertise": "...",
+        "interests": ["...", "..."],
+        "persona": "...",
+        "response_style": "..."
+    }}
+    
+    User History:
+    {conversation_text}
+    """
+    
+    # 3. Call Gemini for Analysis
+    try:
+        # Strategy: Try a chain of models until one works
+        # Prioritize 2.5 Flash -> 1.5 Flash -> 1.5 Pro -> 1.0 Pro
+        model_candidates = [
+            'models/gemini-2.5-flash',
+            'gemini-2.5-flash',
+            'models/gemini-1.5-flash',
+            'gemini-1.5-flash',
+            'models/gemini-1.5-flash-001',
+            'gemini-1.5-pro', 
+            'gemini-pro'
+        ]
+        
+        response = None
+        last_error = None
+        
+        for m_name in model_candidates:
+            try:
+                print(f"Analyzing profile with model: {m_name}")
+                model = genai.GenerativeModel(m_name)
+                response = model.generate_content(prompt)
+                if response:
+                    break
+            except Exception as e:
+                print(f"Model {m_name} failed: {e}")
+                last_error = e
+                # Prepare for next candidate
+                if "429" in str(e) or "quota" in str(e).lower():
+                    time.sleep(1) # Backoff for quota errors
+                continue
+        
+        # If Gemini fails, try Claude as final resort
+        text = ""
+        if not response and claude_client:
+            try:
+                # User requested 4.5 specifically
+                target_claude = ANTHROPIC_MODEL if ANTHROPIC_MODEL else "claude-sonnet-4-5-20250929"
+                print(f"Gemini models failed, trying Claude ({target_claude}) as fallback...")
+                
+                cl_msg = claude_client.messages.create(
+                    model=target_claude,
+                    max_tokens=1000,
+                    system="You are an expert user profiler. Respond ONLY with valid JSON.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                text = cl_msg.content[0].text
+                print(f"Claude ({target_claude}) analysis successful.")
+            except Exception as ce:
+                print(f"Claude fallback failed: {ce}")
+                # Keep the last gemini error as the main one unless this fail is more specific
+                if not last_error: last_error = ce
+
+        if not response and not text:
+            raise last_error or Exception("All models failed (Gemini chain + Claude Opus)")
+
+        if response:
+            text = response.text
+        
+        # Improve JSON extraction
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+            
+        profile_data = json.loads(text.strip())
+        
+        # 4. Save to User Preferences
+        user.preferences = json.dumps(profile_data)
+        db.session.commit()
+        
+        return jsonify({
+            'user': serialize_user(user),
+            'message': 'Profile analyzed! (Updated based on history)'
+        })
+        
+    except Exception as e:
+        print(f"Profile analysis failed: {e}")
+        error_msg = str(e)
+        if "429" in error_msg or "quota" in error_msg.lower():
+            return jsonify({'error': 'AI is busy (Rate Limit). Please try again in 1 minute.'}), 429
+        return jsonify({'error': 'Failed to analyze profile.', 'details': str(e)}), 500
 
 
 @app.route('/api/auth/delete-account', methods=['DELETE'])
@@ -1460,7 +1752,83 @@ def ask():
     # --- Akıllı Model Routing (Smart Routing) ---
     original_model = model
     routing_reason = None
-    if model == 'auto':
+    
+    # Ses dosyası kontrolü - Sadece Gemini ses desteği sağlıyor
+    audio_extensions = ['.mp3', '.wav', '.webm', '.m4a', '.ogg', '.aac', '.flac']
+    is_audio_file = image_path and any(image_path.lower().endswith(ext) for ext in audio_extensions)
+    
+    # Model fonksiyonlarına gönderilecek image_path (Varsayılan: orijinal path)
+    model_image_path = image_path 
+    
+    if is_audio_file:
+        # Eğer seçilen model Gemini değilse, sesi metne çevir ve öyle gönder
+        if 'gemini' not in model:
+            print(f"DEBUG: Audio detected for non-Gemini model ({model}). Transcribing...")
+            transcription = transcribe_audio_with_gemini(image_path)
+            
+            if transcription:
+                # Transkripti soruya ekleyelim ve modele özel talimat verelim
+                instruction = (
+                    f"\n\n[System: The user sent a voice message. Here is the transcription:]\n"
+                    f"\"{transcription}\"\n\n"
+                    f"[Instruction: Start your response by strictly quoting the transcription as follows: '**You said:** {transcription}'. Then provide your answer.]"
+                )
+                
+                if question:
+                    question = f"{question}{instruction}"
+                else:
+                    question = instruction
+                
+                # Ses dosyasını model fonksiyonuna GÖNDERME (çünkü metne çevirdik)
+                model_image_path = None 
+                
+                routing_reason = f"🎤 Ses mesajı metne çevrildi ve **{model}** modeline iletildi."
+            else:
+                # Transkripsiyon başarısızsa Gemini'ye fallback yap
+                model = 'gemini-2.0-flash'
+                routing_reason = "⚠️ Ses çevrilemedi, ses desteği için **Gemini 2.0 Flash** modeline geçildi."
+        else:
+            # Gemini zaten seçili
+            if model != 'gemini-2.0-flash' and 'flash' not in model:
+                 model = 'gemini-2.0-flash'
+                 routing_reason = "🎤 Ses mesajı işleme için **Gemini 2.0 Flash** modeli optimize edildi."
+    
+    # Görsel Oluşturma İsteği Kontrolü (Image Generation Intent)
+    q_lower = question.lower()
+    
+    # Daha esnek Türkçe kontrolü
+    creation_verbs = ['çiz', 'oluştur', 'yarat', 'yap', 'hazırla', 'generate', 'create', 'draw', 'make', 'tasarla', 'üret', 'çizsene', 'yaparmısın', 'çizer misin', 'istiyorum', 'gönder', 'yolla']
+    image_nouns = ['resim', 'görsel', 'fotoğraf', 'image', 'picture', 'photo', 'drawing', 'art', 'logo', 'ikon', 'icon', 'sketch', 'tasarım', 'resmini', 'gorselini', 'fotografini', 'resmi', 'gorseli', 'fotografi', 'çizim', 'cizim', 'png', 'jpg', 'karikatür', 'illüstrasyon', 'poster', 'afiş', 'kapak', 'banner']
+    
+    # Basit anahtar kelime öbekleri
+    exact_phrases = [
+        'create image', 'generate image', 'draw a picture', 'resim çiz', 'görsel oluştur', 
+        'resim yap', 'görsel yarat', 'fotoğraf oluştur', 'resim istiyorum', 'görsel istiyorum',
+        'çizgi film', 'logo yap', 'ikon yap', 'resmi yap', 'görseli yap'
+    ]
+    
+    # Kelime bazlı kontrol (Hem 'resim' hem 'çiz' geçiyorsa)
+    has_noun = any(noun in q_lower for noun in image_nouns)
+    has_verb = any(verb in q_lower for verb in creation_verbs)
+    
+    # Kodlama ile çizim isteği (matplotlib, turtle vs.) var mı?
+    code_keywords = ['python', 'kod', 'code', 'script', 'matplotlib', 'turtle', 'grafik', 'plot', 'chart', 'pandas', 'seaborn', 'html', 'css', 'react', 'component']
+    has_code_intent = any(k in q_lower for k in code_keywords)
+    
+    # Logic update: If strong phrases match, ignore code check. If noun+verb, check code.
+    is_image_scope = (has_noun and has_verb) or any(phrase in q_lower for phrase in exact_phrases)
+    
+    # Resim ve fiil varsa, kod isteği yoksa DALL-E varsay.
+    # image_path olsa bile (belki referans resimdir), DALL-E'yi deniyoruz (API desteklemese bile prompt ile deneriz).
+    is_image_request = is_image_scope and (not has_code_intent) and len(question) < 1000
+    
+    if is_image_request:
+        model = 'dall-e-3'
+        routing_reason = "🎨 Görsel oluşturma isteği algılandı (resim+fiil), **DALL-E 3** seçildi."
+        print(f"DEBUG: Image generation request detected: {model}")
+        sys.stdout.flush()
+
+    elif model == 'auto':
         preferred = prefs.get('preferred_model', 'auto')
         intent = detect_intent(question, code)
         
@@ -1506,17 +1874,28 @@ def ask():
 
     # --- Model Yönlendirme Mantığı ---
     def generate_stream():
+        nonlocal answer # Outer scope answer variable updating
         full_answer = ""
         
         generator = None
         
         # Generator seçimi
+        if model == 'dall-e-3':
+             # DALL-E streaming desteklemez, senkron çağırıp yield ediyoruz
+             img_response = generate_image_with_dalle(question)
+             full_answer = img_response
+             json_data = json.dumps({'chunk': img_response})
+             yield f"data: {json_data}\n\n"
+             # Continue to allow DB saving logic below to run
+             generator = None # No further generation needed
+
+
         if 'claude' in model:
-            generator = generate_claude_answer(question, code, history_context, model, image_path, prefs)
-        elif 'gpt' in model:
-            generator = generate_gpt_answer(question, code, history_context, model, image_path, prefs)
+            generator = generate_claude_answer(question, code, history_context, model, model_image_path, prefs)
+        elif 'gpt' in model or 'o1' in model:
+             generator = generate_gpt_answer(question, code, history_context, model, model_image_path, prefs)
         elif 'gemini' in model or 'gemma' in model:
-            generator = generate_gemini_answer(question, code, history_context, model, image_path, prefs)
+            generator = generate_gemini_answer(question, code, history_context, model, model_image_path, prefs)
 
         # Ortak Generator Döngüsü
         if generator:
@@ -1598,10 +1977,10 @@ def ask():
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def fetch_model_response_sync(model: str, question: str, code: str = '', user = None):
+def fetch_model_response_sync(model: str, question: str, code: str = '', prefs = None):
     """Tek bir modelden senkron yanıt al (thread içinde kullanılır)."""
     full_response = ""
-    prefs = get_user_preferences(user) if user else None
+    # prefs is passed directly now, no need to call get_user_preferences here
     
     try:
         if 'claude' in model:
@@ -1670,16 +2049,27 @@ def blend_models():
         
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {
-                executor.submit(fetch_model_response_sync, model, question, code, user): model 
+                executor.submit(fetch_model_response_sync, model, question, code, prefs): model 
                 for model in models
             }
             
             completed = 0
-            for future in as_completed(futures):
-                model_name, response = future.result()
-                model_responses[model_name] = response
-                completed += 1
-                yield f"data: {json.dumps({'status': 'progress', 'completed': completed, 'total': len(models), 'model': model_name})}\n\n"
+            try:
+                # Add 30s timeout to prevent infinite freezing
+                for future in as_completed(futures, timeout=30):
+                    model_name, response = future.result()
+                    model_responses[model_name] = response
+                    completed += 1
+                    yield f"data: {json.dumps({'status': 'progress', 'completed': completed, 'total': len(models), 'model': model_name})}\n\n"
+            except Exception as e:
+                # Timeout or other error during execution
+                print(f"Blending timeout/error: {e}")
+                for f in futures:
+                    f.cancel()
+                # Fill missing models with error text so blending can continue
+                for f, m_name in futures.items():
+                    if m_name not in model_responses:
+                        model_responses[m_name] = f"[{m_name} Error]: Timeout or execution failed."
         
         # 2. Tüm yanıtları Gemini ile harmanlama
         yield f"data: {json.dumps({'status': 'blending', 'message': 'Blending responses...'})}\n\n"
@@ -1780,6 +2170,8 @@ Provide a clear reasoning/justification for why this blended response was chosen
 
 **Constraints:**
 - Keep the entire evaluation EXTREMELY CONCISE and bulleted.
+- EXPLICITLY STATE why you used which model (e.g., "GPT-4o provided better code, so it was prioritized for the solution").
+- Explain the contribution of each model to the final answer.
 - IMPORTANT: Respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish).
 """
             try:
@@ -1803,7 +2195,7 @@ Provide a clear reasoning/justification for why this blended response was chosen
                     selected_model=f"Blend: {', '.join(models[:2])}{'...' if len(models) > 2 else ''}",
                     timestamp=datetime.now(),
                     reasoning=referee_reasoning,
-                    routing_reason=f"Model Blend: Personalized for {persona}",
+                    routing_reason=f"Blended {', '.join(models)} for enhanced accuracy",
                     persona=persona
                 )
                 db.session.add(history_entry)
@@ -1824,7 +2216,7 @@ Provide a clear reasoning/justification for why this blended response was chosen
             'conversation_id': conversation_id,
             'history_id': history_entry.id if (user and conversation_id and blended_response) else None,
             'persona': persona,
-            'routing_reason': f"Model Blend: Personalized for {persona}"
+            'routing_reason': f"Blended {', '.join(models)} for enhanced accuracy"
         }
         yield f"data: {json.dumps(final_data)}\n\n"
     
@@ -2051,11 +2443,23 @@ def delete_post(post_id):
     history = History.query.get_or_404(post_id)
     
     # Gönderi sahibini kontrol et
-    if not history.conversation or not history.conversation.user:
-        return jsonify({'error': 'Post not found.'}), 404
-    
-    if history.conversation.user_id != user.id and not user.is_admin:
-        return jsonify({'error': 'You do not have permission to delete this post.'}), 403
+    # Gönderi sahibini kontrol et
+    # Orphaned post check (Conversation deleted but post remains)
+    if not history.conversation:
+         # If checking for orphaned posts, strictly speaking only admin should delete
+         # or we assume data corruption and allow delete if user is authed? 
+         # Let's say if no conversation, we can't verify owner easily unless we trust some other field.
+         # For now, let's allow Admin to clean it up.
+         if not user.is_admin:
+             return jsonify({'error': 'Post corrupted (no conversation link). Contact admin.'}), 404
+    else:
+        # Normal check
+        if not history.conversation.user:
+             # Conversation exists but user is None?
+             if not user.is_admin:
+                 return jsonify({'error': 'Post owner not found.'}), 404
+        elif history.conversation.user_id != user.id and not user.is_admin:
+            return jsonify({'error': 'You do not have permission to delete this post.'}), 403
     
     try:
         # 1. PostLike'ları sil
@@ -2072,6 +2476,17 @@ def delete_post(post_id):
         
         # 4. Gönderiyi (History) sil
         db.session.delete(history)
+        
+        # Also clean up the Conversation if it was a community post created just for this
+        if history.selected_model == 'Community' and history.conversation:
+             # Check if this conversation has other history?
+             other_history = History.query.filter(
+                 History.conversation_id == history.conversation_id, 
+                 History.id != history.id
+             ).count()
+             if other_history == 0:
+                 db.session.delete(history.conversation)
+
         db.session.commit()
         
         return jsonify({'message': 'Post deleted.'})
@@ -2429,7 +2844,10 @@ def get_similar_questions(history_id: int):
                   'ne', 'nasıl', 'neden', 'kim', 'nerede', 'hangi', 'kaç', 'ben', 'sen',
                   'o', 'biz', 'siz', 'onlar', 'var', 'yok', 'olarak', 'gibi', 'daha',
                   'çok', 'en', 'az', 'olan', 'the', 'a', 'an', 'is', 'are', 'in', 'on',
-                  'to', 'for', 'of', 'and', 'or', 'how', 'what', 'why', 'where', 'when'}
+                  'to', 'for', 'of', 'and', 'or', 'how', 'what', 'why', 'where', 'when',
+                  'bana', 'sana', 'ona', 'bize', 'size', 'onlara', 'beni', 'seni', 'onu', 
+                  'bizi', 'sizi', 'onları', 'benim', 'senin', 'onun', 'bizim', 'sizin', 'onların',
+                  'yap', 'et', 'iste', 'soru', 'cevap', 'çözüm', 'bunu', 'şunu', 'böyle', 'şöyle'}
     
     # Kelimeleri ayır ve filtrele
     words = [w for w in current_question.split() if len(w) > 2 and w not in stop_words]
@@ -2464,37 +2882,68 @@ def get_similar_questions(history_id: int):
 @app.route('/api/history/<int:history_id>/answers', methods=['POST'])
 @jwt_required()
 def create_answer(history_id: int):
-    history = History.query.get_or_404(history_id)
-    data = request.json or {}
-    user = get_current_user()
-    body = (data.get('body') or '').strip()
-    code_snippet = data.get('code_snippet', '')
+    try:
+        history = History.query.get_or_404(history_id)
+        # Use silent=True to avoid 400 error if content-type is multipart/form-data
+        data = request.get_json(silent=True) or {}
+        user = get_current_user()
+        
+        # Handle both JSON and Form Data
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            body = (request.form.get('body') or '').strip()
+            code_snippet = request.form.get('code_snippet', '')
+        else:
+            # Fallback to JSON
+            body = (data.get('body') or '').strip()
+            code_snippet = data.get('code_snippet', '')
 
-    if not body:
-        return jsonify({'error': 'Answer text cannot be empty'}), 400
+        if not body:
+            return jsonify({'error': 'Answer text cannot be empty'}), 400
 
-    answer = Answer(
-        history_id=history_id,
-        author_id=user.id,
-        author=user.display_name,
-        body=body,
-        code_snippet=code_snippet
-    )
-    db.session.add(answer)
-    
-    # Bildirim oluştur (gönderi sahibine)
-    if history.conversation and history.conversation.user_id and history.conversation.user_id != user.id:
-        notification = Notification(
-            user_id=history.conversation.user_id,
-            type='comment',
-            message=f'{user.display_name} gönderinize çözüm ekledi',
-            related_user_id=user.id,
-            related_post_id=history_id
+        image_path = None
+        if request.files and 'image' in request.files:
+            image_file = request.files['image']
+            if image_file and image_file.filename:
+                try:
+                    filename = secure_filename(f"ans_{int(time.time())}_{image_file.filename}")
+                    image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    image_file.save(image_path)
+                except Exception as e:
+                    print(f"File upload error: {e}")
+                    return jsonify({'error': f'Failed to upload file: {str(e)}'}), 500
+
+        answer = Answer(
+            history_id=history_id,
+            author_id=user.id,
+            author=user.display_name,
+            body=body,
+            code_snippet=code_snippet,
+            image_path=image_path
         )
-        db.session.add(notification)
-    
-    db.session.commit()
-    return jsonify({'answer': serialize_answer(answer)}), 201
+        db.session.add(answer)
+        
+        # Bildirim oluştur (gönderi sahibine)
+        if history.conversation and history.conversation.user_id and history.conversation.user_id != user.id:
+            try:
+                notification = Notification(
+                    user_id=history.conversation.user_id,
+                    type='comment',
+                    message=f'{user.display_name} gönderinize çözüm ekledi',
+                    related_user_id=user.id,
+                    related_post_id=history_id
+                )
+                db.session.add(notification)
+            except Exception as ne:
+                print(f"Notification error (ignored): {ne}")
+        
+        db.session.commit()
+        return jsonify({'answer': serialize_answer(answer)}), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'An error occurred: {str(e)}'}), 500
 
 
 
@@ -2526,12 +2975,28 @@ def get_community_post(history_id):
 @app.route('/api/community/posts', methods=['POST'])
 @jwt_required()
 def create_community_post():
-    data = request.json or {}
     user = get_current_user()
     
-    title = (data.get('title') or '').strip()
-    code = data.get('code', '')
-    solution = (data.get('solution') or '').strip()
+    # Handle multipart/form-data
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        title = (request.form.get('title') or '').strip()
+        code = request.form.get('code', '')
+        solution = (request.form.get('solution') or '').strip()
+        
+        image_path = None
+        if request.files and 'image' in request.files:
+            image_file = request.files['image']
+            if image_file and image_file.filename:
+                filename = secure_filename(f"comm_{int(time.time())}_{image_file.filename}")
+                image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                image_file.save(image_path)
+    else:
+        # JSON fallback
+        data = request.json or {}
+        title = (data.get('title') or '').strip()
+        code = data.get('code', '')
+        solution = (data.get('solution') or '').strip()
+        image_path = None
 
     if not title:
         return jsonify({'error': 'Title/Question required.'}), 400
@@ -2548,7 +3013,8 @@ def create_community_post():
         code_snippet=code,
         ai_response="This is a community post. You can check the solutions below.",
         selected_model='Community',
-        summary=title[:50]
+        summary=title[:50],
+        image_path=image_path
     )
     db.session.add(history)
     db.session.commit()
@@ -2560,7 +3026,7 @@ def create_community_post():
             author_id=user.id,
             author=user.display_name,
             body=solution,
-            code_snippet=code # Assuming the code belongs to the solution too, or we could separate
+            code_snippet=code if not image_path else None # If image is main content, code might be secondary, but logic remains same
         )
         db.session.add(answer)
         db.session.commit()
@@ -2865,6 +3331,24 @@ def get_following_feed():
         History.selected_model == 'Community'
     ).order_by(History.timestamp.desc()).limit(50).all()
     
+    feed_data = []
+    for h in posts:
+        if h.conversation and h.conversation.user:
+            item_data = serialize_history(h)
+            is_liked = False
+            if current_user:
+                like_check = PostLike.query.filter_by(user_id=current_user.id, history_id=h.id).first()
+                if like_check: is_liked = True
+            item_data['is_liked'] = is_liked
+            item_data['author'] = {
+                'id': h.conversation.user.id,
+                'display_name': h.conversation.user.display_name,
+                'profile_image': f"/uploads/{os.path.basename(h.conversation.user.profile_image)}" if h.conversation.user.profile_image else None
+            }
+            feed_data.append(item_data)
+    return jsonify({'feed': feed_data})
+
+    # Legacy code (unreachable)
     return jsonify({
         'feed': [
             {
@@ -3030,6 +3514,22 @@ def check_favorite(history_id):
     favorite = Favorite.query.filter_by(user_id=current_user.id, history_id=history_id).first()
     return jsonify({'is_favorite': favorite is not None})
 
+@app.route('/api/files/<filename>')
+def serve_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+@app.route('/')
+def serve_index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static_files(path):
+    """Serve static files or index.html for SPA"""
+    file_path = os.path.join(app.static_folder, path)
+    if os.path.exists(file_path):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
     with app.app_context():

@@ -17,7 +17,7 @@ import ExportButton from './components/ExportButton';
 import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
 
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
+const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_BASE || 'http://localhost:5000');
 
 function App() {
   const [model, setModel] = useState('gemini-2.0-flash');
@@ -62,6 +62,8 @@ function App() {
   const [shareTitle, setShareTitle] = useState('');
   const [shareCode, setShareCode] = useState('');
   const [shareSolution, setShareSolution] = useState('');
+  const [shareImage, setShareImage] = useState(null);
+  const shareFileInputRef = React.useRef(null);
 
   // Theme State
   const [theme, setTheme] = useState(() => {
@@ -387,14 +389,21 @@ function App() {
     }
 
     try {
+      const formData = new FormData();
+      formData.append('title', shareTitle);
+      formData.append('code', shareCode);
+      formData.append('solution', shareSolution);
+      if (shareImage) {
+        formData.append('image', shareImage);
+      }
+
+      const headers = { ...authHeaders };
+      delete headers['Content-Type'];
+
       const res = await fetch(`${API_BASE}/api/community/posts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({
-          title: shareTitle,
-          code: shareCode,
-          solution: shareSolution
-        })
+        headers: headers,
+        body: formData
       });
 
       if (res.ok) {
@@ -402,6 +411,8 @@ function App() {
         setShareTitle('');
         setShareCode('');
         setShareSolution('');
+        setShareImage(null);
+        if (shareFileInputRef.current) shareFileInputRef.current.value = '';
         fetchCommunityItems();
         handleShowAlert("Toplulukla başarıyla paylaşıldı!");
       } else {
@@ -878,7 +889,7 @@ function App() {
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-600 flex items-center justify-center text-xs font-bold overflow-hidden border border-gray-700">
                   {user.profile_image ? (
-                    <img src={`${API_BASE}${user.profile_image}`} alt={user.display_name} className="w-full h-full object-cover" />
+                    <img src={user.profile_image.startsWith('http') ? user.profile_image : `${API_BASE}${user.profile_image}`} alt={user.display_name} className="w-full h-full object-cover" />
                   ) : (
                     user.display_name[0].toUpperCase()
                   )}
@@ -1341,6 +1352,29 @@ function App() {
                       value={shareSolution}
                       onChange={e => setShareSolution(e.target.value)}
                     />
+                  </div>
+
+                  {/* Image/File Upload */}
+                  <div className="flex items-center gap-3 bg-black/30 p-2 rounded-lg border border-gray-700">
+                    <input
+                      type="file"
+                      ref={shareFileInputRef}
+                      className="hidden"
+                      onChange={(e) => setShareImage(e.target.files[0])}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => shareFileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 transition-colors border border-gray-600"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                      {shareImage ? 'Change File' : 'Add File'}
+                    </button>
+                    {shareImage && (
+                      <span className="text-xs text-fuchsia-300 truncate max-w-[200px]">{shareImage.name}</span>
+                    )}
                   </div>
 
                   <button

@@ -37,6 +37,44 @@ const FollowingFeed = ({ apiBase, authHeaders, user, onAuthRequired, onUserClick
         }
     };
 
+    const handleLike = async (post) => {
+        if (!user) {
+            onAuthRequired && onAuthRequired();
+            return;
+        }
+
+        // Optimistic update
+        const originalFeed = [...feed];
+        const updatedFeed = feed.map(p => {
+            if (p.id === post.id) {
+                const isLiked = !p.is_liked;
+                return {
+                    ...p,
+                    is_liked: isLiked,
+                    likes: (parseInt(p.likes) || 0) + (isLiked ? 1 : -1)
+                };
+            }
+            return p;
+        });
+        setFeed(updatedFeed);
+
+        try {
+            const res = await fetch(`${apiBase}/api/community/posts/${post.id}/like`, {
+                method: 'POST',
+                headers: authHeaders
+            });
+
+            if (!res.ok) {
+                throw new Error('Failed to like');
+            }
+        } catch (err) {
+            console.error('Like error:', err);
+            // Revert on error
+            setFeed(originalFeed);
+            setMessage('Failed to update like');
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex justify-center items-center py-12">
@@ -118,14 +156,23 @@ const FollowingFeed = ({ apiBase, authHeaders, user, onAuthRequired, onUserClick
 
                     {/* Stats */}
                     <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-700/50 text-xs text-gray-500">
-                        <span className="flex items-center gap-1">
-                            <span>❤️</span>
+                        <button
+                            className={`flex items-center gap-1 transition-colors ${post.is_liked ? 'text-red-500 hover:text-red-400' : 'hover:text-red-400'}`}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleLike(post);
+                            }}
+                        >
+                            <span>{post.is_liked ? '❤️' : '🤍'}</span>
                             <span>{post.likes || 0}</span>
-                        </span>
-                        <span className="flex items-center gap-1">
+                        </button>
+                        <button
+                            className="flex items-center gap-1 hover:text-blue-400 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             <span>💬</span>
                             <span>{post.answer_count || 0}</span>
-                        </span>
+                        </button>
                         <span className="flex items-center gap-1">
                             <span>🤖</span>
                             <span>{post.selected_model || 'AI'}</span>

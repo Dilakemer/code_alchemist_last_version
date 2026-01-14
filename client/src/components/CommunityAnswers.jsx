@@ -8,13 +8,16 @@ const CommunityAnswers = ({
   apiBase,
   authHeaders,
   highlightAnswerId,
-  onShowAlert
+  onShowAlert,
+  onUpdate
 }) => {
   const [answers, setAnswers] = useState([]);
   const [body, setBody] = useState('');
   const [codeSnippet, setCodeSnippet] = useState('');
+  const [image, setImage] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
+  const fileInputRef = React.useRef(null);
 
   const fetchAnswers = async () => {
     if (!historyId) return;
@@ -56,10 +59,21 @@ const CommunityAnswers = ({
     }
     setSubmitting(true);
     try {
+      const formData = new FormData();
+      formData.append('body', body);
+      formData.append('code_snippet', codeSnippet);
+      if (image) {
+        formData.append('image', image);
+      }
+
+      // Remove Content-Type if present in authHeaders to let browser set boundary
+      const headers = { ...authHeaders };
+      delete headers['Content-Type'];
+
       const res = await fetch(`${apiBase}/api/history/${historyId}/answers`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ body, code_snippet: codeSnippet })
+        headers: headers,
+        body: formData
       });
 
       if (!res.ok) {
@@ -70,8 +84,11 @@ const CommunityAnswers = ({
 
       setBody('');
       setCodeSnippet('');
+      setImage(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+
       fetchAnswers();
-      if (onUpdate) onUpdate();
+      if (onUpdate) onUpdate(); // Ensure onUpdate is defined or check for it
     } catch (err) {
       console.error("Failed to submit answer", err);
     } finally {
@@ -104,7 +121,8 @@ const CommunityAnswers = ({
         headers: authHeaders
       });
       fetchAnswers();
-      if (onUpdate) onUpdate();
+      // Safe check for onUpdate
+      // if (onUpdate) onUpdate(); 
     } catch (err) {
       console.error("Failed to delete answer", err);
     }
@@ -138,7 +156,31 @@ const CommunityAnswers = ({
           value={codeSnippet}
           onChange={e => setCodeSnippet(e.target.value)}
         />
-        <div className="flex justify-end">
+
+        {/* File Upload Section */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={(e) => setImage(e.target.files[0])}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded-lg border transition-colors ${image ? 'bg-fuchsia-900/30 border-fuchsia-500 text-fuchsia-300' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'}`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+              {image ? 'Change File' : 'Add File'}
+            </button>
+            {image && (
+              <span className="text-xs text-gray-500 truncate max-w-[150px]">{image.name}</span>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={submitting || !user}
@@ -163,6 +205,40 @@ const CommunityAnswers = ({
             <div className="prose prose-invert max-w-none text-sm">
               <ReactMarkdown>{ans.body}</ReactMarkdown>
             </div>
+
+            {ans.image_url && (
+              <div className="mt-3 mb-3">
+                {/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(ans.image_url) ? (
+                  <div className="rounded-lg overflow-hidden border border-gray-800 max-h-48 bg-black/50 flex justify-center">
+                    <img
+                      src={ans.image_url.startsWith('http') ? ans.image_url : `${apiBase}${ans.image_url}`}
+                      alt="Attachment"
+                      className="max-w-full h-auto max-h-48 object-contain"
+                    />
+                  </div>
+                ) : (
+                  <a
+                    href={ans.image_url.startsWith('http') ? ans.image_url : `${apiBase}${ans.image_url}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 p-3 rounded-lg border border-gray-700 bg-gray-800/50 hover:bg-gray-800 transition-colors group"
+                  >
+                    <div className="p-2 rounded bg-gray-700 text-fuchsia-400 group-hover:text-fuchsia-300">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-200 truncate">
+                        {decodeURIComponent(ans.image_url.split('/').pop())}
+                      </div>
+                      <div className="text-[10px] text-gray-400">Click to view file</div>
+                    </div>
+                  </a>
+                )}
+              </div>
+            )}
+
             {ans.code_snippet && (
               <pre className="bg-black/60 text-xs text-gray-200 mt-3 p-3 rounded-lg overflow-auto font-mono border border-gray-700">
                 {ans.code_snippet}

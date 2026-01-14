@@ -104,8 +104,34 @@ const CommunityPostDetail = ({ post, onBack, apiBase, authHeaders, user, onAuthR
                     )}
 
                     {post.image_url && (
-                        <div className="mb-6 rounded-xl overflow-hidden border border-gray-800 shadow-lg">
-                            <img src={post.image_url} alt="Post attachment" className="w-full max-h-[500px] object-contain bg-black/50" />
+                        <div className="mb-6">
+                            {/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(post.image_url) ? (
+                                <div className="rounded-xl overflow-hidden border border-gray-800 shadow-lg">
+                                    <img src={post.image_url} alt="Post attachment" className="w-full max-h-[500px] object-contain bg-black/50" />
+                                </div>
+                            ) : (
+                                <a
+                                    href={post.image_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-4 p-4 rounded-xl border border-gray-700 bg-gray-800/40 hover:bg-gray-800 transition-colors group"
+                                >
+                                    <div className="p-3 rounded-lg bg-gray-700 text-fuchsia-400 group-hover:text-fuchsia-300">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-base font-medium text-gray-200 truncate">
+                                            {decodeURIComponent(post.image_url.split('/').pop())}
+                                        </div>
+                                        <div className="text-sm text-gray-400">Click to view/download file</div>
+                                    </div>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                </a>
+                            )}
                         </div>
                     )}
 
