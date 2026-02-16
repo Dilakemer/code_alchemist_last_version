@@ -51,7 +51,15 @@ if not os.path.exists(instance_path):
     os.makedirs(instance_path, exist_ok=True)
 
 db_path = os.path.join(instance_path, 'codebrain.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
+# SQLite default fallback
+default_db = 'sqlite:///' + db_path
+database_url = os.getenv('DATABASE_URL', default_db)
+
+# Heroku compatibility: postgres:// to postgresql://
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # JWT Security: Require strong secret key in production
 _jwt_secret = os.getenv('JWT_SECRET_KEY')
