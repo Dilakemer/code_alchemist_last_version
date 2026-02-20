@@ -19,6 +19,9 @@ from google import generativeai as genai
 from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite
 from anthropic import Anthropic, APIError
 from openai import OpenAI
+from utils.language_detector import LanguageDetector
+from utils.model_router import ModelRouter
+from utils.standardizer import CodeStandardizer
 
 # Load environment variables
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -60,6 +63,13 @@ if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+# Pool Optimization for Concurrency
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 10,
+    'max_overflow': 20,
+    'pool_recycle': 1800,
+    'pool_pre_ping': True
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # JWT Security: Require strong secret key in production
 _jwt_secret = os.getenv('JWT_SECRET_KEY')
@@ -151,6 +161,11 @@ else:
 
 
 # --- MODEL FONKSİYONLARI ---
+
+# Initialize Utils
+language_detector = LanguageDetector(os.getenv('GEMINI_API_KEY'))
+model_router = ModelRouter()
+
 
 # --- YARDIMCI FONKSİYONLAR ---
 def transcribe_audio_with_gemini(audio_path):
@@ -856,7 +871,7 @@ def summarize_answer(answer: str) -> str:
                 try:
                     model = genai.GenerativeModel(model_name)
                     # Timeout ekle: 10 saniye içinde özetlemezse geç
-                    summary_result = model.generate_content(summary_prompt, request_options={'timeout': 10000})
+                    summary_result = model.generate_content(summary_prompt)
                     summary_text = getattr(summary_result, "text", "")
                     if summary_text:
                         return summary_text.strip()
@@ -996,6 +1011,12 @@ def post_process_response(text: str) -> str:
     # 3. Gereksiz başlangıç/bitiş temizliği
     text = text.strip()
     
+    # 4. Code Standardization
+    try:
+        text = CodeStandardizer.standardize(text)
+    except Exception as e:
+        print(f"Standardization error: {e}")
+
     return text
 
 
@@ -1029,6 +1050,9 @@ Respond with ONLY the category name.
     except Exception as e:
         print(f"Intent detection error: {e}")
         return "general"
+
+
+
 
 
 # --- SERİALİZASYON VE YARDIMCI FONKSİYONLAR ---
@@ -1849,46 +1873,17 @@ def ask():
         sys.stdout.flush()
 
     elif model == 'auto':
-        preferred = prefs.get('preferred_model', 'auto')
         intent = detect_intent(question, code)
+        detected_lang = language_detector.detect(question, code)
         
-        # Intent bazlı eşleştirme
-        model_map = {
-            'code': 'claude-sonnet-4-5-20250929',
-            'general': 'gemini-2.5-flash-lite',
-            'logic': 'gpt-4o',
-            'creative': 'gemini-3-flash'
-        }
-        
-        # Eğer kullanıcı bir modeli daha çok seviyorsa (preferred != auto)
-        # ve intent 'general' ise kullanıcının tercihini kullan
-        if preferred != 'auto' and intent == 'general':
-            model_type_map = {
-                'claude': 'claude-sonnet-4-5-20250929',
-                'gemini': 'gemini-2.5-flash-lite',
-                'gpt': 'gpt-4o'
-            }
-            model = model_type_map.get(preferred, model_map.get(intent))
-            routing_reason = f"Kişisel Tercih: Sık kullanımınızdan dolayı **{model}** seçildi. (Taste Profile)"
-        else:
-            model = model_map.get(intent, 'gemini-2.5-flash-lite')
-        intent_names = {
-            'code': ('Kod/Hata Ayıklama', 'Code/Debugging'),
-            'general': ('Genel/Hızlı Yanıt', 'General/Fast Response'),
-            'logic': ('Karmaşık Mantık', 'Complex Logic'),
-            'creative': ('Yaratıcı Yazarlık', 'Creative Writing')
-        }
-        name_tr, name_en = intent_names.get(intent, (intent, intent))
-        
-        # Simple language detection: if question contains common Turkish characters/words
-        is_turkish = any(c in question.lower() for c in "çıüğöış") or any(w in question.lower().split() for w in ["bir", "ve", "ne", "nasıl"])
-        
-        if is_turkish:
-            routing_reason = routing_reason or f"Akıllı Yönlendirme: '{name_tr}' kategorisi algılandı, **{model}** modeli seçildi."
-        else:
-            routing_reason = routing_reason or f"Smart Routing: Detected '{name_en}' category, selected **{model}** model."
-        
-        print(f"DEBUG: Smart Routing -> {intent} -> {model}")
+        # Eğer dil tespit edildiyse, intent 'general' olsa bile 'code' olarak işlem yap
+        if detected_lang != 'unknown':
+            intent = 'code'
+            
+        model, routing_reason = model_router.route(detected_lang, intent, prefs)
+
+        # Debug print
+        print(f"DEBUG: Smart Routing -> Intent: {intent}, Lang: {detected_lang} -> {model}")
 
     answer = ""
 

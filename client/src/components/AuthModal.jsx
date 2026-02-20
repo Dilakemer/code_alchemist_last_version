@@ -302,12 +302,12 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
                 </button>
               </p>
               <p>
-                Don't have an account? <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('register'); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Register</button>
+                Don't have an account? <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('register'); setEmail(''); setPassword(''); setDisplayName(''); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Register</button>
               </p>
             </>
           )}
           {authMode === 'register' && (
-            <p>Already have an account? <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('login'); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Login</button></p>
+            <p>Already have an account? <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('login'); setEmail(''); setPassword(''); setDisplayName(''); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Login</button></p>
           )}
           {(authMode === 'forgot' || authMode === 'reset') && (
             <p>
