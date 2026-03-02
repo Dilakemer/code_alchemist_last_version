@@ -75,7 +75,7 @@ class LanguageDetector:
             
         try:
             # Use Gemini 2.5 Flash Lite or similar fast model
-            model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
+            model = genai.GenerativeModel('models/gemini-1.5-flash')
             prompt = f"""
             Identify the programming language of the following text/code. 
             If it's natural language without code, return 'natural'.
