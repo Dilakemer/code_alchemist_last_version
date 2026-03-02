@@ -1865,9 +1865,24 @@ def link_github_repo():
 def get_github_tree():
     user = get_current_user()
     conversation_id = request.args.get('conversation_id')
+    repo_param = request.args.get('repo')
+    branch_param = request.args.get('branch', 'main')
     
+    # 1. Option: Direct repo/branch (works without a conversation)
+    if repo_param:
+        parser = GitHubParser()
+        tree = parser.get_repo_tree(repo_param, branch_param)
+        if tree is None:
+            return jsonify({'error': 'Could not fetch repo tree for this repository.'}), 400
+        return jsonify({
+            'repo': repo_param,
+            'branch': branch_param,
+            'tree': tree
+        })
+
+    # 2. Option: Conversation ID (legacy support / associated data)
     if not conversation_id or conversation_id == 'null' or conversation_id == 'undefined':
-        return jsonify({'error': 'Conversation ID is required.'}), 400
+        return jsonify({'error': 'Conversation ID or Repo name is required.'}), 400
         
     conversation = db.session.get(Conversation, conversation_id)
     if not conversation or conversation.user_id != user.id:

@@ -11,7 +11,18 @@ const GitHubGraph = ({ repo, branch, conversationId, onClose, apiBase, authHeade
         const fetchTree = async () => {
             try {
                 // Fetch tree from our backend proxy endpoint
-                const url = `${apiBase}/api/github/tree?conversation_id=${conversationId}`;
+                let url = `${apiBase}/api/github/tree?`;
+                if (repo) {
+                    url += `repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch || 'main')}`;
+                    if (conversationId && conversationId !== 'null') {
+                        url += `&conversation_id=${conversationId}`;
+                    }
+                } else if (conversationId && conversationId !== 'null') {
+                    url += `conversation_id=${conversationId}`;
+                } else {
+                    throw new Error("Repository or Conversation ID required to load graph.");
+                }
+
                 const res = await fetch(url, {
                     headers: authHeaders
                 });
