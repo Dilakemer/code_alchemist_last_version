@@ -1838,8 +1838,8 @@ def link_github_repo():
     branch = data.get('branch', 'main').strip()
     conversation_id = data.get('conversation_id')
     
-    if not repo_name or not conversation_id:
-        return jsonify({'error': 'Repo name and conversation ID are required.'}), 400
+    if not repo_name or not conversation_id or conversation_id == 'null' or conversation_id == 'undefined':
+        return jsonify({'error': 'Repo name and a valid conversation ID are required.'}), 400
         
     conversation = db.session.get(Conversation, conversation_id)
     if not conversation or conversation.user_id != user.id:
@@ -1866,7 +1866,7 @@ def get_github_tree():
     user = get_current_user()
     conversation_id = request.args.get('conversation_id')
     
-    if not conversation_id:
+    if not conversation_id or conversation_id == 'null' or conversation_id == 'undefined':
         return jsonify({'error': 'Conversation ID is required.'}), 400
         
     conversation = db.session.get(Conversation, conversation_id)
