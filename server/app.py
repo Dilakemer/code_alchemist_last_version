@@ -271,8 +271,11 @@ def generate_image_with_dalle(prompt):
         print(f"DALL-E Error: {e}")
         return f"Sorry, I couldn't generate the image. Error: {str(e)}"
 
-def generate_gemini_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None):
+def generate_gemini_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None, depth: int = 0):
     """Gemini API çağrısı yapar. Sadece seçilen modeli kullanır."""
+    if depth > 2:
+        yield "[System Message]: Error: Maximum fallback depth reached. AI services are currently unavailable."
+        return
     if not GEMINI_API_KEY:
         yield "Error: GEMINI_API_KEY missing."
         return
@@ -558,11 +561,15 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
                 return
 
     if not model_success:
-        yield "\n\n[System Message]: Sorry, all alternative models failed but no response was received. (Quota exceeded or service unavailable)."
+        yield "\n\n*> [System]: All Gemini models failed (Quota/Service). Falling back to **Claude**...*\n\n"
+        yield from generate_claude_answer(question, code, history_context, 'claude-3-5-sonnet-20240620', image_path, prefs, github_context, depth + 1)
 
 
-def generate_claude_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None):
+def generate_claude_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None, depth: int = 0):
     """Claude API çağrısı yapar (Streaming)."""
+    if depth > 2:
+        yield "[System Message]: Error: Maximum fallback depth reached. AI services are currently unavailable."
+        return
     if not claude_client:
         yield "Error: ANTHROPIC_API_KEY missing."
         return
@@ -704,11 +711,14 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
 
     except Exception as exc:
         yield f"\n\n*> [System]: Claude Error ({target_model}): {exc}. Falling back to Gemini...*\n\n"
-        yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context)
+        yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context, depth + 1)
 
 
-def generate_gpt_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None):
+def generate_gpt_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None, depth: int = 0):
     """OpenAI GPT API'sini kullanarak cevap üretir (Streaming)."""
+    if depth > 2:
+        yield "[System Message]: Error: Maximum fallback depth reached. AI services are currently unavailable."
+        return
     if not openai_client:
         if openai_init_error:
             yield f"Error: OpenAI client init failed: {openai_init_error}"
@@ -860,7 +870,7 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
 
     except Exception as e:
         yield f"\n\n*> [System]: OpenAI Error ({target_model}): {e}. Falling back to Gemini...*\n\n"
-        yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context)
+        yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context, depth + 1)
 
 
 def generate_conversation_title(question: str, answer: str = None) -> str:

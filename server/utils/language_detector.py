@@ -12,7 +12,8 @@ class LanguageDetector:
     # Static list of language keywords for fast detection
     LANG_KEYWORDS = {
         'python': ['def ', 'import ', 'print(', 'numpy', 'pandas', 'flask', 'django', 'pip install', 'venv', 'python', 'if __name__ ==', 'try:', 'except:'],
-        'javascript': ['const ', 'let ', 'var ', 'function', 'console.log', '=>', 'react', 'next.js', 'node.js', 'npm', 'yarn', 'jsx', 'tsx', 'javascript', 'js', 'document.get', 'window.'],
+        'javascript': ['const ', 'let ', 'var ', 'function', 'console.log', '=>', 'react', 'next.js', 'node.js', 'npm', 'yarn', 'jsx', 'javascript', 'js', 'document.get', 'window.', 'async ', 'await ', 'export ', 'import ', 'default '],
+        'typescript': ['interface ', 'type ', 'readonly ', 'enum ', 'namespace ', 'as ', 'is ', 'satisfies', 'unknown', 'any', 'never', 'private ', 'public ', 'protected ', 'implements ', 'extends ', 'tsx', 'typescript', 'ts', ': number', ': string', ': boolean', ': any', ': void', ': never', 'Array<', 'Promise<'],
         'java': ['public class', 'class ', 'system.out.println', 'psvm', 'maven', 'gradle', 'spring boot', 'java', 'javada', 'public static void', 'extends ', 'implements '],
         'csharp': ['namespace', 'using system', 'console.writeline', 'public static void', 'c#', 'dotnet', '.net', 'var ', 'async task'],
         'cpp': ['#include', 'std::cout', 'int main', 'c++', 'cpp', 'std::vector', 'std::string', 'using namespace std;'],
@@ -47,15 +48,22 @@ class LanguageDetector:
         for lang, keywords in self.LANG_KEYWORDS.items():
             for keyword in keywords:
                 if keyword in content:
-                    # Give slightly more weight to longer keywords as they are more specific
-                    scores[lang] += 1
+                    # Specific TypeScript keywords get more weight
+                    weight = 2 if lang == 'typescript' else 1
+                    scores[lang] += weight
         
         # Determine best match
         best_lang = max(scores, key=scores.get)
+        max_score = scores[best_lang]
         
-        # Threshold: At least 2 keyword matches to be confident, 
-        # unless it's a very strong unique keyword (handled by logic check or simple count)
-        if scores[best_lang] >= 2:
+        # If javascript and typescript are tied or close, prefer typescript if it has any matches
+        if (best_lang == 'javascript' or best_lang == 'typescript') and scores['typescript'] > 0:
+            if scores['typescript'] >= (scores['javascript'] - 1):
+                best_lang = 'typescript'
+                max_score = scores[best_lang]
+        
+        # Threshold: At least 1 point for a match
+        if max_score >= 1:
             return best_lang
             
         # 2. Fallback to Gemini (Smart)
