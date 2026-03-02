@@ -68,41 +68,30 @@ export const useTypingEffect = (text, isActive, minSpeed = 20, maxSpeed = 1) => 
         let lastTime = performance.now();
 
         const animate = (currentTime) => {
-            const deltaTime = currentTime - lastTime;
             const target = textRef.current;
             const currentLength = displayedText.length;
             const diff = target.length - currentLength;
 
-            if (diff <= 0) {
+            if (diff <= 0) return;
+
+            // Throttle: Don't update on every frame if the UI is struggling
+            if (currentTime - lastTime < 16) { // ~60fps target
+                animationFrameId = requestAnimationFrame(animate);
                 return;
             }
 
-            let charsToAdd = 0;
+            let charsToAdd = 1;
+            const speedMultiplier = isActive ? 1 : 4; // Faster finish once stream is done
 
-            // Dinamik Hız Ayarı (Catch-up Logic)
-            // Stream bittiyse (isActive=false) ve hala gerideysek, kullanıcıyı çok bekletmemek için
-            // hızı hafifçe artırabiliriz ama "pat" diye değil.
-
-            const speedMultiplier = isActive ? 1 : 2; // Stream bittiyse 2x hızlan
-
-            if (diff > 500) {
-                charsToAdd = 10 * speedMultiplier;
-            } else if (diff > 200) {
-                charsToAdd = 5 * speedMultiplier;
-            } else if (diff > 50) {
-                charsToAdd = 2 * speedMultiplier;
-            } else {
-                // Normal akış
-                if (deltaTime > (minSpeed / speedMultiplier)) {
-                    charsToAdd = 1;
-                    lastTime = currentTime;
-                }
-            }
+            // Optimize: Batching for performance when lagging behind
+            if (diff > 1000) charsToAdd = 50 * speedMultiplier;
+            else if (diff > 500) charsToAdd = 25 * speedMultiplier;
+            else if (diff > 100) charsToAdd = 10 * speedMultiplier;
+            else if (diff > 20) charsToAdd = 3 * speedMultiplier;
 
             if (charsToAdd > 0) {
-                setDisplayedText(prev => target.slice(0, prev.length + charsToAdd));
-                // Reset timer only if adding multiple chars (burst)
-                if (charsToAdd > 1) lastTime = currentTime;
+                setDisplayedText(target.slice(0, currentLength + charsToAdd));
+                lastTime = currentTime;
             }
 
             animationFrameId = requestAnimationFrame(animate);

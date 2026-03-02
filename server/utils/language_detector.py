@@ -62,8 +62,8 @@ class LanguageDetector:
                 best_lang = 'typescript'
                 max_score = scores[best_lang]
         
-        # Threshold: At least 1 point for a match
-        if max_score >= 1:
+        # Threshold: At least 2 points for a confident keyword match
+        if max_score >= 2:
             return best_lang
             
         # 2. Fallback to Gemini (Smart)
@@ -75,11 +75,12 @@ class LanguageDetector:
             
         try:
             # Use Gemini 2.5 Flash Lite or similar fast model
-            # Primary: Gemini 2.5 Flash, Fallback: Gemini 2.5 Flash Lite
+            # Primary: Gemini 1.5 Flash (Highest free quota), Fallback: 1.5 Pro or similar
             try:
-                model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
-            except:
                 model = genai.GenerativeModel('models/gemini-1.5-flash')
+            except:
+                # Last resort
+                return "unknown"
 
             prompt = f"""
             Identify the programming language of the following text/code. 

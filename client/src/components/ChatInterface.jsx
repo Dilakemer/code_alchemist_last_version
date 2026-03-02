@@ -382,7 +382,7 @@ const ChatInterface = ({
     if (!value) return '';
     const date = new Date(value);
     if (!Number.isNaN(date.getTime())) {
-      return date.toLocaleDateString('en-US');
+      return date.toLocaleDateString();
     }
     const fallback = Number(value);
     if (!Number.isNaN(fallback)) {
@@ -418,28 +418,22 @@ const ChatInterface = ({
 
   // Optimized scroll effect - prevents jitter during message streaming
   useEffect(() => {
-    if (!bottomRef.current) return;
+    if (!bottomRef.current || !loading) return;
 
-    const scrollToBottom = () => {
-      const parent = bottomRef.current.parentElement;
-      if (!parent) return;
+    const parent = bottomRef.current.parentElement;
+    if (!parent) return;
 
-      const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 300;
+    // Only auto-scroll if the user is already at the bottom
+    // This allows them to scroll up and stay there without being "pulled down"
+    const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 300;
 
-      // Use 'auto' instead of 'smooth' during loading to prevent animation jitter
-      // Use 'smooth' only when a new message starts or when transition is stable
-      if (isNearBottom || loading) {
-        bottomRef.current.scrollIntoView({
-          behavior: loading ? 'auto' : 'smooth',
-          block: 'nearest'
-        });
-      }
-    };
-
-    // Use requestAnimationFrame for performance and visual stability
-    const animationId = requestAnimationFrame(scrollToBottom);
-    return () => cancelAnimationFrame(animationId);
-  }, [history.length, loading, history[history.length - 1]?.ai_response?.length]);
+    if (isNearBottom) {
+      bottomRef.current.scrollIntoView({
+        behavior: 'auto', // 'auto' is much more performant than 'smooth' during streaming
+        block: 'nearest'
+      });
+    }
+  }, [history[history.length - 1]?.ai_response?.length, loading]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
