@@ -703,7 +703,8 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
                 yield text
 
     except Exception as exc:
-        yield f"[Claude Error ({target_model})]: {exc}"
+        yield f"\n\n*> [System]: Claude Error ({target_model}): {exc}. Falling back to Gemini...*\n\n"
+        yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context)
 
 
 def generate_gpt_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None):
@@ -858,7 +859,8 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
                 yield chunk.choices[0].delta.content
 
     except Exception as e:
-        yield f"[OpenAI Error]: {e}"
+        yield f"\n\n*> [System]: OpenAI Error ({target_model}): {e}. Falling back to Gemini...*\n\n"
+        yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context)
 
 
 def generate_conversation_title(question: str, answer: str = None) -> str:
