@@ -11,7 +11,7 @@ class LanguageDetector:
     
     # Static list of language keywords for fast detection
     LANG_KEYWORDS = {
-        'python': ['def ', 'import ', 'print(', 'numpy', 'pandas', 'flask', 'django', 'pip install', 'venv', 'python', 'if __name__ ==', 'try:', 'except:'],
+        'python': ['def ', 'import ', 'print(', 'numpy', 'pandas', 'flask', 'django', 'pip install', 'venv', 'python', 'if __name__ ==', 'try:', 'except:', 'elif ', 'async def', 'await ', 'List[', 'Dict[', 'Optional['],
         'javascript': ['const ', 'let ', 'var ', 'function', 'console.log', '=>', 'react', 'next.js', 'node.js', 'npm', 'yarn', 'jsx', 'javascript', 'js', 'document.get', 'window.', 'async ', 'await ', 'export ', 'import ', 'default '],
         'typescript': ['interface ', 'type ', 'readonly ', 'enum ', 'namespace ', 'as ', 'is ', 'satisfies', 'unknown', 'any', 'never', 'private ', 'public ', 'protected ', 'implements ', 'extends ', 'tsx', 'typescript', 'ts', ': number', ': string', ': boolean', ': any', ': void', ': never', 'Array<', 'Promise<'],
         'java': ['public class', 'class ', 'system.out.println', 'psvm', 'maven', 'gradle', 'spring boot', 'java', 'javada', 'public static void', 'extends ', 'implements '],
@@ -48,8 +48,8 @@ class LanguageDetector:
         for lang, keywords in self.LANG_KEYWORDS.items():
             for keyword in keywords:
                 if keyword in content:
-                    # Specific TypeScript keywords get more weight
-                    weight = 2 if lang == 'typescript' else 1
+                    # Give higher weight to TS and Python specifically to distinguish from JS
+                    weight = 2 if lang in ['typescript', 'python'] else 1
                     scores[lang] += weight
         
         # Determine best match
@@ -75,7 +75,12 @@ class LanguageDetector:
             
         try:
             # Use Gemini 2.5 Flash Lite or similar fast model
-            model = genai.GenerativeModel('models/gemini-1.5-flash')
+            # Primary: Gemini 2.5 Flash, Fallback: Gemini 2.5 Flash Lite
+            try:
+                model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
+            except:
+                model = genai.GenerativeModel('models/gemini-1.5-flash')
+
             prompt = f"""
             Identify the programming language of the following text/code. 
             If it's natural language without code, return 'natural'.
