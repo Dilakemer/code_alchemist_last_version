@@ -980,16 +980,17 @@ def update_user_taste(user, model_used, answer_text, user_question=""):
     
     prefs['usage_stats'][model_type] = prefs['usage_stats'].get(model_type, 0) + 1
     
-    # En çok kullanılan modeli tespit et
+    # 2. En çok kullanılan modeli tespit et (Sadece istatistik amaçlı, tercihi otomatik ezmiyoruz)
     max_usage = 0
-    best_model = prefs.get('preferred_model', 'auto')
+    best_model = "gemini"
     for m, count in prefs['usage_stats'].items():
         if count > max_usage:
             max_usage = count
             best_model = m
             
-    if max_usage >= 3: # En az 3 kullanımdan sonra tercihi güncellemeye başla
-        prefs['preferred_model'] = best_model
+    # NOT: preferred_model artık otomatik güncellenmiyor, 
+    # 'auto' modunda kalması akıllı yönlendirmenin çalışması için kritik.
+    # Kullanıcı Manuel Ayarlar sayfasından isterse değiştirebilir.
         
     # Yanıt tarzını analiz et (kısa/uzun)
     if answer_text:
