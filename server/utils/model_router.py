@@ -45,11 +45,15 @@ class ModelRouter:
             return 'gemini-1.5-flash', "🐚 Bash/Shell: **Gemini 1.5 Flash** chosen (Fast for DevOps & scripting)."
 
         # 2. Intent-Based Routing
-        if intent == 'creative':
+        if intent == 'logic':
+            return 'gpt-4o', "🧠 Complex Logic/Algorithms: **GPT-4o** chosen (Best for math, sorting & reasoning)."
+
+        elif intent == 'creative':
             return 'claude-opus-4-5', "🎨 Creative Task: **Claude Opus 4.5** chosen for writing & creativity."
 
-        elif intent == 'logic':
-            return 'gpt-4o', "🧠 Complex Logic/Math: **GPT-4o** chosen for reasoning capabilities."
+        elif intent == 'code':
+            # For general technical questions when language is not yet detected
+            return 'claude-opus-4-5', "💻 General Technical Query: **Claude Opus 4.5** chosen (Best for architectural advice)."
 
         elif intent == 'image_generation':
             return 'dall-e-3', "🎨 Image Generation: **DALL-E 3** chosen."

@@ -1093,8 +1093,12 @@ Related Code: {code if code else "None"}
 Respond with ONLY the category name.
 """
     try:
-        # Use Gemini 2.5 Flash Lite for fast intent detection
-        model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
+        # Use Gemini 1.5 Flash for reliable intent detection
+        try:
+            model = genai.GenerativeModel('models/gemini-1.5-flash')
+        except:
+            model = genai.GenerativeModel('models/gemini-pro')
+            
         result = model.generate_content(intent_prompt)
         intent = getattr(result, "text", "general").strip().lower().replace("'", "").replace('"', '')
         
@@ -2063,6 +2067,12 @@ def ask():
         intent = detect_intent(question, code)
         detected_lang = language_detector.detect(question, code)
         
+        # Upgrade intent if linked to GitHub
+        has_github = conversation and conversation.linked_repo
+        if has_github and intent == 'general':
+            intent = 'code'
+            print("DEBUG: GitHub repository linked. Upgraded intent to 'code'.")
+
         # Eğer dil tespit edildiyse, intent 'general' olsa bile 'code' olarak işlem yap
         if detected_lang != 'unknown':
             intent = 'code'
