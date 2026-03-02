@@ -131,7 +131,7 @@ else:
 
 # --- 2. CLAUDE KONFIGURASYONU ---
 # Varsayılan model olarak hızlı ve zeki olan Sonnet 4.5'i seçtik
-ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-3-5-sonnet-20241022')
+ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-opus-4-5')
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 claude_client = None
@@ -556,8 +556,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
                 return
 
     if not model_success:
-        yield "\n\n*> [System]: All Gemini models failed (Quota/Service). Falling back to **Claude**...*\n\n"
-        yield from generate_claude_answer(question, code, history_context, 'claude-3-5-sonnet-20241022', image_path, prefs, github_context, depth + 1)
+        yield "\n\n*> [System]: All Gemini models failed (Quota/Service). Falling back to **Claude Opus 4.5**...*\n\n"
+        yield from generate_claude_answer(question, code, history_context, 'claude-opus-4-5', image_path, prefs, github_context, depth + 1)
 
 
 def generate_claude_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None, depth: int = 0):

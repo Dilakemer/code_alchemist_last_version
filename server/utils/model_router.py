@@ -17,18 +17,15 @@ class ModelRouter:
         user_prefs = user_prefs or {}
         preferred_model = user_prefs.get('preferred_model', 'auto')
 
-        # 1. User Preference Override (if strict preference is set, though usually 'auto' is best)
-        # We only override if intent is 'code' or 'general'. 
-        # If it's something highly specific like 'image_generation', we might ignore preference.
+        # 1. User Preference Override (if strict preference is set)
         if preferred_model != 'auto' and intent in ['code', 'general']:
             model_type_map = {
-                'claude': 'claude-3-5-sonnet-20241022',
+                'claude': 'claude-opus-4-5',
                 'gemini': 'gemini-1.5-pro',
                 'gpt': 'gpt-4o'
             }
-            # If the user has a preferred model key (e.g. 'claude'), map it to the actual model ID
             chosen = model_type_map.get(preferred_model, preferred_model)
-            return chosen, f"User Preference: You prefer **{preferred_model}**."
+            return chosen, f"⚙️ Auto-routing active. Detected intent: **{intent}**. Using: **{chosen}**."
 
         # 2. Intent-Based Routing
         if intent == 'creative':
@@ -48,7 +45,7 @@ class ModelRouter:
             return 'gpt-4o', f"☕ Enterprise Language ({language}): **GPT-4o** chosen for robustness."
         
         elif language in ['javascript', 'typescript', 'html', 'css', 'cpp', 'c', 'rust', 'go']:
-            return 'claude-3-5-sonnet-20241022', f"💻 Systems/Web ({language}): **Claude 3.5 Sonnet** chosen (State-of-the-art for coding)."
+            return 'claude-opus-4-5', f"💻 Systems/Web ({language}): **Claude Opus 4.5** chosen (State-of-the-art for coding)."
 
         # 4. Default / General Fallback
         return self.default_model, "🚀 General Query: **Gemini 1.5 Flash** (Balanced & Fast)."
