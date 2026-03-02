@@ -3732,4 +3732,9 @@ if __name__ == '__main__':
         # db.drop_all()  # Veritabanını sıfırlamak istemiyoruz
         db.create_all()
 
-    app.run(debug=True)
+    # Render'ın verdiği portu al, lokalde çalıştırırken 5000 kullan
+    port = int(os.environ.get("PORT", 5000))
+    
+    # host='0.0.0.0' kısmı Render'ın uygulamaya erişebilmesi için kritik!
+    # Canlı ortamda debug=False olması güvenlik ve performans için daha iyidir.
+    app.run(host='0.0.0.0', port=port, debug=False)
