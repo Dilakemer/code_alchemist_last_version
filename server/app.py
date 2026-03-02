@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import json
 import time
 import random
@@ -22,6 +23,7 @@ from openai import OpenAI
 from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
+from utils.github_parser import GitHubParser
 
 # Load environment variables
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -179,32 +181,48 @@ def transcribe_audio_with_gemini(audio_path):
         
         mime_type, _ = mimetypes.guess_type(audio_path)
         # Fallback mime types
+        file_ext = os.path.splitext(audio_path)[1].lower()
         if not mime_type:
-            ext = os.path.splitext(audio_path)[1].lower()
-            if ext == '.mp3': mime_type = 'audio/mpeg'
-            elif ext == '.wav': mime_type = 'audio/wav'
-            elif ext == '.m4a': mime_type = 'audio/mp4'
-            elif ext == '.webm': mime_type = 'audio/webm'
+            if file_ext == '.mp3': mime_type = 'audio/mpeg'
+            elif file_ext == '.wav': mime_type = 'audio/wav'
+            elif file_ext == '.m4a': mime_type = 'audio/mp4'
+            elif file_ext == '.webm': mime_type = 'audio/webm'
+            elif file_ext == '.ogg': mime_type = 'audio/ogg'
             else: mime_type = 'audio/mp3'
 
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        # Denenecek model listesi (En yeni/güçlüden en stabile)
+        model_candidates = [
+            GEMINI_MODEL.replace('models/', ''), # .env'deki model
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-flash",
+            "gemini-2.0-flash"
+        ]
         
-        with open(audio_path, 'rb') as audio_file:
-            audio_bytes = audio_file.read()
-            
-        # SDK supports dictionary for inline data
-        audio_part = {
-            "mime_type": mime_type,
-            "data": audio_bytes
-        }
-        
-        response = model.generate_content([
-            audio_part, 
-            "Please transcribe this audio exactly as it is spoken. Do not add any commentary. Just return the text."
-        ])
-        
-        if response and response.text:
-            return response.text.strip()
+        last_error = None
+        for m_name in model_candidates:
+            try:
+                model = genai.GenerativeModel(m_name)
+                
+                with open(audio_path, 'rb') as audio_file:
+                    audio_bytes = audio_file.read()
+                    
+                audio_part = {
+                    "mime_type": mime_type,
+                    "data": audio_bytes
+                }
+                
+                response = model.generate_content([
+                    audio_part, 
+                    "Please transcribe this audio exactly as it is spoken in Turkish. Just return the text."
+                ])
+                
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as e:
+                print(f"Transcription trial with {m_name} failed: {e}")
+                last_error = e
+                continue
+                
         return None
     except Exception as e:
         print(f"Transcription error: {e}")
@@ -253,7 +271,7 @@ def generate_image_with_dalle(prompt):
         print(f"DALL-E Error: {e}")
         return f"Sorry, I couldn't generate the image. Error: {str(e)}"
 
-def generate_gemini_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None):
+def generate_gemini_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None):
     """Gemini API çağrısı yapar. Sadece seçilen modeli kullanır."""
     if not GEMINI_API_KEY:
         yield "Error: GEMINI_API_KEY missing."
@@ -316,20 +334,36 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
              fallback_chain.append('gemini-1.5-flash')
 
         print(f"--- Model Zinciri: {fallback_chain} ---")
-
+        
+        system_instruction = (
+            "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
+            f"{persona_info}"
+            f"{style_prompt}"
+            "If the user asks a question about code, software, or a technical topic, "
+            "provide detailed technical assistance and give code examples if necessary. "
+            "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
+        )
+        
+        if github_context:
+            system_instruction += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
     else:
         # Varsayılan (Fallback zinciri ile)
         fallback_chain = [GEMINI_MODEL, 'gemini-1.5-flash']
 
-    prompt_parts = [
+    system_prompt = (
         "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
         f"{persona_info}"
         f"{style_prompt}"
         "If the user asks a question about code, software, or a technical topic, "
         "provide detailed technical assistance and give code examples if necessary. "
         "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
-        "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)) unless the system has provided them. If the user asks for an image and you are responding as text, explain that you are a text model or ask them to be more specific to trigger the image generator.",
-    ]
+        "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)) unless the system has provided them. If the user asks for an image and you are responding as text, explain that you are a text model or ask them to be more specific to trigger the image generator."
+    )
+
+    if github_context:
+        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
+    
+    prompt_parts = [system_prompt]
 
     if history_context:
         filtered_history = []
@@ -492,8 +526,12 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             print(f"Gemini Deneniyor: {current_model_id}")
             model = genai.GenerativeModel(current_model_id)
             
-            if model_name != fallback_chain[0]:
-                yield f"\n\n*> [System]: Previous model failed, trying **{model_name}**...*\n\n"
+            # Remove "models/" prefix for clean comparison
+            clean_first = fallback_chain[0].replace('models/', '')
+            clean_current = model_name.replace('models/', '')
+
+            if clean_current != clean_first and model_name != fallback_chain[0]:
+                yield f"\n\n*> [System]: Previous model failed, trying **{clean_current}**...*\n\n"
 
             response = model.generate_content(prompt_parts, stream=True)
             
@@ -523,7 +561,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         yield "\n\n[System Message]: Sorry, all alternative models failed but no response was received. (Quota exceeded or service unavailable)."
 
 
-def generate_claude_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None):
+def generate_claude_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None):
     """Claude API çağrısı yapar (Streaming)."""
     if not claude_client:
         yield "Error: ANTHROPIC_API_KEY missing."
@@ -561,6 +599,9 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
         "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
         "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)). If the user asks for an image, explain that you are a text model."
     )
+
+    if github_context:
+        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
 
     user_message = f"Question: {question.strip() or 'Unspecified'}"
     if code and code.strip():
@@ -665,7 +706,7 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
         yield f"[Claude Error ({target_model})]: {exc}"
 
 
-def generate_gpt_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None):
+def generate_gpt_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None):
     """OpenAI GPT API'sini kullanarak cevap üretir (Streaming)."""
     if not openai_client:
         if openai_init_error:
@@ -707,10 +748,16 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
         "provide detailed technical assistance and give code examples if necessary (in Markdown code block). "
         "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
     )
+    
+    if github_context:
+        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
 
     user_message = f"Question: {question.strip() or 'Unspecified'}"
     if code and code.strip():
         user_message += "\n\nRelated Code:\n```\n" + code.strip() + "\n```"
+
+    if github_context:
+        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
 
     messages = [{"role": "system", "content": system_prompt}]
     
@@ -1722,6 +1769,107 @@ def reset_password():
     return jsonify({'message': 'Your password has been successfully updated. You can log in.'})
 
 
+@app.route('/api/github/link', methods=['POST'])
+@jwt_required()
+def link_github_repo():
+    user = get_current_user()
+    data = request.json or {}
+    repo_name = data.get('repo', '').strip()
+    branch = data.get('branch', 'main').strip()
+    conversation_id = data.get('conversation_id')
+    
+    if not repo_name or not conversation_id:
+        return jsonify({'error': 'Repo name and conversation ID are required.'}), 400
+        
+    conversation = db.session.get(Conversation, conversation_id)
+    if not conversation or conversation.user_id != user.id:
+        return jsonify({'error': 'Conversation not found or unauthorized.'}), 404
+        
+    parser = GitHubParser()
+    tree = parser.get_repo_tree(repo_name, branch)
+    
+    if tree is None:
+        return jsonify({'error': 'Could not fetch repo tree. Check repo name and permissions.'}), 400
+        
+    conversation.linked_repo = repo_name
+    conversation.repo_branch = branch
+    db.session.commit()
+    
+    return jsonify({
+        'message': f'Successfully linked {repo_name} ({branch}).',
+        'tree_size': len(tree)
+    })
+
+@app.route('/api/github/tree', methods=['GET'])
+@jwt_required()
+def get_github_tree():
+    user = get_current_user()
+    conversation_id = request.args.get('conversation_id')
+    
+    if not conversation_id:
+        return jsonify({'error': 'Conversation ID is required.'}), 400
+        
+    conversation = db.session.get(Conversation, conversation_id)
+    if not conversation or conversation.user_id != user.id:
+        return jsonify({'error': 'Conversation not found or unauthorized.'}), 404
+        
+    if not conversation.linked_repo:
+        return jsonify({'error': 'No repository linked to this conversation.'}), 400
+        
+    parser = GitHubParser()
+    tree = parser.get_repo_tree(conversation.linked_repo, conversation.repo_branch)
+    
+    if tree is None:
+        return jsonify({'error': 'Could not fetch repo tree.'}), 400
+        
+    return jsonify({
+        'repo': conversation.linked_repo,
+        'branch': conversation.repo_branch,
+        'tree': tree
+    })
+
+@app.route('/api/github/pr', methods=['POST'])
+@jwt_required()
+def create_github_pr():
+    user = get_current_user()
+    data = request.json or {}
+    repo_name = data.get('repo', '').strip()
+    base_branch = data.get('base_branch', 'main').strip()
+    new_branch = data.get('new_branch', 'code-alchemist-fix').strip()
+    title = data.get('title', 'AI Generated Refactor').strip()
+    body = data.get('body', 'This PR includes changes generated by Code Alchemist.')
+    file_changes = data.get('file_changes', [])
+    
+    if not repo_name or not file_changes:
+        return jsonify({'error': 'Repo name and file changes are required.'}), 400
+        
+    parser = GitHubParser()
+    result = parser.create_pull_request(repo_name, base_branch, new_branch, title, body, file_changes)
+    
+    if 'error' in result:
+        return jsonify(result), 400
+        
+    return jsonify(result)
+
+@app.route('/api/refactor/bulk', methods=['POST'])
+@jwt_required()
+def bulk_refactor():
+    user = get_current_user()
+    data = request.json or {}
+    repo_name = data.get('repo', '').strip()
+    branch = data.get('branch', 'main').strip()
+    instructions = data.get('instructions', '').strip()
+    
+    if not repo_name or not instructions:
+        return jsonify({'error': 'Repo name and instructions are required.'}), 400
+        
+    # In a full implementation, this would fetch files, send to LLM, etc.
+    return jsonify({
+        'message': 'Bulk refactoring initiated',
+        'repo': repo_name,
+        'instructions_received': instructions
+    })
+
 @app.route('/api/ask', methods=['POST'])
 def ask():
     # Debug logging
@@ -1766,6 +1914,7 @@ def ask():
     # Konuşma Yönetimi
     conversation = None
     history_context = []
+    github_context = ""
 
     if not no_save:
         if conversation_id:
@@ -1788,6 +1937,35 @@ def ask():
             conversation = Conversation(user_id=user_id, title=question[:50])
             db.session.add(conversation)
             db.session.commit()
+
+        # Check for linked GitHub repo to inject context
+        if conversation.linked_repo:
+            repo = conversation.linked_repo
+            branch = conversation.repo_branch
+            parser = GitHubParser()
+            
+            tree = parser.get_repo_tree(repo, branch)
+            if tree:
+                tree_str = parser.format_tree_for_prompt(tree)
+                github_context = f"\n\n[System: This conversation is linked to GitHub repository '{repo}' (branch '{branch}').\nRepository Structure:\n{tree_str[:3000]}\n]"
+                print(f"Injected GitHub context for {repo}")
+                
+                # Diff Formatting Instruction for UI 
+                diff_instruction = "\n\n[CRITICAL SYSTEM INSTRUCTION: For EVERY code change you propose, you MUST use the Side-by-Side Diff format. DO NOT use standard `-` or `+` lines. You MUST follow this EXACT structure for EACH file change:\n\nFile: `path/to/file` (Relative to project root)\n```diff\n<<<OLD>>>\n[Insert the EXACT block of old code being replaced - must be a perfect match for the original file code]\n<<<NEW>>>\n[Insert the full new code block that replaces the OLD section]\n```\n\nFAILURE TO USE THIS EXACT <<<OLD>>> / <<<NEW>>> FORMAT WILL BREAK THE USER'S INTERFACE. DO NOT SKIP THIS.]"
+
+                # Check for Magic Fix intent based on common error trace keywords
+                error_pattern = re.compile(r'(Traceback \(most recent call last\):|Error:|Exception:|TypeError|ValueError|ReferenceError|SyntaxError|IndexError|KeyError|ModuleNotFoundError)\b', re.IGNORECASE)
+                if error_pattern.search(question):
+                    print("Magic Fix triggered based on error pattern.")
+                    magic_fix_prompt = "\n\n[System Magic Fix Instruction: The user has provided an error trace. Analyze the error based on the linked repository context and provide a direct, root-cause solution. Output the required file changes.]"
+                    github_context += magic_fix_prompt
+
+                # Always append diff instruction if linked to repo
+                github_context += diff_instruction
+
+                # REMOVED: question = f"{question}{github_context}"
+                # Instead, we pass github_context separately to the generation functions
+                pass
 
         print(f"Model İsteği: {model}, ConvID: {conversation.id}, Image: {image_path}")
     else:
@@ -1815,7 +1993,7 @@ def ask():
                 instruction = (
                     f"\n\n[System: The user sent a voice message. Here is the transcription:]\n"
                     f"\"{transcription}\"\n\n"
-                    f"[Instruction: Start your response by strictly quoting the transcription as follows: '**You said:** {transcription}'. Then provide your answer.]"
+                    f"[Instruction: The user's input was transcribed from audio. Directly provide your answer based on this transcription. DO NOT repeat or quote the transcription in your response.]"
                 )
                 
                 if question:
@@ -1823,19 +2001,20 @@ def ask():
                 else:
                     question = instruction
                 
-                # Ses dosyasını model fonksiyonuna GÖNDERME (çünkü metne çevirdik)
                 model_image_path = None 
                 
                 routing_reason = f"🎤 Ses mesajı metne çevrildi ve **{model}** modeline iletildi."
             else:
-                # Transkripsiyon başarısızsa Gemini'ye fallback yap
-                model = 'gemini-2.0-flash'
-                routing_reason = "⚠️ Ses çevrilemedi, ses desteği için **Gemini 2.0 Flash** modeline geçildi."
+                # Transkripsiyon başarısızsa direkt döngüyü sonlandırmak yerine kibar bir hata göster
+                def generate_error():
+                    yield "data: {\"chunk\": \"⚠️ Sesli mesajınız işlenemedi. Lütfen tekrar deneyin veya farklı bir model seçin.\"}\n\n"
+                    yield "data: {\"done\": true}\n\n"
+                return Response(stream_with_context(generate_error()), mimetype='text/event-stream')
         else:
             # Gemini zaten seçili
-            if model != 'gemini-2.0-flash' and 'flash' not in model:
-                 model = 'gemini-2.0-flash'
-                 routing_reason = "🎤 Ses mesajı işleme için **Gemini 2.0 Flash** modeli optimize edildi."
+            if model != GEMINI_MODEL.replace('models/', '') and 'flash' not in model:
+                 model = GEMINI_MODEL.replace('models/', '')
+                 routing_reason = f"🎤 Ses mesajları için **{model}** optimize edildi."
     
     # Görsel Oluşturma İsteği Kontrolü (Image Generation Intent)
     q_lower = question.lower()
@@ -1906,11 +2085,11 @@ def ask():
 
 
         if 'claude' in model:
-            generator = generate_claude_answer(question, code, history_context, model, model_image_path, prefs)
+            generator = generate_claude_answer(question, code, history_context, model, model_image_path, prefs, github_context)
         elif 'gpt' in model or 'o1' in model:
-             generator = generate_gpt_answer(question, code, history_context, model, model_image_path, prefs)
+             generator = generate_gpt_answer(question, code, history_context, model, model_image_path, prefs, github_context)
         elif 'gemini' in model or 'gemma' in model:
-            generator = generate_gemini_answer(question, code, history_context, model, model_image_path, prefs)
+            generator = generate_gemini_answer(question, code, history_context, model, model_image_path, prefs, github_context)
 
         # Ortak Generator Döngüsü
         if generator:
@@ -1962,7 +2141,6 @@ def ask():
                 )
                 db.session.add(history)
                 db.session.commit()
-                print(f"DEBUG: Saved history item {history.id} for conv {current_conv.id}")
 
                 # 4. AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
                 if user:
@@ -3447,7 +3625,7 @@ def init_db():
 def get_favorites():
     """Kullanıcının favori yanıtlarını getir"""
     identity = get_jwt_identity()
-    current_user = User.query.get(int(identity))
+    current_user = db.session.get(User, int(identity))
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
     
@@ -3455,9 +3633,9 @@ def get_favorites():
     
     result = []
     for fav in favorites:
-        history = History.query.get(fav.history_id)
+        history = db.session.get(History, fav.history_id)
         if history:
-            conversation = Conversation.query.get(history.conversation_id)
+            conversation = db.session.get(Conversation, history.conversation_id)
             result.append({
                 'id': fav.id,
                 'history_id': history.id,
@@ -3477,12 +3655,12 @@ def get_favorites():
 def add_favorite(history_id):
     """Yanıtı favorilere ekle"""
     identity = get_jwt_identity()
-    current_user = User.query.get(int(identity))
+    current_user = db.session.get(User, int(identity))
     
     if not current_user:
         return jsonify({'error': f'User not found for identity: {identity}'}), 404
     
-    history = History.query.get(history_id)
+    history = db.session.get(History, history_id)
     if not history:
         return jsonify({'error': 'History not found'}), 404
     
@@ -3503,7 +3681,7 @@ def add_favorite(history_id):
 def remove_favorite(history_id):
     """Yanıtı favorilerden kaldır"""
     identity = get_jwt_identity()
-    current_user = User.query.get(int(identity))
+    current_user = db.session.get(User, int(identity))
 
     if not current_user:
         return jsonify({'error': 'User not found'}), 404

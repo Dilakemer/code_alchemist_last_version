@@ -144,7 +144,16 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
                 onClick={(e) => {
                   e.stopPropagation();
                   const rect = e.currentTarget.getBoundingClientRect();
-                  setMenuCoords({ x: rect.right + 5, y: rect.top }); // 5px right off the button
+                  const screenHeight = window.innerHeight;
+                  const menuEstimatedHeight = 250; // Share, Rename, Pin, Archive, Divider, Delete
+
+                  let yPos = rect.top;
+                  // If menu would go off bottom, open it upwards from the bottom of the trigger
+                  if (yPos + menuEstimatedHeight > screenHeight) {
+                    yPos = Math.max(10, rect.bottom - menuEstimatedHeight);
+                  }
+
+                  setMenuCoords({ x: rect.right + 5, y: yPos });
                   setMenuOpen(menuOpen === item.id ? null : item.id);
                 }}
                 className={`absolute top-2 right-2 p-1 rounded-md transition-all focus:outline-none ${menuOpen === item.id

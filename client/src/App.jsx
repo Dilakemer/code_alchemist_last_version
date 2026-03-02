@@ -20,7 +20,7 @@ import { requestNotificationPermission, isNotificationEnabled } from './utils/no
 const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_BASE || 'http://localhost:5000');
 
 function App() {
-  const [model, setModel] = useState('gemini-2.0-flash');
+  const [model, setModel] = useState('gemini-2.5-flash');
   const [question, setQuestion] = useState('');
   const [code, setCode] = useState('');
   const [image, setImage] = useState(null);
@@ -104,6 +104,7 @@ function App() {
   const [viewingUserId, setViewingUserId] = useState(null);
   const [userHistory, setUserHistory] = useState([]);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [currentlySpeakingId, setCurrentlySpeakingId] = useState(null);
 
   // Request notification permission when user logs in
   // Request notification permission when user logs in
@@ -326,6 +327,8 @@ function App() {
 
   const fetchConversationDetails = async (id) => {
     if (!id) return;
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setCurrentlySpeakingId(null);
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/conversations/${id}`, { headers: authHeaders });
@@ -350,6 +353,8 @@ function App() {
   };
 
   const handleNewChat = () => {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    setCurrentlySpeakingId(null);
     setActiveConversationId(null);
     setChatHistory([]);
     setQuestion('');
@@ -560,6 +565,8 @@ function App() {
                     persona: data.persona
                   } : item
                 ));
+
+                // Voice Alchemy is manually triggered now via ChatInterface
               }
             } catch (e) {
               console.error("Error parsing SSE JSON", e);
@@ -576,7 +583,82 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }
+  };
+
+  const speakResponse = (text, messageId) => {
+    if (!('speechSynthesis' in window)) return;
+
+    if (currentlySpeakingId === messageId) {
+      // Toggle OFF if clicking the same message
+      window.speechSynthesis.cancel();
+      setCurrentlySpeakingId(null);
+      return;
+    }
+
+    // Stop any ongoing speech
+    window.speechSynthesis.cancel();
+
+    // Clean markdown for better speech
+    const cleanText = text
+      .replace(/```[\s\S]*?```/g, ' [Code Block] ') // Don't read whole code blocks
+      .replace(/[*#_~`]/g, '')
+      .replace(/\[.*?\]\(.*?\)/g, ' [Link] ');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+
+    // Prevent garbage collection bug in Chrome which causes playback to stop or fail
+    window.__currentUtterance = utterance;
+
+    const voices = window.speechSynthesis.getVoices();
+    const isTurkish = /[çğışüöÇĞİŞÜÖ]/.test(cleanText);
+    utterance.lang = isTurkish ? 'tr-TR' : 'en-US';
+    const langPrefix = isTurkish ? 'tr' : 'en';
+
+    let hasPlayed = false;
+
+    const playSpeech = () => {
+      if (hasPlayed) return;
+      hasPlayed = true;
+
+      const currentVoices = window.speechSynthesis.getVoices();
+      const preferredVoice = currentVoices.find(v => v.lang.startsWith(langPrefix) && (v.name.includes('Google') || v.name.includes('Natural'))) || currentVoices.find(v => v.lang.startsWith(langPrefix)) || currentVoices[0];
+
+      if (preferredVoice) utterance.voice = preferredVoice;
+      utterance.pitch = 1.0;
+      utterance.rate = 1.05; // Slightly faster for a more modern feel
+
+      utterance.onend = () => {
+        setCurrentlySpeakingId(null);
+        window.__currentUtterance = null;
+      };
+
+      utterance.onerror = (e) => {
+        console.error("Speech synthesis failed.", e);
+        setCurrentlySpeakingId(null);
+        window.__currentUtterance = null;
+      };
+
+      setCurrentlySpeakingId(messageId);
+
+      // Chrome requires resume if it's in a weird paused state
+      window.speechSynthesis.resume();
+      window.speechSynthesis.speak(utterance);
+    };
+
+    if (voices.length === 0) {
+      const voicesChangedHandler = () => {
+        playSpeech();
+        window.speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
+      };
+      window.speechSynthesis.addEventListener('voiceschanged', voicesChangedHandler);
+
+      // Timeout fallback in case event doesn't fire
+      setTimeout(playSpeech, 500);
+    } else {
+      // Small timeout to allow previous cancel action to propagate properly
+      setTimeout(playSpeech, 50);
+    }
+  };
 
   const handleAuthSuccess = (data) => {
     setToken(data.token);
@@ -1218,37 +1300,24 @@ function App() {
               image={image}
               setImage={setImage}
               isNewConversation={isNewConversation}
+              activeConversationId={activeConversationId}
+              currentlySpeakingId={currentlySpeakingId}
+              onSpeak={speakResponse}
+              onShare={() => {
+                if (chatHistory.length > 0) {
+                  const lastTurn = chatHistory[chatHistory.length - 1];
+                  setShareTitle(lastTurn.user_question || conversations.find(c => c.id === activeConversationId)?.title || '');
+                  const codeSnippets = chatHistory
+                    .filter(turn => turn.code_snippet)
+                    .map(turn => turn.code_snippet)
+                    .join('\n\n// ---\n\n');
+                  setShareCode(codeSnippets);
+                  setShareSolution(lastTurn.ai_response || '');
+                }
+                setShareOpen(true);
+              }}
             />
           </div>
-
-          {/* Centered Share Button */}
-          {
-            chatHistory.length > 0 && (
-              <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20">
-                <button
-                  onClick={() => {
-                    if (chatHistory.length > 0) {
-                      const lastTurn = chatHistory[chatHistory.length - 1];
-                      setShareTitle(lastTurn.user_question || conversations.find(c => c.id === activeConversationId)?.title || '');
-                      const codeSnippets = chatHistory
-                        .filter(turn => turn.code_snippet)
-                        .map(turn => turn.code_snippet)
-                        .join('\n\n// ---\n\n');
-                      setShareCode(codeSnippets);
-                      setShareSolution(lastTurn.ai_response || '');
-                    }
-                    setShareOpen(true);
-                  }}
-                  className="flex items-center gap-2 bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white px-5 py-2.5 rounded-full text-sm font-semibold transition-all shadow-lg shadow-fuchsia-900/40 hover:shadow-fuchsia-900/60 hover:scale-105"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                  </svg>
-                  Share to Community
-                </button>
-              </div>
-            )
-          }
         </section >
 
         {/* Community Feed Modal */}

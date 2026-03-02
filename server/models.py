@@ -22,6 +22,8 @@ class Conversation(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_pinned = db.Column(db.Boolean, default=False)
     is_archived = db.Column(db.Boolean, default=False)
+    linked_repo = db.Column(db.String(255), nullable=True)
+    repo_branch = db.Column(db.String(100), default='main')
     
     user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic'))
 

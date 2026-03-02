@@ -2,9 +2,12 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ReactDiffViewer from 'react-diff-viewer-continued';
 import SimilarSolutions from './SimilarSolutions';
 import PromptTemplates from './PromptTemplates';
+import GitHubGraph from './GitHubGraph';
 import useTypingEffect from '../hooks/useTypingEffect';
+import VoiceRecorder from './VoiceRecorder';
 
 
 const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId }) => {
@@ -45,21 +48,80 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
                   )}
                 </button>
               </div>
-              <SyntaxHighlighter
-                style={syntaxTheme}
-                language={match[1]}
-                PreTag="div"
-                customStyle={{
-                  margin: 0,
-                  borderTopLeftRadius: 0,
-                  borderTopRightRadius: 0,
-                  borderBottomLeftRadius: '0.5rem',
-                  borderBottomRightRadius: '0.5rem'
-                }}
-                {...props}
-              >
-                {codeString}
-              </SyntaxHighlighter>
+
+              {/* Robust Diff Check: Trigger if markers present, regardless of language tag */}
+              {(codeString.includes('<<<OLD>>>') && codeString.includes('<<<NEW>>>')) ? (
+                (() => {
+                  try {
+                    const oldPart = codeString.split('<<<OLD>>>')[1].split('<<<NEW>>>')[0].trim();
+                    const newPart = codeString.split('<<<NEW>>>')[1].trim();
+                    return (
+                      <div className="rounded-b-lg overflow-hidden border border-gray-700 bg-[#1e1e1e] text-xs">
+                        <ReactDiffViewer
+                          oldValue={oldPart}
+                          newValue={newPart}
+                          splitView={true}
+                          useDarkTheme={true}
+                          styles={{
+                            variables: {
+                              dark: {
+                                diffViewerBackground: '#1e1e1e',
+                                addedBackground: '#064e3b',
+                                addedColor: '#86efac',
+                                removedBackground: '#7f1d1d',
+                                removedColor: '#fca5a5',
+                                wordAddedBackground: '#166534',
+                                wordRemovedBackground: '#991b1b',
+                                addedGutterBackground: '#064e3b',
+                                removedGutterBackground: '#7f1d1d',
+                                gutterBackground: '#1e1e1e',
+                                gutterBackgroundDark: '#1e1e1e',
+                                gutterColor: '#6b7280',
+                                emptyLineBackground: '#1e1e1e',
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    );
+                  } catch (e) {
+                    console.error("Diff Parsing Error:", e);
+                    return (
+                      <SyntaxHighlighter
+                        style={syntaxTheme}
+                        language={match[1] || 'text'}
+                        PreTag="div"
+                        customStyle={{
+                          margin: 0,
+                          borderTopLeftRadius: 0,
+                          borderTopRightRadius: 0,
+                          borderBottomLeftRadius: '0.5rem',
+                          borderBottomRightRadius: '0.5rem'
+                        }}
+                        {...props}
+                      >
+                        {codeString}
+                      </SyntaxHighlighter>
+                    );
+                  }
+                })()
+              ) : (
+                <SyntaxHighlighter
+                  style={syntaxTheme}
+                  language={match[1]}
+                  PreTag="div"
+                  customStyle={{
+                    margin: 0,
+                    borderTopLeftRadius: 0,
+                    borderTopRightRadius: 0,
+                    borderBottomLeftRadius: '0.5rem',
+                    borderBottomRightRadius: '0.5rem'
+                  }}
+                  {...props}
+                >
+                  {codeString}
+                </SyntaxHighlighter>
+              )}
             </div>
           ) : (
             <code className={`${className || ''} bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300`} {...props}>
@@ -99,7 +161,11 @@ const ChatInterface = ({
   onUpdate,
   image,
   setImage,
-  theme  // Add theme prop
+  theme,
+  onSpeak,
+  currentlySpeakingId,
+  onShare,
+  activeConversationId
 }) => {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -109,45 +175,143 @@ const ChatInterface = ({
   const [copiedId, setCopiedId] = useState(null);
   const [copiedCodeId, setCopiedCodeId] = useState(null);
   const [favorites, setFavorites] = useState(new Set());
-  const [recording, setRecording] = useState(false);
-  const [mediaRecorder, setMediaRecorder] = useState(null);
 
-  const startRecording = async () => {
+  // GitHub Repo Link State
+  const [showGithubModal, setShowGithubModal] = useState(false);
+  const [githubRepoInput, setGithubRepoInput] = useState('');
+  const [githubBranchInput, setGithubBranchInput] = useState('main');
+  const [isLinkingRepo, setIsLinkingRepo] = useState(false);
+  const [linkedRepo, setLinkedRepo] = useState(null);
+
+  // Graph State
+  const [showGraph, setShowGraph] = useState(false);
+
+  // Magic Fix State
+  const [isMagicFix, setIsMagicFix] = useState(false);
+
+  // Check for error patterns in input
+  useEffect(() => {
+    const errorPattern = /(Traceback|Error|Exception|TypeError|ValueError|ReferenceError|SyntaxError|IndexError|KeyError|ModuleNotFoundError|RuntimeError|Hata|Failed|Failure)\b/i;
+    setIsMagicFix(errorPattern.test(question));
+  }, [question]);
+
+  const handleCreatePR = async (historyId, aiResponse) => {
+    if (!linkedRepo) {
+      alert("Please link a repository first to create a PR.");
+      return;
+    }
+
+    if (!user) {
+      onAuthRequired?.();
+      return;
+    }
+
+    // Attempt to extract code blocks
+    const codeBlocks = [];
+    const regex = /```(\w+)?\n([\s\S]*?)```/g;
+    let match;
+    while ((match = regex.exec(aiResponse)) !== null) {
+      // In a real robust implementation, we'd know exactly which file these belong to.
+      // For this demo, we'll ask the user or assume the AI defined it.
+      // Since our magic fix prompt says "Output the required file changes", let's extract file paths.
+      // We'll use a naive approach: check the line immediately before the code block.
+
+      const content = match[2];
+      const matchIndex = match.index;
+      const textBefore = aiResponse.substring(0, matchIndex).trim().split('\n').pop();
+      let path = textBefore.replace(/[`:]/g, '').trim();
+
+      if (!path || path.includes(' ')) {
+        path = window.prompt("The AI didn't specify a clear file path. Please enter the file path for this code block (e.g. client/src/App.jsx):");
+      }
+
+      if (path && content) {
+        codeBlocks.push({ path, content });
+      }
+    }
+
+    if (codeBlocks.length === 0) {
+      alert("No code blocks found in the response to create a PR.");
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks = [];
+      // Use existing prompt for branch name and title
+      const newBranch = window.prompt("Enter new branch name:", "code-alchemist-fix") || "code-alchemist-fix";
+      const prTitle = window.prompt("Enter PR title:", "AI Generated Fix") || "AI Generated Fix";
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
+      const repoName = linkedRepo.split(' ')[0]; // remove the branch part (main)
+      const baseBranch = githubBranchInput || 'main';
 
-      recorder.onstop = () => {
-        const checkType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-        const blob = new Blob(chunks, { type: checkType });
-        const ext = checkType === 'audio/webm' ? 'webm' : 'm4a';
-        const file = new File([blob], `voice_message_${Date.now()}.${ext}`, { type: checkType });
+      const res = await fetch(`${apiBase}/api/github/pr`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({
+          repo: repoName,
+          base_branch: baseBranch,
+          new_branch: newBranch,
+          title: prTitle,
+          file_changes: codeBlocks
+        })
+      });
 
-        setImage(file);
-
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      recorder.start();
-      setRecording(true);
-      setMediaRecorder(recorder);
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert("Pull request created successfully! Opening in new tab...");
+        window.open(data.pr_url, '_blank');
+      } else {
+        alert(data.error || "Failed to create PR.");
+      }
     } catch (err) {
-      console.error('Error accessing microphone:', err);
-      alert('Microphone access denied or not available.');
+      alert("Error creating PR.");
+      console.error(err);
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-      setRecording(false);
-      setMediaRecorder(null);
+  const handleLinkGithub = async (e) => {
+    e?.preventDefault();
+    if (!user) {
+      onAuthRequired?.();
+      setShowGithubModal(false);
+      return;
+    }
+    if (!activeConversationId) {
+      alert("Please send a message first to start a conversation before linking a repository.");
+      setShowGithubModal(false);
+      return;
+    }
+
+    if (!githubRepoInput.trim()) return;
+
+    setIsLinkingRepo(true);
+    try {
+      // Sanitize the GitHub URL (remove query parameters and fragments)
+      const cleanRepoUrl = githubRepoInput.split('?')[0].split('#')[0].trim();
+
+      const res = await fetch(`${apiBase}/api/github/link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({ repo: cleanRepoUrl, branch: githubBranchInput, conversation_id: activeConversationId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setLinkedRepo(`${githubRepoInput} (${githubBranchInput})`);
+        alert(data.message + ` (${data.tree_size} files indexed)`);
+        setShowGithubModal(false);
+      } else {
+        alert(data.error || "Failed to link repo.");
+      }
+    } catch (err) {
+      alert("Error linking repository.");
+      console.error(err);
+    } finally {
+      setIsLinkingRepo(false);
     }
   };
 
@@ -253,34 +417,29 @@ const ChatInterface = ({
   };
 
   // Optimized scroll effect - prevents jitter during message streaming
-  // Optimized scroll effect - prevents jitter during message streaming
   useEffect(() => {
-    // Clear any existing timeout
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
+    if (!bottomRef.current) return;
 
     const scrollToBottom = () => {
-      if (bottomRef.current) {
-        // Only force scroll if we are already near the bottom or it's a new message
-        // This prevents fighting the user if they scrolled up to read history
-        const parent = bottomRef.current.parentElement;
-        if (parent) {
-          const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 300;
-          if (isNearBottom || loading) {
-            bottomRef.current.scrollIntoView({
-              behavior: 'smooth',
-              block: 'nearest'
-            });
-          }
-        }
+      const parent = bottomRef.current.parentElement;
+      if (!parent) return;
+
+      const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 300;
+
+      // Use 'auto' instead of 'smooth' during loading to prevent animation jitter
+      // Use 'smooth' only when a new message starts or when transition is stable
+      if (isNearBottom || loading) {
+        bottomRef.current.scrollIntoView({
+          behavior: loading ? 'auto' : 'smooth',
+          block: 'nearest'
+        });
       }
     };
 
-    // Use requestAnimationFrame for performance
-    requestAnimationFrame(scrollToBottom);
-
-  }, [history, loading]);
+    // Use requestAnimationFrame for performance and visual stability
+    const animationId = requestAnimationFrame(scrollToBottom);
+    return () => cancelAnimationFrame(animationId);
+  }, [history.length, loading, history[history.length - 1]?.ai_response?.length]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -311,8 +470,11 @@ const ChatInterface = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+    <div className="flex flex-col h-full overflow-hidden">
+      <div
+        className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar"
+        style={{ overflowAnchor: 'auto', scrollBehavior: loading ? 'auto' : 'smooth' }}
+      >
         {history.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full min-h-[60vh] animate-fadeIn">
             {/* Animated Merhaba */}
@@ -379,6 +541,8 @@ const ChatInterface = ({
             </div>
           </div>
         )}
+
+
 
         {history.map((turn, index) => (
           <div key={turn.id || index} className="space-y-4">
@@ -453,23 +617,14 @@ const ChatInterface = ({
                       <span>{turn.model1Label}</span>
                     </p>
                     <div className="prose prose-invert prose-sm max-w-none text-sm max-h-[300px] overflow-y-auto custom-scrollbar">
-                      <ReactMarkdown
-                        components={{
-                          code({ node, inline, className, children, ...props }) {
-                            const match = /language-(\w+)/.exec(className || '');
-                            const codeString = String(children).replace(/\n$/, '');
-                            return !inline && match ? (
-                              <SyntaxHighlighter style={syntaxTheme} language={match[1]} PreTag="div">
-                                {codeString}
-                              </SyntaxHighlighter>
-                            ) : (
-                              <code className="bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300" {...props}>{children}</code>
-                            );
-                          }
-                        }}
-                      >
-                        {turn.response1}
-                      </ReactMarkdown>
+                      <SmartMarkdown
+                        content={turn.response1}
+                        isStreaming={loading && index === history.length - 1}
+                        syntaxTheme={syntaxTheme}
+                        onCopyCode={copyCodeToClipboard}
+                        copiedCodeId={copiedCodeId}
+                        messageId={`${turn.id}-r1`}
+                      />
                     </div>
                   </div>
 
@@ -491,23 +646,14 @@ const ChatInterface = ({
                       <span>{turn.model2Label}</span>
                     </p>
                     <div className="prose prose-invert prose-sm max-w-none text-sm max-h-[300px] overflow-y-auto custom-scrollbar">
-                      <ReactMarkdown
-                        components={{
-                          code({ node, inline, className, children, ...props }) {
-                            const match = /language-(\w+)/.exec(className || '');
-                            const codeString = String(children).replace(/\n$/, '');
-                            return !inline && match ? (
-                              <SyntaxHighlighter style={syntaxTheme} language={match[1]} PreTag="div">
-                                {codeString}
-                              </SyntaxHighlighter>
-                            ) : (
-                              <code className="bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300" {...props}>{children}</code>
-                            );
-                          }
-                        }}
-                      >
-                        {turn.response2}
-                      </ReactMarkdown>
+                      <SmartMarkdown
+                        content={turn.response2}
+                        isStreaming={loading && index === history.length - 1}
+                        syntaxTheme={syntaxTheme}
+                        onCopyCode={copyCodeToClipboard}
+                        copiedCodeId={copiedCodeId}
+                        messageId={`${turn.id}-r2`}
+                      />
                     </div>
                   </div>
                 </div>
@@ -614,6 +760,39 @@ const ChatInterface = ({
                         <span>{favorites.has(turn.id) ? 'Saved' : 'Save'}</span>
                       </button>
 
+                      {/* Voice Alchemy: Listen Toggle Button */}
+                      <button
+                        onClick={() => onSpeak(turn.ai_response, turn.id)}
+                        className={`flex items-center gap-1 text-xs transition-colors ${currentlySpeakingId === turn.id ? 'text-fuchsia-400' : 'text-gray-400 hover:text-fuchsia-400'}`}
+                        title={currentlySpeakingId === turn.id ? "Stop Listening" : "Listen to Response"}
+                      >
+                        {currentlySpeakingId === turn.id ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          </svg>
+                        )}
+                        <span>{currentlySpeakingId === turn.id ? 'Playing...' : 'Listen'}</span>
+                      </button>
+
+                      {/* Create GitHub PR Button (Visible only if repo is linked and has code) */}
+                      {linkedRepo && turn.ai_response.includes('```') && (
+                        <button
+                          onClick={() => handleCreatePR(turn.id, turn.ai_response)}
+                          className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors ml-2 px-2 py-1 bg-blue-900/20 hover:bg-blue-900/40 border border-blue-500/30 rounded"
+                          title="Generate a Pull Request on GitHub for these changes"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                          </svg>
+                          <span>Create PR</span>
+                        </button>
+                      )}
+
                       {/* Continue Button - Show only for last response */}
                       {index === history.length - 1 && turn.ai_response && (
                         <button
@@ -665,14 +844,16 @@ const ChatInterface = ({
         ))}
 
         {loading && (
-          <div className="flex justify-start animate-pulse">
-            <div className="bg-gray-800/50 px-4 py-3 rounded-2xl rounded-tl-none">
-              <div className="flex gap-2">
-                <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          <div className="flex flex-col items-center justify-center py-8 animate-fadeIn">
+            <div className="relative w-12 h-12 mb-2">
+              <div className="absolute inset-0 bg-fuchsia-500/20 rounded-full animate-ping" />
+              <div className="absolute inset-2 bg-gradient-to-tr from-purple-600 to-fuchsia-600 rounded-full animate-spin shadow-[0_0_15px_rgba(192,38,211,0.5)]">
+                <div className="absolute top-1 left-1 w-2 h-2 bg-white rounded-full opacity-60" />
               </div>
             </div>
+            <p className="text-[10px] font-mono text-fuchsia-400 uppercase tracking-widest animate-pulse">
+              ⚗️ Transmuting Knowledge...
+            </p>
           </div>
         )}
         <div ref={bottomRef} />
@@ -753,74 +934,222 @@ const ChatInterface = ({
             </div>
           )}
 
-          <div className="flex gap-3 items-center mobile-input-container">
-            <div className="flex-1 relative">
-              <textarea
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={recording ? "Listening..." : "Type your question here..."}
-                className={`w-full bg-gray-800/50 p-4 pr-24 rounded-xl border ${recording ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-700'} focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 outline-none resize-none h-[60px] custom-scrollbar shadow-inner transition-colors`}
-              />
-
-              {/* Mic Button & Send Button Container */}
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                {/* Mic Button */}
-                {!loading && !image && (
-                  <button
-                    onClick={recording ? stopRecording : startRecording}
-                    className={`p-2 rounded-lg transition-all ${recording ? 'bg-red-500 text-white animate-pulse' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
-                    title={recording ? "Stop Recording" : "Voice Message"}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 10.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-5v-2.07z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                )}
-
+          <div className="flex items-center gap-2 mb-2 w-fit">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/20 border border-blue-500/30 rounded-lg text-xs text-blue-300">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+              </svg>
+              <span>Linked to: <strong>{linkedRepo}</strong></span>
+              <button
+                onClick={() => setLinkedRepo(null)}
+                className="ml-2 hover:text-white transition-colors"
+                title="Remove Link"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowGraph(true)}
+                className="px-3 py-1.5 bg-pink-900/20 hover:bg-pink-900/40 border border-pink-500/30 rounded-lg text-xs text-pink-300 transition-colors flex items-center gap-1 shadow-sm"
+                title="View Context Architecture Graph"
+              >
+                <span>🌌</span> Graph View
+              </button>
+              {history.length > 0 && (
                 <button
-                  onClick={onAsk}
-                  disabled={loading || (!question.trim() && !image)}
-                  className="p-2 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-lg transition-all shadow-lg shadow-fuchsia-900/20"
+                  onClick={onShare}
+                  className="px-3 py-1.5 bg-purple-900/20 hover:bg-purple-900/40 border border-purple-500/30 rounded-lg text-xs text-purple-300 transition-colors flex items-center gap-1 shadow-sm"
+                  title="Share this conversation to the community"
                 >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                    </svg>
-                  )}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                  <span>Share to Community</span>
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="w-full bg-gray-800/80 rounded-2xl border border-gray-700/50 focus-within:border-fuchsia-500/50 focus-within:ring-1 focus-within:ring-fuchsia-500/50 shadow-inner flex flex-col transition-all backdrop-blur-sm relative">
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your question here..."
+              className="w-full bg-transparent p-4 outline-none resize-none min-h-[60px] max-h-[200px] custom-scrollbar text-white placeholder-gray-500"
+              style={{ minHeight: '60px' }}
+            />
+
+            {/* Bottom Action Bar */}
+            <div className="flex items-center justify-between px-3 pb-3">
+              {/* Left Actions */}
+              <div className="flex items-center gap-1">
+                <input
+                  type="file"
+                  accept="image/*,audio/*,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m,.pdf,.doc,.docx"
+                  className="hidden"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                />
+
+                {/* Paperclip / Attach Button */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`p-2 rounded-xl transition-all ${image ? 'text-fuchsia-400 bg-fuchsia-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                  title="Attach File"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                </button>
+
+                {/* Voice Recorder */}
+                <VoiceRecorder
+                  onRecordComplete={(blob) => {
+                    const file = new File([blob], `voice_secret_${Date.now()}.webm`, { type: 'audio/webm' });
+                    setImage(file);
+                  }}
+                />
+
+                {/* GitHub Integration */}
+                <button
+                  onClick={() => setShowGithubModal(true)}
+                  className={`p-2 rounded-xl transition-all ${linkedRepo ? 'text-blue-400 bg-blue-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                  title="Link GitHub Repository"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                  </svg>
                 </button>
               </div>
+
+              {/* Right Actions: Send / Fix */}
+              <div className="flex items-center gap-2">
+                {isMagicFix ? (
+                  <button
+                    onClick={(e) => onAsk(e)}
+                    disabled={loading || (!question.trim() && !image)}
+                    className="flex justify-center items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-pink-400 text-white font-bold rounded-full shadow-lg shadow-fuchsia-500/30 transition-all hover:scale-105 animate-pulse-slow disabled:opacity-50 disabled:hover:scale-100"
+                    title="Magic Fix (Detects root cause)"
+                  >
+                    {loading ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <span>🪄</span>
+                        <span className="text-sm">Fix</span>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={onAsk}
+                    disabled={loading || (!question.trim() && !image)}
+                    className="p-2 px-3 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-xl transition-all shadow-lg shadow-fuchsia-900/20 group"
+                  >
+                    {loading ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium mr-1 hidden sm:block">Send</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 rotate-90 group-hover:translate-x-1 group-active:translate-y-1 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
+          </div>        </div>
+      </div>
 
-            {/* Action Buttons Group */}
-            <div className="flex flex-col gap-2">
-              <input
-                type="file"
-                accept="image/*,audio/*,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m,.pdf,.doc,.docx"
-                className="hidden"
-                ref={fileInputRef}
-                onChange={handleFileSelect}
-              />
+      {/* GitHub Modal */}
+      {showGithubModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600" />
 
-              {/* Attachment Button */}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className={`w-[60px] h-[60px] flex items-center justify-center rounded-xl border transition-all shadow-lg ${image
-                  ? 'bg-fuchsia-900/30 border-fuchsia-500 text-fuchsia-300'
-                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-fuchsia-400 hover:border-fuchsia-500/50'
-                  }`}
-                title="Attach Photo/Audio/Document"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            <button
+              onClick={() => setShowGithubModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="text-white">
+                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
                 </svg>
-              </button>
+                <h2 className="text-xl font-bold text-white">Link GitHub Repository</h2>
+              </div>
+
+              <p className="text-sm text-gray-400 mb-6">
+                Connect a repository to allow the AI to understand your entire project context.
+              </p>
+
+              <form onSubmit={handleLinkGithub} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Repository URL or Format (owner/repo)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. username/repository"
+                    value={githubRepoInput}
+                    onChange={e => setGithubRepoInput(e.target.value)}
+                    className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Branch (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="main"
+                    value={githubBranchInput}
+                    onChange={e => setGithubBranchInput(e.target.value)}
+                    className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLinkingRepo || !githubRepoInput.trim()}
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition-all mt-4"
+                >
+                  {isLinkingRepo ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Connecting to GitHub...
+                    </span>
+                  ) : (
+                    'Link Repository'
+                  )}
+                </button>
+              </form>
             </div>
           </div>
         </div>
-      </div>
+      )}
+      {/* GitHub Graph Modal */}
+      {showGraph && (
+        <GitHubGraph
+          repo={linkedRepo}
+          branch={githubBranchInput || 'main'}
+          conversationId={activeConversationId}
+          onClose={() => setShowGraph(false)}
+          apiBase={apiBase}
+          authHeaders={authHeaders}
+        />
+      )}
+
     </div>
   );
 };
