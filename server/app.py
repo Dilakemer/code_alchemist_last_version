@@ -2067,7 +2067,15 @@ def ask():
         if detected_lang != 'unknown':
             intent = 'code'
             
-        model, routing_reason = model_router.route(detected_lang, intent, prefs)
+        model, _router_reason = model_router.route(detected_lang, intent, prefs)
+        
+        # Build a clear routing message: show detected language + responding model
+        lang_display = detected_lang if detected_lang != 'unknown' else 'general'
+        routing_reason = (
+            f"🔍 **Detected Language**: `{lang_display}` | "
+            f"🤖 **Responding Model**: `{model}`\n\n"
+            f"_{_router_reason}_"
+        )
 
         # Debug print
         print(f"DEBUG: Smart Routing -> Intent: {intent}, Lang: {detected_lang} -> {model}")
@@ -2161,6 +2169,7 @@ def ask():
                     'conversation_id': current_conv.id,
                     'summary': summary,
                     'routing_reason': routing_reason,
+                    'selected_model': model,
                     'persona': history.persona
                 }
                 yield f"data: {json.dumps(final_data)}\n\n"
