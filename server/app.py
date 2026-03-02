@@ -1879,7 +1879,7 @@ def ask():
     if request.content_type and 'multipart/form-data' in request.content_type:
         question = request.form.get('question', '')
         code = request.form.get('code', '')
-        model = request.form.get('model', 'gemini-2.5-pro')
+        model = request.form.get('model', 'auto')
         conversation_id = request.form.get('conversation_id')
         if conversation_id == 'null' or conversation_id == 'undefined':
             conversation_id = None
@@ -1895,7 +1895,7 @@ def ask():
         data = request.get_json(silent=True) or {}
         question = data.get('question', '')
         code = data.get('code', '')
-        model = data.get('model', 'gemini-2.5-pro')
+        model = data.get('model', 'auto')
         conversation_id = data.get('conversation_id')
         image_path = None
     
