@@ -7,7 +7,7 @@ class ModelRouter:
     3. User Preferences (Saved favorite models)
     """
 
-    def __init__(self, default_model='gemini-2.5-flash'):
+    def __init__(self, default_model='gemini-1.5-flash'):
         self.default_model = default_model
 
     def route(self, language: str, intent: str, user_prefs: dict = None) -> tuple[str, str]:
@@ -22,8 +22,8 @@ class ModelRouter:
         # If it's something highly specific like 'image_generation', we might ignore preference.
         if preferred_model != 'auto' and intent in ['code', 'general']:
             model_type_map = {
-                'claude': 'claude-sonnet-4-5-20250929',
-                'gemini': 'gemini-2.5-pro',
+                'claude': 'claude-3-5-sonnet-20241022',
+                'gemini': 'gemini-1.5-pro',
                 'gpt': 'gpt-4o'
             }
             # If the user has a preferred model key (e.g. 'claude'), map it to the actual model ID
@@ -32,7 +32,7 @@ class ModelRouter:
 
         # 2. Intent-Based Routing
         if intent == 'creative':
-            return 'gemini-3-flash-preview', "🎨 Creative Task: **Gemini 3 Flash** chosen for creativity."
+            return 'gemini-1.5-flash', "🎨 Creative Task: **Gemini 1.5 Flash** chosen for creativity."
         
         elif intent == 'logic':
             return 'gpt-4o', "🧠 Complex Logic: **GPT-4o** chosen for reasoning capabilities."
@@ -42,13 +42,13 @@ class ModelRouter:
 
         # 3. Language-Based Routing (The core "Auto-Router")
         if language == 'python':
-            return 'gemini-2.5-flash', "🐍 Python: **Gemini 2.5 Flash** chosen (Fast & Capable - Pro unavailable)."
+            return 'gemini-1.5-flash', "🐍 Python: **Gemini 1.5 Flash** chosen (Fast & Capable)."
         
         elif language in ['java', 'csharp', 'sql', 'kotlin', 'swift']:
             return 'gpt-4o', f"☕ Enterprise Language ({language}): **GPT-4o** chosen for robustness."
         
         elif language in ['javascript', 'typescript', 'html', 'css', 'cpp', 'c', 'rust', 'go']:
-            return 'claude-sonnet-4-5-20250929', f"💻 Systems/Web ({language}): **Claude 3.5 Sonnet** chosen (State-of-the-art for coding)."
+            return 'claude-3-5-sonnet-20241022', f"💻 Systems/Web ({language}): **Claude 3.5 Sonnet** chosen (State-of-the-art for coding)."
 
         # 4. Default / General Fallback
-        return self.default_model, "🚀 General Query: **Gemini 2.5 Flash** (Balanced & Fast)."
+        return self.default_model, "🚀 General Query: **Gemini 1.5 Flash** (Balanced & Fast)."

@@ -131,7 +131,7 @@ else:
 
 # --- 2. CLAUDE KONFIGURASYONU ---
 # Varsayılan model olarak hızlı ve zeki olan Sonnet 4.5'i seçtik
-ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-sonnet-4-5-20250929')
+ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-3-5-sonnet-20241022')
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 claude_client = None
@@ -301,13 +301,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
     # Model Seçimi
     if requested_model and ('gemini' in requested_model or 'gemma' in requested_model):
         model_mapping = {
-            'gemma-3-27b': 'gemini-1.5-flash',
-            'gemma-2-27b-it': 'gemini-1.5-flash',
-            'gemma-2-9b-it': 'gemini-1.5-flash',
-            'gemini-3-flash': 'gemini-3-flash-preview',
-            'gemini-2.5-flash': 'gemini-2.5-flash',
-            'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
-            'gemini-2.5-pro': 'gemini-2.5-pro',
+            'gemini-2.0-flash': 'gemini-2.0-flash-exp',
             'gemini-1.5-flash': 'gemini-1.5-flash',
             'gemini-1.5-pro': 'gemini-1.5-pro',
             'gemini-1.5-flash-8b': 'gemini-1.5-flash-8b'
@@ -321,16 +315,17 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         # 1. Hedef modeli ekle
         fallback_chain.append(target_id)
         
-        # 2. Eğer hedef model "lite" değilse, sırasıyla güçlüden zayıfa alternatif ekle
-        if 'lite' not in target_id:
-            # Önce 2.5 Flash (Yüksek kota, çok hızlı)
-            fallback_chain.append('gemini-2.5-flash')
-            # 2.5 Flash Lite (En yüksek kota)
-            fallback_chain.append('gemini-2.5-flash-lite') 
-            # 2.0 Flash
-            fallback_chain.append('gemini-2.0-flash')
+        # 2. Eğer hedef model "1.5-flash-8b" değilse, sırasıyla güçlüden zayıfa alternatif ekle
+        if '8b' not in target_id:
+            # 2.0 Flash (Hızlı ve zeki)
+            if 'gemini-2.0-flash-exp' not in fallback_chain:
+                fallback_chain.append('gemini-2.0-flash-exp')
             # 1.5 Flash (Geniş kota)
-            fallback_chain.append('gemini-1.5-flash')
+            if 'gemini-1.5-flash' not in fallback_chain:
+                fallback_chain.append('gemini-1.5-flash')
+            # 1.5 Flash 8b (En geniş kota)
+            if 'gemini-1.5-flash-8b' not in fallback_chain:
+                fallback_chain.append('gemini-1.5-flash-8b')
             
         # Ensure 1.5 Flash is always at the end of fallback as a reliable alternative
         if 'gemini-1.5-flash' not in fallback_chain:
@@ -562,7 +557,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
 
     if not model_success:
         yield "\n\n*> [System]: All Gemini models failed (Quota/Service). Falling back to **Claude**...*\n\n"
-        yield from generate_claude_answer(question, code, history_context, 'claude-3-5-sonnet-20240620', image_path, prefs, github_context, depth + 1)
+        yield from generate_claude_answer(question, code, history_context, 'claude-3-5-sonnet-20241022', image_path, prefs, github_context, depth + 1)
 
 
 def generate_claude_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None, depth: int = 0):
