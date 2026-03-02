@@ -119,9 +119,21 @@ def expired_token_callback(jwt_header, jwt_payload):
     print(f"JWT Expired: {jwt_payload}")
     return jsonify({'error': 'Token expired'}), 401
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Log the error
+    print(f"🔥 GLOBAL ERROR: {str(e)}")
+    import traceback
+    traceback.print_exc()
+    # Return JSON instead of HTML for all errors
+    return jsonify({
+        'error': 'An internal server error occurred.',
+        'details': str(e)
+    }), 500
+
 # --- 1. GEMINI KONFIGURASYONU ---
-# Varsayılan model olarak 2.5 Flash'ı seçtik (yeni standart)
-GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.5-flash')
+# Varsayılan model olarak en kararlı ve yüksek kotalı olan 1.5 Flash'ı seçtik
+GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-1.5-flash')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 if GEMINI_API_KEY:
@@ -868,74 +880,87 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
         yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context, depth + 1)
 
 
-def generate_conversation_title(question: str, answer: str = None) -> str:
+def generate_conversation_title(question: str, answer: str = None):
     """Sohbet için kısa ve öz bir başlık üretir."""
     if not question:
         return "New Chat"
+        
+    prompt = f"""
+    Create a very short, catchy title (max 5-6 words) for the following user question.
+    Use the same language as the user.
+    Do NOT use quotes or special characters.
     
-    # Önce basit bir başlık oluştur (ilk 40 karakter)
-    simple_title = question.strip()[:40]
-    if len(question) > 40:
-        simple_title += "..."
+    Question: {question}
+    Answer Summary: {answer[:200] if answer else "None"}
     
-    # Gemini ile daha iyi başlık üretmeyi dene
-    if GEMINI_API_KEY:
-        try:
-            title_prompt = (
-                "Write a very short title summarizing this question (max 5-6 words). "
-                "Respond in the same language as the question. "
-                "Only write the title, do not add anything else:\n\n"
-                f"Question: {question[:200]}"
-            )
-            
-            # Önce 2.5 Flash Lite (Yüksek kota), sonra 2.0 Flash, son çare 1.5 Flash 8B
-            for model_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash-8b']:
+    Title:"""
+    
+    # Try Gemini -> GPT -> Claude
+    try:
+        if GEMINI_API_KEY:
+            # Try multiple gemini models
+            for m_name in ['models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-2.0-flash-exp']:
                 try:
-                    model = genai.GenerativeModel(model_name)
-                    result = model.generate_content(title_prompt)
-                    title_text = getattr(result, "text", "").strip()
-                    if title_text:
-                        # Başlığı temizle (fazla uzunsa kısalt)
-                        title_text = title_text.replace('"', '').replace("'", "").strip()
-                        return title_text[:50] if len(title_text) > 50 else title_text
-                except Exception as e:
-                    print(f"Başlık üretimi hatası ({model_name}): {e}")
+                    model = genai.GenerativeModel(m_name)
+                    response = model.generate_content(prompt)
+                    title = response.text.strip().replace('"', '').replace("'", "")
+                    if title: return title
+                except:
                     continue
-        except Exception as exc:
-            print(f"Başlık üretimi genel hatası: {exc}")
-    
-    return simple_title
+
+        if openai_client:
+            try:
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=20
+                )
+                title = response.choices[0].message.content.strip().replace('"', '').replace("'", "")
+                if title: return title
+            except:
+                pass
+            
+        return question[:30] + "..."
+    except:
+        return question[:30] + "..."
 
 
 def summarize_answer(answer: str) -> str:
     if not answer:
         return ""
 
-    # Özetleme için Gemini kullanıyoruz. 2.0 Flash daha yüksek ücretsiz limitlere sahip.
-    if GEMINI_API_KEY:
-        try:
-            summary_prompt = (
-                "Summarize the following response in at most three bullet points. "
-                "Give short and actionable tips:\n\n"
-                f"{answer[:2000]}"  # Token tasarrufu için sınırla
-            )
-            
-            # Öncelik sırası: 2.5 Flash Lite > 2.0 Flash > 1.5 Flash 8B
-            for model_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash-8b']:
-                try:
-                    model = genai.GenerativeModel(model_name)
-                    # Timeout ekle: 10 saniye içinde özetlemezse geç
-                    summary_result = model.generate_content(summary_prompt)
-                    summary_text = getattr(summary_result, "text", "")
-                    if summary_text:
-                        return summary_text.strip()
-                except Exception as e:
-                    print(f"Özetleme hatası ({model_name}): {e}")
-                    continue
-        except Exception as exc:
-            print(f"Özetleme genel hatası: {exc}")
+    prompt = (
+        "Summarize the following AI answer in one short sentence. "
+        "Focus on the main technical solution or advice. "
+        "Keep it under 15 words:\n\n"
+        f"{answer[:1000]}"
+    )
 
-    return answer[:240] + ("..." if len(answer) > 240 else "")
+    # Try Gemini -> GPT -> Claude
+    try:
+        if GEMINI_API_KEY:
+            for m_name in ['models/gemini-1.5-flash', 'models/gemini-pro']:
+                try:
+                    model = genai.GenerativeModel(m_name)
+                    response = model.generate_content(prompt)
+                    summary = response.text.strip()
+                    if summary: return summary
+                except: continue
+
+        if openai_client:
+            try:
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=30
+                )
+                summary = response.choices[0].message.content.strip()
+                if summary: return summary
+            except: pass
+            
+        return answer[:100] + "..."
+    except:
+        return answer[:100] + "..."
 
 
 def get_user_preferences(user):
@@ -1077,9 +1102,6 @@ def post_process_response(text: str) -> str:
 
 def detect_intent(question: str, code: str = "") -> str:
     """Kullanıcı sorusunun niyetini belirler."""
-    if not GEMINI_API_KEY:
-        return "general"
-
     intent_prompt = f"""Analyze the user's question and determine the primary intent.
 Choose exactly one of the following categories:
 - 'code': Debugging, refactoring, code explanation, or technical implementation.
@@ -1092,22 +1114,48 @@ Related Code: {code if code else "None"}
 
 Respond with ONLY the category name.
 """
+    
+    # Strategy: Try Gemini 1.5 Flash -> 1.5 Pro -> GPT-4o-mini -> Claude
     try:
-        # Use Gemini 1.5 Flash for reliable intent detection
-        try:
-            model = genai.GenerativeModel('models/gemini-1.5-flash')
-        except:
-            model = genai.GenerativeModel('models/gemini-pro')
+        if GEMINI_API_KEY:
+            for m_name in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']:
+                try:
+                    model = genai.GenerativeModel(m_name)
+                    result = model.generate_content(intent_prompt)
+                    intent = getattr(result, "text", "general").strip().lower().replace("'", "").replace('"', '')
+                    if intent in ['code', 'logic', 'creative', 'general']:
+                        return intent
+                except Exception as ge:
+                    if "429" in str(ge) or "quota" in str(ge).lower():
+                        continue # Try next model
+                    break # Other error, try another provider
+
+        # Fallback to GPT-4o-mini if OpenAI is available
+        if openai_client:
+            try:
+                response = openai_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": intent_prompt}],
+                    max_tokens=10
+                )
+                intent = response.choices[0].message.content.strip().lower()
+                if intent in ['code', 'logic', 'creative', 'general']: return intent
+            except: pass
+
+        # Fallback to Claude if available
+        if claude_client:
+            try:
+                response = claude_client.messages.create(
+                    model="claude-3-5-haiku-20241022",
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": intent_prompt}]
+                )
+                intent = response.content[0].text.strip().lower()
+                if intent in ['code', 'logic', 'creative', 'general']: return intent
+            except: pass
             
-        result = model.generate_content(intent_prompt)
-        intent = getattr(result, "text", "general").strip().lower().replace("'", "").replace('"', '')
-        
-        # Validate intent
-        if intent in ['code', 'logic', 'creative', 'general']:
-            return intent
         return "general"
-    except Exception as e:
-        print(f"Intent detection error: {e}")
+    except:
         return "general"
 
 

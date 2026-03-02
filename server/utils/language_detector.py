@@ -73,46 +73,47 @@ class LanguageDetector:
         if not self.gemini_api_key:
             return "unknown"
             
-        try:
-            # Use Gemini 2.5 Flash Lite or similar fast model
-            # Primary: Gemini 1.5 Flash (Highest free quota), Fallback: 1.5 Pro or similar
-            try:
-                model = genai.GenerativeModel('models/gemini-1.5-flash')
-            except:
-                # Last resort
-                return "unknown"
+        prompt = f"""
+        Identify the programming language of the following text/code. 
+        If it's natural language without code, return 'natural'.
+        If it's pseudo-code or generic algorithm, return 'pseudo'.
+        
+        Return ONLY the language name in lowercase (e.g. python, java, javascript).
+        
+        Text sample: 
+        {content[:1000]}
+        """
 
-            prompt = f"""
-            Identify the programming language of the following text/code. 
-            If it's natural language without code, return 'natural'.
-            If it's pseudo-code or generic algorithm, return 'pseudo'.
-            
-            Return ONLY the language name in lowercase (e.g. python, java, javascript).
-            
-            Text sample: 
-            {content[:1000]}
-            """
-            result = model.generate_content(prompt)
-            detected = getattr(result, "text", "unknown").strip().lower()
-            
-            # Clean up response
-            detected = detected.replace("'", "").replace('"', '').replace('.', '')
-            
-            # Allow common variations
-            mapping = {
-                'js': 'javascript',
-                'node': 'javascript',
-                'nodejs': 'javascript',
-                'py': 'python',
-                'c#': 'csharp',
-                'c++': 'cpp',
-                'shell': 'bash',
-                'goland': 'go',
-                'golang': 'go'
-            }
-            
-            return mapping.get(detected, detected)
-            
-        except Exception as e:
-            print(f"Language detection API error: {e}")
-            return "unknown"
+        # Strategy: Try Flash -> Pro -> Pro
+        for m_name in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']:
+            try:
+                model = genai.GenerativeModel(m_name)
+                result = model.generate_content(prompt)
+                detected = getattr(result, "text", "unknown").strip().lower()
+                
+                # Clean up response
+                detected = detected.replace("'", "").replace('"', '').replace('.', '')
+                
+                # Allow common variations
+                mapping = {
+                    'js': 'javascript',
+                    'node': 'javascript',
+                    'nodejs': 'javascript',
+                    'py': 'python',
+                    'c#': 'csharp',
+                    'c++': 'cpp',
+                    'shell': 'bash',
+                    'goland': 'go',
+                    'golang': 'go'
+                }
+                
+                return mapping.get(detected, detected)
+            except Exception as e:
+                if "429" in str(e) or "quota" in str(e).lower():
+                    print(f"Gemini {m_name} quota hit, trying next model...")
+                    continue
+                print(f"Language detection API error with {m_name}: {e}")
+                # Try next model anyway if possible
+                continue
+
+        return "unknown"
