@@ -278,11 +278,14 @@ const ChatInterface = ({
       setShowGithubModal(false);
       return;
     }
+    // REMOVED: conversation_id is now optional for verification
+    /*
     if (!activeConversationId) {
       alert("Please send a message first to start a conversation before linking a repository.");
       setShowGithubModal(false);
       return;
     }
+    */
 
     if (!githubRepoInput.trim()) return;
 
@@ -297,11 +300,25 @@ const ChatInterface = ({
           'Content-Type': 'application/json',
           ...authHeaders
         },
-        body: JSON.stringify({ repo: cleanRepoUrl, branch: githubBranchInput, conversation_id: activeConversationId })
+        body: JSON.stringify({
+          repo: cleanRepoUrl,
+          branch: githubBranchInput,
+          conversation_id: activeConversationId || null
+        })
       });
       const data = await res.json();
       if (res.ok) {
-        setLinkedRepo(`${githubRepoInput} (${githubBranchInput})`);
+        // Use repo/branch from response or input
+        const finalRepo = data.repo || cleanRepoUrl;
+        const finalBranch = data.branch || githubBranchInput;
+        setLinkedRepo(`${finalRepo} (${finalBranch})`);
+
+        // If no active conversation, we need to notify the parent (App.jsx)
+        // so it can include this repo in the FIRST message sent.
+        if (!activeConversationId && onUpdate) {
+          onUpdate({ linkedRepo: finalRepo, linkedBranch: finalBranch });
+        }
+
         alert(data.message + ` (${data.tree_size} files indexed)`);
         setShowGithubModal(false);
       } else {
@@ -1135,7 +1152,7 @@ const ChatInterface = ({
       {/* GitHub Graph Modal */}
       {showGraph && (
         <GitHubGraph
-          repo={linkedRepo}
+          repo={linkedRepo ? linkedRepo.split(' (')[0] : null}
           branch={githubBranchInput || 'main'}
           conversationId={activeConversationId}
           onClose={() => setShowGraph(false)}

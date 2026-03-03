@@ -84,8 +84,8 @@ class LanguageDetector:
         {content[:1000]}
         """
 
-        # Strategy: Try Flash -> Pro -> Pro
-        for m_name in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']:
+        # Strategy: Gemini 2.5 Flash Lite (10 RPM, highest quota) -> Gemini 2.5 Flash (5 RPM)
+        for m_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.5-flash']:
             try:
                 model = genai.GenerativeModel(m_name)
                 result = model.generate_content(prompt)

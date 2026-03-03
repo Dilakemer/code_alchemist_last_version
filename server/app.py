@@ -132,8 +132,9 @@ def handle_exception(e):
     }), 500
 
 # --- 1. GEMINI KONFIGURASYONU ---
-# Varsayılan model olarak en kararlı ve yüksek kotalı olan 1.5 Flash'ı seçtik
-GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-1.5-flash')
+# Varsayılan model olarak kararlı ve yüksek performanslı Gemini 2.0 Flash'ı seçtik
+# Varsayılan model olarak en yüksek ücretsâz kotalı Gemini 2.5 Flash Lite'i seçtik (10 RPM)
+GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.5-flash-lite')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 if GEMINI_API_KEY:
@@ -202,12 +203,11 @@ def transcribe_audio_with_gemini(audio_path):
             elif file_ext == '.ogg': mime_type = 'audio/ogg'
             else: mime_type = 'audio/mp3'
 
-        # Denenecek model listesi (En yeni/güçlüden en stabile)
+        # Denenecek model listesi (En yüksek ücretsiz kotadan en düşüğe)
         model_candidates = [
             GEMINI_MODEL.replace('models/', ''), # .env'deki model
-            "gemini-2.0-flash-exp",
-            "gemini-1.5-flash",
-            "gemini-2.0-flash"
+            "gemini-2.5-flash-lite",  # 10 RPM - En yüksek ücretsiz kota
+            "gemini-2.5-flash"        # 5 RPM - Yedek
         ]
         
         last_error = None
@@ -313,10 +313,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
     # Model Seçimi
     if requested_model and ('gemini' in requested_model or 'gemma' in requested_model):
         model_mapping = {
-            'gemini-2.0-flash': 'gemini-2.0-flash-exp',
-            'gemini-1.5-flash': 'gemini-1.5-flash',
-            'gemini-1.5-pro': 'gemini-1.5-pro',
-            'gemini-1.5-flash-8b': 'gemini-1.5-flash-8b'
+            'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',  # 10 RPM
+            'gemini-2.5-flash': 'gemini-2.5-flash',            # 5 RPM
         }
         
         target_id = model_mapping.get(requested_model, requested_model)
@@ -327,21 +325,10 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         # 1. Hedef modeli ekle
         fallback_chain.append(target_id)
         
-        # 2. Eğer hedef model "1.5-flash-8b" değilse, sırasıyla güçlüden zayıfa alternatif ekle
-        if '8b' not in target_id:
-            # 2.0 Flash (Hızlı ve zeki)
-            if 'gemini-2.0-flash-exp' not in fallback_chain:
-                fallback_chain.append('gemini-2.0-flash-exp')
-            # 1.5 Flash (Geniş kota)
-            if 'gemini-1.5-flash' not in fallback_chain:
-                fallback_chain.append('gemini-1.5-flash')
-            # 1.5 Flash 8b (En geniş kota)
-            if 'gemini-1.5-flash-8b' not in fallback_chain:
-                fallback_chain.append('gemini-1.5-flash-8b')
-            
-        # Ensure 1.5 Flash is always at the end of fallback as a reliable alternative
-        if 'gemini-1.5-flash' not in fallback_chain:
-             fallback_chain.append('gemini-1.5-flash')
+        # 2. Kota sırasına göre yedek modeller (2.0 Flash ücretsiz planda 0 kota!)
+        for alt in ['gemini-2.5-flash-lite', 'gemini-2.5-flash']:
+            if alt not in fallback_chain:
+                fallback_chain.append(alt)
 
         print(f"--- Model Zinciri: {fallback_chain} ---")
         
@@ -357,8 +344,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         if github_context:
             system_instruction += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
     else:
-        # Varsayılan (Fallback zinciri ile)
-        fallback_chain = [GEMINI_MODEL, 'gemini-1.5-flash']
+        # Varsayılan (Fallback zinciri ile - 2.0 Flash ücretsiz planda 0 kota)
+        fallback_chain = [GEMINI_MODEL, 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
 
     system_prompt = (
         "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
@@ -899,7 +886,7 @@ def generate_conversation_title(question: str, answer: str = None):
     try:
         if GEMINI_API_KEY:
             # Try multiple gemini models
-            for m_name in ['models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-2.0-flash-exp']:
+            for m_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.5-flash']:
                 try:
                     model = genai.GenerativeModel(m_name)
                     response = model.generate_content(prompt)
@@ -939,7 +926,7 @@ def summarize_answer(answer: str) -> str:
     # Try Gemini -> GPT -> Claude
     try:
         if GEMINI_API_KEY:
-            for m_name in ['models/gemini-1.5-flash', 'models/gemini-pro']:
+            for m_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.5-flash']:
                 try:
                     model = genai.GenerativeModel(m_name)
                     response = model.generate_content(prompt)
@@ -1101,57 +1088,85 @@ def post_process_response(text: str) -> str:
 
 
 def detect_intent(question: str, code: str = "") -> str:
-    """Kullanıcı sorusunun niyetini belirler."""
-    intent_prompt = f"""Analyze the user's question and determine the primary intent.
-Choose exactly one of the following categories:
-- 'code': Debugging, refactoring, code explanation, or technical implementation.
-- 'logic': Complex algorithms, math, or abstract logical problems.
-- 'creative': Writing, storytelling, poetry, or creative brainstorming.
-- 'general': Greetings, simple facts, general conversation, or quick questions.
+    """
+    Detects the user's intent from their question to route to the right model.
+    
+    Returns one of: simple | simple_code | debug | explain | architecture | creative | general | image_generation
+    """
+    intent_prompt = f"""Analyze the user's question and classify it into EXACTLY ONE intent category.
+
+Categories (pick the BEST match):
+- 'simple':       Quick factual questions, short summaries, one-liner answers. 
+                  Examples: "What is REST?", "Summarize this text", "What does API stand for?"
+- 'simple_code':  Basic/trivial code requests. Small functions, simple loops, basic syntax.
+                  Examples: "Write a loop to print 1-10", "Reverse a string", "Sort a list"
+- 'debug':        Finding bugs, fixing errors, reading tracebacks or stack traces.
+                  Examples: "Why does my code crash?", "Fix this error: TypeError", "Debug this"  
+- 'explain':      Conceptual explanations, how-something-works, principle overviews.
+                  Examples: "Explain SOLID principles", "How does JWT work?", "What is polymorphism?"
+- 'architecture': Complex system design, large-scale refactoring, multi-component patterns.
+                  Examples: "Design a microservice architecture", "How to structure a clean architecture project"
+- 'creative':     Writing, storytelling, poetry, brainstorming, non-technical creativity.
+                  Examples: "Write a story about...", "Generate a tagline for..."
+- 'general':      Greetings, off-topic chat, general conversation.
+                  Examples: "Hello", "How are you?", "What's the weather?"
+- 'image_generation': Explicit requests to generate/draw/create an image or picture.
+
+IMPORTANT RULES:
+- If the question starts with "kısaca", "briefly", "in short", "özetle" → prefer 'simple' or 'explain' (NOT 'architecture')
+- Only use 'architecture' for truly complex multi-component system design questions
+- Questions about explaining concepts (even code concepts) → 'explain', NOT 'architecture'
+- Simple one-off code snippets → 'simple_code', NOT 'explain'
 
 User Question: {question}
 Related Code: {code if code else "None"}
 
-Respond with ONLY the category name.
-"""
-    
-    # Strategy: Try Gemini 1.5 Flash -> 1.5 Pro -> GPT-4o-mini -> Claude
+Respond with ONLY the category name (one word, no punctuation):"""
+
+    valid_intents = ['simple', 'simple_code', 'debug', 'explain', 'architecture', 'creative', 'general', 'image_generation']
+
+    # Strategy: Try Gemini 2.5 Flash Lite -> 2.5 Flash (both have free quota)
     try:
         if GEMINI_API_KEY:
-            for m_name in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']:
+            for m_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.5-flash']:
                 try:
                     model = genai.GenerativeModel(m_name)
                     result = model.generate_content(intent_prompt)
-                    intent = getattr(result, "text", "general").strip().lower().replace("'", "").replace('"', '')
-                    if intent in ['code', 'logic', 'creative', 'general']:
+                    intent = getattr(result, "text", "general").strip().lower().replace("'", "").replace('"', '').replace('.', '')
+                    if intent in valid_intents:
+                        print(f"[IntentDetect] '{intent}' detected by {m_name}")
                         return intent
                 except Exception as ge:
                     if "429" in str(ge) or "quota" in str(ge).lower():
                         continue # Try next model
                     break # Other error, try another provider
 
-        # Fallback to GPT-4o-mini if OpenAI is available
+        # Fallback to GPT-4o-mini
         if openai_client:
             try:
                 response = openai_client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": intent_prompt}],
-                    max_tokens=10
+                    max_tokens=15
                 )
-                intent = response.choices[0].message.content.strip().lower()
-                if intent in ['code', 'logic', 'creative', 'general']: return intent
+                intent = response.choices[0].message.content.strip().lower().replace("'", "").replace('.', '')
+                if intent in valid_intents:
+                    print(f"[IntentDetect] '{intent}' detected by gpt-4o-mini")
+                    return intent
             except: pass
 
-        # Fallback to Claude if available
+        # Fallback to Claude Haiku (lightweight)
         if claude_client:
             try:
                 response = claude_client.messages.create(
                     model="claude-3-5-haiku-20241022",
-                    max_tokens=10,
+                    max_tokens=15,
                     messages=[{"role": "user", "content": intent_prompt}]
                 )
-                intent = response.content[0].text.strip().lower()
-                if intent in ['code', 'logic', 'creative', 'general']: return intent
+                intent = response.content[0].text.strip().lower().replace("'", "").replace('.', '')
+                if intent in valid_intents:
+                    print(f"[IntentDetect] '{intent}' detected by claude-haiku")
+                    return intent
             except: pass
             
         return "general"
@@ -1478,16 +1493,12 @@ def analyze_profile():
     
     # 3. Call Gemini for Analysis
     try:
-        # Strategy: Try a chain of models until one works
-        # Prioritize 2.5 Flash -> 1.5 Flash -> 1.5 Pro -> 1.0 Pro
+        # Strategy: Gemini 2.5 Flash Lite (10 RPM) -> Gemini 2.5 Flash (5 RPM)
         model_candidates = [
+            'models/gemini-2.5-flash-lite',
+            'gemini-2.5-flash-lite',
             'models/gemini-2.5-flash',
             'gemini-2.5-flash',
-            'models/gemini-1.5-flash',
-            'gemini-1.5-flash',
-            'models/gemini-1.5-flash-001',
-            'gemini-1.5-pro', 
-            'gemini-pro'
         ]
         
         response = None
@@ -1838,26 +1849,30 @@ def link_github_repo():
     branch = data.get('branch', 'main').strip()
     conversation_id = data.get('conversation_id')
     
-    if not repo_name or not conversation_id or conversation_id == 'null' or conversation_id == 'undefined':
-        return jsonify({'error': 'Repo name and a valid conversation ID are required.'}), 400
-        
-    conversation = db.session.get(Conversation, conversation_id)
-    if not conversation or conversation.user_id != user.id:
-        return jsonify({'error': 'Conversation not found or unauthorized.'}), 404
+    if not repo_name:
+        return jsonify({'error': 'Repo name is required.'}), 400
         
     parser = GitHubParser()
     tree = parser.get_repo_tree(repo_name, branch)
     
     if tree is None:
         return jsonify({'error': 'Could not fetch repo tree. Check repo name and permissions.'}), 400
+
+    # If conversation_id is provided and valid, link it in the DB
+    if conversation_id and conversation_id != 'null' and conversation_id != 'undefined':
+        conversation = db.session.get(Conversation, conversation_id)
+        if not conversation or conversation.user_id != user.id:
+            return jsonify({'error': 'Conversation not found or unauthorized.'}), 404
         
-    conversation.linked_repo = repo_name
-    conversation.repo_branch = branch
-    db.session.commit()
+        conversation.linked_repo = repo_name
+        conversation.repo_branch = branch
+        db.session.commit()
     
     return jsonify({
-        'message': f'Successfully linked {repo_name} ({branch}).',
-        'tree_size': len(tree)
+        'message': f'Successfully verified {repo_name} ({branch}).' if not conversation_id or conversation_id == 'null' else f'Successfully linked {repo_name} ({branch}).',
+        'tree_size': len(tree),
+        'repo': repo_name,
+        'branch': branch
     })
 
 @app.route('/api/github/tree', methods=['GET'])
@@ -1972,6 +1987,8 @@ def ask():
         code = data.get('code', '')
         model = data.get('model', 'auto')
         conversation_id = data.get('conversation_id')
+        repo_param = data.get('repo')
+        branch_param = data.get('branch', 'main')
         image_path = None
     
     # Kullanıcı tespiti
@@ -2010,6 +2027,13 @@ def ask():
         if not conversation:
             # Yeni konuşma başlat
             conversation = Conversation(user_id=user_id, title=question[:50])
+            
+            # If repo was pre-verified and passed here, link it to the new conversation
+            if 'repo_param' in locals() and repo_param:
+                conversation.linked_repo = repo_param
+                conversation.repo_branch = branch_param
+                print(f"DEBUG: Pre-linking repo {repo_param} to new conversation {conversation.id}")
+                
             db.session.add(conversation)
             db.session.commit()
 
@@ -2317,6 +2341,15 @@ def blend_models():
                 title=question[:50] + ('...' if len(question) > 50 else ''),
                 created_at=datetime.now()
             )
+            
+            # If repo was pre-verified and passed here, link it to the new conversation
+            repo_param = data.get('repo')
+            branch_param = data.get('branch', 'main')
+            if repo_param:
+                conversation.linked_repo = repo_param
+                conversation.repo_branch = branch_param
+                print(f"DEBUG: Pre-linking repo {repo_param} to new BLEND conversation")
+
             db.session.add(conversation)
             db.session.commit()
             conversation_id = conversation.id

@@ -27,10 +27,22 @@ class GitHubParser:
         if self.github_token:
             self.headers['Authorization'] = f"token {self.github_token}"
 
+    def _get_default_branch(self, repo_name: str) -> str:
+        """Fetches the default branch name from the GitHub API."""
+        url = f"https://api.github.com/repos/{repo_name}"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json().get('default_branch', 'main')
+        except Exception:
+            pass
+        return 'main'
+
     def get_repo_tree(self, repo_name: str, branch: str = 'main') -> dict:
         """
         Fetches the complete repository tree.
         repo_name format: 'owner/repo' or full URL
+        Tries multiple branches (main, master, HEAD) before failing.
         """
         # Clean up URL if user pasted full github link
         repo_name = repo_name.split('?')[0].split('#')[0]
@@ -39,48 +51,66 @@ class GitHubParser:
             repo_name = repo_name[:-4]
             
         repo_name = repo_name.strip()
-        branch = branch.strip()
+        branch = branch.strip() if branch and branch.strip() else 'main'
 
-        # We use the recursive=1 parameter to get the full tree
-        url = f"https://api.github.com/repos/{repo_name}/git/trees/{branch}?recursive=1"
-        try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            if response.status_code != 200:
-                print(f"Failed to fetch repo tree: {response.text}")
-                return None
-            
-            data = response.json()
-            tree = data.get('tree', [])
-            
-            # Filter and structure the tree
-            filtered_tree = []
-            for item in tree:
-                path = item.get('path', '')
-                type = item.get('type', '')
+        # Build list of branches to try: user-specified first, then common defaults
+        branches_to_try = [branch]
+        for fallback in ['main', 'master', 'HEAD']:
+            if fallback not in branches_to_try:
+                branches_to_try.append(fallback)
+
+        for current_branch in branches_to_try:
+            url = f"https://api.github.com/repos/{repo_name}/git/trees/{current_branch}?recursive=1"
+            try:
+                response = requests.get(url, headers=self.headers, timeout=10)
+                if response.status_code == 404:
+                    print(f"Branch '{current_branch}' not found, trying next...")
+                    continue
+                if response.status_code != 200:
+                    print(f"Failed to fetch repo tree for branch '{current_branch}': {response.text}")
+                    continue
                 
-                # Check ignores
-                skip = False
-                for ignored_dir in self.IGNORED_DIRECTORIES:
-                    if path.startswith(f"{ignored_dir}/") or f"/{ignored_dir}/" in path or path == ignored_dir:
-                        skip = True
-                        break
+                data = response.json()
+                # If tree is truncated, GitHub returns truncated=True — we still proceed with what we have
+                tree = data.get('tree', [])
+                if not tree:
+                    continue
                 
-                if not skip and type == 'blob':
-                    ext = os.path.splitext(path)[1].lower()
-                    if ext in self.IGNORED_EXTENSIONS:
-                        skip = True
-                
-                if not skip:
-                    filtered_tree.append({
-                        'path': path,
-                        'type': type,
-                        'url': item.get('url') # blob url
-                    })
+                # Filter and structure the tree
+                filtered_tree = []
+                for item in tree:
+                    path = item.get('path', '')
+                    item_type = item.get('type', '')
                     
-            return filtered_tree
-        except Exception as e:
-            print(f"Error fetching repo tree: {e}")
-            return None
+                    # Check ignores
+                    skip = False
+                    for ignored_dir in self.IGNORED_DIRECTORIES:
+                        if path.startswith(f"{ignored_dir}/") or f"/{ignored_dir}/" in path or path == ignored_dir:
+                            skip = True
+                            break
+                    
+                    if not skip and item_type == 'blob':
+                        ext = os.path.splitext(path)[1].lower()
+                        if ext in self.IGNORED_EXTENSIONS:
+                            skip = True
+                    
+                    if not skip:
+                        filtered_tree.append({
+                            'path': path,
+                            'type': item_type,
+                            'url': item.get('url'),  # blob url
+                            'branch': current_branch
+                        })
+                        
+                print(f"Successfully fetched repo tree for '{repo_name}' on branch '{current_branch}' ({len(filtered_tree)} items)")
+                return filtered_tree
+
+            except Exception as e:
+                print(f"Error fetching repo tree for branch '{current_branch}': {e}")
+                continue
+
+        print(f"All branch attempts failed for repo '{repo_name}'")
+        return None
 
     def get_file_content(self, repo_name: str, path: str, branch: str = 'main') -> str:
         """

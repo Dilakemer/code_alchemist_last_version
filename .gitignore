@@ -52,3 +52,9 @@ decode_qr.py
 share_app.py
 qr_output.txt
 lines.txt
+
+# Generated Assets
+server/static/generated/
+test_graph.py
+manual_test_routing.py
+
