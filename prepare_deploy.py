@@ -82,7 +82,7 @@ def main():
         # But our requirements are in server/requirements.txt.
         # We might need to help Render find them.
         # But simplest: Command line does everything.
-        f.write('web: cd server && gunicorn app:app')
+        f.write('web: cd server && gunicorn --bind 0.0.0.0:$PORT app:app')
     print("✅ Procfile created.")
     
     # 5. Create render.yaml (Optional Blueprint)
@@ -98,7 +98,7 @@ def main():
     print("4. Settings:")
     print("   - Root Directory: . (default)")
     print("   - Build Command: pip install -r server/requirements.txt")
-    print("   - Start Command: cd server && gunicorn app:app")
+    print("   - Start Command: cd server && gunicorn --bind 0.0.0.0:$PORT app:app")
     print("   - Environment Variables: Add GEMINI_API_KEY, JWT_SECRET_KEY, etc.")
 
 if __name__ == "__main__":

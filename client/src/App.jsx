@@ -30,6 +30,8 @@ function App() {
   const [favoritesList, setFavoritesList] = useState([]);
   const [communityItems, setCommunityItems] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
+  const [preLinkedRepo, setPreLinkedRepo] = useState(null);
+  const [preLinkedBranch, setPreLinkedBranch] = useState('main');
 
 
   // Community State
@@ -472,6 +474,13 @@ function App() {
         formData.append('code', currentCode);
         formData.append('model', currentModel);
         if (activeConversationId) formData.append('conversation_id', activeConversationId);
+
+        // Add repo/branch if this is the first message
+        if (!activeConversationId && preLinkedRepo) {
+          formData.append('repo', preLinkedRepo);
+          formData.append('branch', preLinkedBranch);
+        }
+
         formData.append('image', currentImage);
         body = formData;
       } else {
@@ -481,7 +490,9 @@ function App() {
           code: currentCode,
           model: currentModel,
           models: currentModels, // For blend mode
-          conversation_id: activeConversationId
+          conversation_id: activeConversationId,
+          repo: !activeConversationId ? preLinkedRepo : null,
+          branch: !activeConversationId ? preLinkedBranch : 'main'
         });
       }
 
@@ -547,6 +558,7 @@ function App() {
               if (data.done) {
                 if (data.conversation_id && activeConversationId !== data.conversation_id) {
                   setActiveConversationId(data.conversation_id);
+                  setPreLinkedRepo(null); // Clear after linked to a real conv
                   fetchConversations();
                 }
 
@@ -1294,7 +1306,11 @@ function App() {
               apiBase={API_BASE}
               authHeaders={authHeaders}
               theme={theme}
-              onUpdate={() => {
+              onUpdate={(data) => {
+                if (data && data.linkedRepo) {
+                  setPreLinkedRepo(data.linkedRepo);
+                  setPreLinkedBranch(data.linkedBranch || 'main');
+                }
                 if (activeConversationId) fetchConversationDetails(activeConversationId);
               }}
               image={image}
