@@ -189,15 +189,36 @@ const ChatInterface = ({
   // Magic Fix State
   const [isMagicFix, setIsMagicFix] = useState(false);
 
+  // PR Modal State
+  const [showPrModal, setShowPrModal] = useState(false);
+  const [prFormData, setPrFormData] = useState({
+    codeBlocks: [],
+    currentBlockIndex: 0,
+    newBranch: 'code-alchemist-fix',
+    prTitle: 'AI Generated Fix',
+    isSubmitting: false,
+    aiResponseId: null,
+  });
+
+  // Toast State
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success', url: null });
+
+  const showToast = (message, type = 'success', url = null) => {
+    setToast({ show: true, message, type, url });
+    if (!url) { // Keep URL toasts open longer to allow clicking
+      setTimeout(() => setToast({ show: false, message: '', type: 'success', url: null }), 4000);
+    }
+  };
+
   // Check for error patterns in input
   useEffect(() => {
     const errorPattern = /(Traceback|Error|Exception|TypeError|ValueError|ReferenceError|SyntaxError|IndexError|KeyError|ModuleNotFoundError|RuntimeError|Hata|Failed|Failure)\b/i;
     setIsMagicFix(errorPattern.test(question));
   }, [question]);
 
-  const handleCreatePR = async (historyId, aiResponse) => {
+  const handleCreatePRInit = (historyId, aiResponse) => {
     if (!linkedRepo) {
-      alert("Please link a repository first to create a PR.");
+      showToast("Please link a repository first to create a PR.", "error");
       return;
     }
 
@@ -207,39 +228,49 @@ const ChatInterface = ({
     }
 
     // Attempt to extract code blocks
-    const codeBlocks = [];
+    const extractedBlocks = [];
     const regex = /```(\w+)?\n([\s\S]*?)```/g;
     let match;
     while ((match = regex.exec(aiResponse)) !== null) {
-      // In a real robust implementation, we'd know exactly which file these belong to.
-      // For this demo, we'll ask the user or assume the AI defined it.
-      // Since our magic fix prompt says "Output the required file changes", let's extract file paths.
-      // We'll use a naive approach: check the line immediately before the code block.
-
       const content = match[2];
       const matchIndex = match.index;
       const textBefore = aiResponse.substring(0, matchIndex).trim().split('\n').pop();
       let path = textBefore.replace(/[`:]/g, '').trim();
 
-      if (!path || path.includes(' ')) {
-        path = window.prompt("The AI didn't specify a clear file path. Please enter the file path for this code block (e.g. client/src/App.jsx):");
-      }
-
-      if (path && content) {
-        codeBlocks.push({ path, content });
-      }
+      extractedBlocks.push({
+        path: path && !path.includes(' ') ? path : '',
+        content
+      });
     }
 
-    if (codeBlocks.length === 0) {
-      alert("No code blocks found in the response to create a PR.");
+    if (extractedBlocks.length === 0) {
+      showToast("No code blocks found in the response to create a PR.", "error");
       return;
     }
 
-    try {
-      // Use existing prompt for branch name and title
-      const newBranch = window.prompt("Enter new branch name:", "code-alchemist-fix") || "code-alchemist-fix";
-      const prTitle = window.prompt("Enter PR title:", "AI Generated Fix") || "AI Generated Fix";
+    setPrFormData({
+      codeBlocks: extractedBlocks,
+      currentBlockIndex: extractedBlocks.findIndex(b => !b.path), // First block without a path
+      newBranch: 'code-alchemist-fix',
+      prTitle: 'AI Generated Fix',
+      isSubmitting: false,
+      aiResponseId: historyId
+    });
 
+    setShowPrModal(true);
+  };
+
+  const submitPR = async () => {
+    // Validate paths
+    const missingPaths = prFormData.codeBlocks.some(b => !b.path.trim());
+    if (missingPaths) {
+      showToast("Please provide file paths for all code blocks.", "error");
+      return;
+    }
+
+    setPrFormData(prev => ({ ...prev, isSubmitting: true }));
+
+    try {
       const repoName = linkedRepo.split(' ')[0]; // remove the branch part (main)
       const baseBranch = githubBranchInput || 'main';
 
@@ -252,22 +283,26 @@ const ChatInterface = ({
         body: JSON.stringify({
           repo: repoName,
           base_branch: baseBranch,
-          new_branch: newBranch,
-          title: prTitle,
-          file_changes: codeBlocks
+          new_branch: prFormData.newBranch,
+          title: prFormData.prTitle,
+          file_changes: prFormData.codeBlocks
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        alert("Pull request created successfully! Opening in new tab...");
-        window.open(data.pr_url, '_blank');
+        setShowPrModal(false);
+        showToast("Pull request created successfully! 🚀", "success", data.pr_url);
       } else {
-        alert(data.error || "Failed to create PR.");
+        showToast(data.error || "Failed to create PR.", "error");
       }
     } catch (err) {
-      alert("Error creating PR.");
+      showToast("Error creating PR.", "error");
       console.error(err);
+    } finally {
+      if (showPrModal) { // only if not closed above
+        setPrFormData(prev => ({ ...prev, isSubmitting: false }));
+      }
     }
   };
 
@@ -279,13 +314,11 @@ const ChatInterface = ({
       return;
     }
     // REMOVED: conversation_id is now optional for verification
-    /*
     if (!activeConversationId) {
-      alert("Please send a message first to start a conversation before linking a repository.");
+      showToast("Please send a message first to start a conversation before linking a repository.", "error");
       setShowGithubModal(false);
       return;
     }
-    */
 
     if (!githubRepoInput.trim()) return;
 
@@ -319,13 +352,14 @@ const ChatInterface = ({
           onUpdate({ linkedRepo: finalRepo, linkedBranch: finalBranch });
         }
 
-        alert(data.message + ` (${data.tree_size} files indexed)`);
+        alert(data.message + ` (${data.tree_size} files indexed)`); // keep alert here or change to toast if preferred, keeping as alert as per original for linking
+        showToast(data.message + ` (${data.tree_size} files indexed)`, "success");
         setShowGithubModal(false);
       } else {
-        alert(data.error || "Failed to link repo.");
+        showToast(data.error || "Failed to link repo.", "error");
       }
     } catch (err) {
-      alert("Error linking repository.");
+      showToast("Error linking repository.", "error");
       console.error(err);
     } finally {
       setIsLinkingRepo(false);
@@ -793,7 +827,7 @@ const ChatInterface = ({
                       {/* Create GitHub PR Button (Visible only if repo is linked and has code) */}
                       {linkedRepo && turn.ai_response.includes('```') && (
                         <button
-                          onClick={() => handleCreatePR(turn.id, turn.ai_response)}
+                          onClick={() => handleCreatePRInit(turn.id, turn.ai_response)}
                           className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors ml-2 px-2 py-1 bg-blue-900/20 hover:bg-blue-900/40 border border-blue-500/30 rounded"
                           title="Generate a Pull Request on GitHub for these changes"
                         >
@@ -1161,6 +1195,164 @@ const ChatInterface = ({
         />
       )}
 
+      {/* Modern PR Modal */}
+      {showPrModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-gray-900 border border-fuchsia-500/30 rounded-2xl w-full max-w-2xl shadow-[0_0_40px_rgba(217,70,239,0.15)] overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 bg-gray-800/50 border-b border-gray-700 flex justify-between items-center">
+              <h3 className="text-xl font-bold bg-gradient-to-r from-fuchsia-400 to-blue-400 bg-clip-text text-transparent flex items-center gap-2">
+                <span>🪄</span> Create Pull Request
+              </h3>
+              <button
+                onClick={() => setShowPrModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+              {/* Branch & Title */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">New Branch Name</label>
+                  <input
+                    type="text"
+                    value={prFormData.newBranch}
+                    onChange={(e) => setPrFormData(prev => ({ ...prev, newBranch: e.target.value }))}
+                    className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-all font-mono text-sm"
+                    placeholder="feature/new-button"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Target Branch</label>
+                  <input
+                    type="text"
+                    value={githubBranchInput || 'main'}
+                    disabled
+                    className="w-full bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-gray-500 cursor-not-allowed font-mono text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">PR Title</label>
+                <input
+                  type="text"
+                  value={prFormData.prTitle}
+                  onChange={(e) => setPrFormData(prev => ({ ...prev, prTitle: e.target.value }))}
+                  className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-all"
+                  placeholder="e.g. Added login button"
+                />
+              </div>
+
+              {/* Code Blocks / Files Setup */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-fuchsia-300 border-b border-gray-700 pb-2 flex justify-between items-center">
+                  <span>Detected File Changes ({prFormData.codeBlocks.length})</span>
+                  <span className="text-xs text-gray-400 font-normal">Please specify paths for unnamed blocks.</span>
+                </h4>
+
+                <div className="space-y-3">
+                  {prFormData.codeBlocks.map((block, idx) => (
+                    <div key={idx} className="bg-black/30 border border-gray-700 rounded-lg p-4 space-y-3">
+                      <div>
+                        <label className="text-xs font-medium text-gray-400 mb-1 block">File Path (Relative to root)</label>
+                        <input
+                          type="text"
+                          value={block.path}
+                          onChange={(e) => {
+                            const newBlocks = [...prFormData.codeBlocks];
+                            newBlocks[idx].path = e.target.value;
+                            setPrFormData(prev => ({ ...prev, codeBlocks: newBlocks }));
+                          }}
+                          className={`w-full bg-gray-900 border ${!block.path.trim() ? 'border-red-500/50' : 'border-gray-700'} rounded text-sm px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 transition-colors font-mono`}
+                          placeholder="e.g. client/src/App.jsx"
+                        />
+                      </div>
+
+                      <div className="max-h-32 overflow-y-auto bg-gray-950 rounded border border-gray-800 p-2 text-xs font-mono text-gray-300 custom-scrollbar opacity-70">
+                        {block.content.split('\n').slice(0, 10).join('\n')}
+                        {block.content.split('\n').length > 10 && '\n...'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-800/50 border-t border-gray-700 flex justify-end gap-3">
+              <button
+                onClick={() => setShowPrModal(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                disabled={prFormData.isSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitPR}
+                disabled={prFormData.isSubmitting || prFormData.codeBlocks.some(b => !b.path.trim())}
+                className="px-6 py-2 bg-gradient-to-r from-fuchsia-600 to-blue-600 hover:from-fuchsia-500 hover:to-blue-500 text-white font-medium rounded-lg text-sm shadow-lg shadow-fuchsia-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+              >
+                {prFormData.isSubmitting ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Creating PR...
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                    </svg>
+                    Submit Pull Request
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global Toast Notification */}
+      {toast.show && (
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[150] px-6 py-4 rounded-full shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 flex items-center gap-3 max-w-lg ${toast.type === 'error' ? 'bg-red-900/95 border border-red-500/50 text-red-100' : 'bg-gray-900/95 border border-fuchsia-500/50 text-white backdrop-blur-md'}`}>
+          {toast.type === 'success' ? (
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-fuchsia-500 to-blue-500 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          )}
+
+          <div className="flex-1 flex items-center gap-4">
+            <p className="font-medium text-sm">{toast.message}</p>
+            {toast.url && (
+              <a href={toast.url} target="_blank" rel="noopener noreferrer" className="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition-colors whitespace-nowrap">
+                View PR ↗
+              </a>
+            )}
+          </div>
+          <button
+            onClick={() => setToast({ ...toast, show: false })}
+            className="text-gray-400 hover:text-white shrink-0 ml-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

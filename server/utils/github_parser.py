@@ -38,6 +38,16 @@ class GitHubParser:
             pass
         return 'main'
 
+    def _clean_repo_name(self, repo_name: str) -> str:
+        """Cleans up repository URL to extract owner/repo format."""
+        if not repo_name:
+            return ""
+        repo_name = repo_name.split('?')[0].split('#')[0]
+        repo_name = repo_name.replace('https://github.com/', '').replace('http://github.com/', '').strip().strip('/')
+        if repo_name.endswith('.git'):
+            repo_name = repo_name[:-4]
+        return repo_name.strip()
+
     def get_repo_tree(self, repo_name: str, branch: str = 'main') -> dict:
         """
         Fetches the complete repository tree.
@@ -45,12 +55,7 @@ class GitHubParser:
         Tries multiple branches (main, master, HEAD) before failing.
         """
         # Clean up URL if user pasted full github link
-        repo_name = repo_name.split('?')[0].split('#')[0]
-        repo_name = repo_name.replace('https://github.com/', '').replace('http://github.com/', '').strip().strip('/')
-        if repo_name.endswith('.git'):
-            repo_name = repo_name[:-4]
-            
-        repo_name = repo_name.strip()
+        repo_name = self._clean_repo_name(repo_name)
         branch = branch.strip() if branch and branch.strip() else 'main'
 
         # Build list of branches to try: user-specified first, then common defaults
@@ -116,6 +121,7 @@ class GitHubParser:
         """
         Fetches the raw content of a specific file.
         """
+        repo_name = self._clean_repo_name(repo_name)
         url = f"https://raw.githubusercontent.com/{repo_name}/{branch}/{path}"
         try:
             response = requests.get(url, headers=self.headers, timeout=10)
@@ -148,6 +154,8 @@ class GitHubParser:
         """
         if not self.github_token:
             return {'error': 'GitHub token is missing. Please add GITHUB_TOKEN to your .env file.'}
+        
+        repo_name = self._clean_repo_name(repo_name)
         
         try:
             # 1. Get the SHA of the base branch
