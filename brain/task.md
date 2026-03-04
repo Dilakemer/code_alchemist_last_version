@@ -1,0 +1,9 @@
+- [ ] Escape underscores in code references (detect_intent, linked_repo, repo_branch)
+- [ ] Fix multiline string in Python transcription snippet
+- [ ] Adjust table column widths for intent table
+- [ ] Change JavaScript language spec from Java to JavaScript in lstdefinestyle
+- [ ] Add \setlength{\headheight}{15pt} after fancyhdr package
+- [ ] Replace exact line count 3861 with approximate $\approx$ 3.8K
+- [ ] Add \sloppy to avoid overfull hboxes
+- [ ] Use \mathrm for TS and JS in math expressions
+- [ ] Verify compilation without errors
