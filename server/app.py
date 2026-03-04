@@ -100,13 +100,15 @@ CORS(app)
 db.init_app(app)
 jwt = JWTManager(app)
 
-# Veritabanı tablolarını otomatik oluştur (Render Deployment Fix)
-try:
-    with app.app_context():
+# Initialize database tables (Critical for Gunicorn/Render)
+with app.app_context():
+    try:
         db.create_all()
-        print("✅ Database tables created successfully.")
-except Exception as e:
-    print(f"⚠️ Initial database creation check failed: {e}")
+        print("Database tables initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+
+# Database initialization handled above.
 
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
