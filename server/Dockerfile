@@ -30,6 +30,8 @@ RUN rm -rf static/* && mkdir -p static/generated uploads
 # Built frontend dosyalarını kopyala
 COPY --from=frontend-builder /client/dist ./static/
 
-EXPOSE 5000
+# Final launch
+ENV PORT=5000
+EXPOSE $PORT
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app", "--timeout", "120"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT app:app --timeout 120"]

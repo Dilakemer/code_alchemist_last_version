@@ -48,7 +48,7 @@ if not os.getenv('GEMINI_API_KEY'):
         pass  # Silent fail - will be handled by API key checks later
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='')
 basedir = os.path.abspath(os.path.dirname(__file__))
 # Veritabanı dosyasını instance klasöründe tutuyoruz (Flask standardı)
 instance_path = os.path.join(basedir, 'instance')
@@ -3839,16 +3839,18 @@ def serve_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 
-@app.route('/')
-def serve_index():
-    return send_from_directory(app.static_folder, 'index.html')
-
+@app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
-def serve_static_files(path):
+def serve_spa(path):
     """Serve static files or index.html for SPA"""
-    file_path = os.path.join(app.static_folder, path)
-    if os.path.exists(file_path):
+    if path and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
+    
+    # If path is an asset request but not found, return 404 instead of index.html
+    # to avoid syntax errors when browser tries to parse HTML as JS/CSS
+    if path and (path.endswith('.js') or path.endswith('.css') or path.endswith('.png')):
+        return "Not Found", 404
+
     return send_from_directory(app.static_folder, 'index.html')
 
 if __name__ == '__main__':
