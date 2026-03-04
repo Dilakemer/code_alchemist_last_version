@@ -1,28 +1,34 @@
-# Python 3.9 slim imajı kullanıyoruz (hafif ve stabil)
-FROM python:3.9-slim
+# Stage 1: Build the React Frontend
+FROM node:18-slim AS frontend-builder
+WORKDIR /client
+COPY client/package*.json ./
+RUN npm install
+COPY client/ ./
+RUN npm run build
 
-# Çalışma dizinini ayarla
+# Stage 2: Final Python Image
+FROM python:3.9-slim
 WORKDIR /app
 
-# Sistem bağımlılıklarını kur (bazı kütüphaneler için gerekebilir)
+# Sistem bağımlılıklarını kur
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Bağımlılık dosyasını kopyala ve kur
-COPY requirements.txt .
+COPY server/requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Proje dosyalarını kopyala
-COPY . .
+COPY server/ .
 
-# Static/uploads klasörlerini oluştur (varmış gibi davranalım)
+# Built frontend dosyalarını kopyala
+COPY --from=frontend-builder /client/dist ./static/
+
 RUN mkdir -p static/uploads static/generated
 
-# Flask'ın çalışacağı port
 EXPOSE 5000
 
-# Uygulamayı Gunicorn ile ayağa kaldır (Production standardı)
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app", "--timeout", "120"]
