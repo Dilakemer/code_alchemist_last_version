@@ -24,10 +24,11 @@ RUN pip install --upgrade pip && \
 # Proje dosyalarını kopyala
 COPY server/ .
 
+# Ensure static folder is empty before copying fresh assets
+RUN rm -rf static/* && mkdir -p static/generated uploads
+
 # Built frontend dosyalarını kopyala
 COPY --from=frontend-builder /client/dist ./static/
-
-RUN mkdir -p static/uploads static/generated
 
 EXPOSE 5000
 

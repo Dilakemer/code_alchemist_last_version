@@ -92,6 +92,10 @@ from flask import send_from_directory
 import base64
 import mimetypes
 
+# Register MIME types for static assets
+mimetypes.add_type('application/javascript', '.js')
+mimetypes.add_type('text/css', '.css')
+
 CORS(app)
 db.init_app(app)
 jwt = JWTManager(app)
