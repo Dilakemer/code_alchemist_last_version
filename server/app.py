@@ -130,6 +130,26 @@ def expired_token_callback(jwt_header, jwt_payload):
     print(f"JWT Expired: {jwt_payload}")
     return jsonify({'error': 'Token expired'}), 401
 
+# --- STATIC FILE SERVING & SPA SUPPORT ---
+
+@app.route('/')
+def serve_index():
+    """Serve the React app's index.html for root path."""
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_spa(path):
+    """
+    Serve static files if they exist, otherwise fall back to index.html for SPA routing.
+    All API routes are under /api/* so they won't be affected.
+    """
+    file_path = os.path.join(app.static_folder, path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return send_from_directory(app.static_folder, path)
+    else:
+        # Fallback to index.html for React Router
+        return send_from_directory(app.static_folder, 'index.html')
+
 @app.errorhandler(Exception)
 def handle_exception(e):
     # Log the error
