@@ -12,8 +12,10 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "d3-force": "^3.0.0",
+    "html2pdf.js": "^0.14.0",
     "jspdf": "^3.0.4",
     "react": "^19.2.0",
+    "react-circular-progressbar": "^2.2.0",
     "react-diff-viewer-continued": "^4.1.2",
     "react-dom": "^19.2.0",
     "react-force-graph-2d": "^1.29.1",

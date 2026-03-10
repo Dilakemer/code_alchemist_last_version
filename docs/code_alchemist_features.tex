@@ -899,23 +899,6 @@ Bu dokümanda incelenen temel özellikler, Code Alchemist platformunu kapsamlı 
     \item \textbf{Voice Alchemy:} MediaRecorder API + Gemini multimodal transkripsiyon pipeline'ı ve Web Speech API tabanlı akıllı sesli yanıt sistemi.
 \end{enumerate}
 
-Sistemin uçtan uca performans profilini değerlendirmek adına, test ortamında gözlemlenen yaklaşık performans metrikleri Tablo~\ref{tab:metrics}'te sunulmuştur. Çeşitli mimari optimizasyonlar sayesinde tüm eşikler modern web standartlarının (<2s) altında tutulabilmiştir:
-
-\begin{table}[H]
-\centering
-\caption{Sistem Performans Metrikleri (Test Ortamı Gözlemleri)}
-\label{tab:metrics}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{Performans Göstergesi (Metrik)} & \textbf{Gözlemlenen Ortalama Süre} \\
-\midrule
-Niyet Tespiti (Intent detection latency) & $\approx$ 120\,ms \\
-Uçtan Uca PR Oluşturma Dögüsü (PR Creation) & $\approx$ 1.4\,s \\
-Repo Graph Render Süresi (200 Düğüm) & $\approx$ 380\,ms \\
-\bottomrule
-\end{tabular}
-\end{table}
-
 \begin{table}[H]
 \centering
 \caption{Kaynak Kod Dosyaları Özeti}

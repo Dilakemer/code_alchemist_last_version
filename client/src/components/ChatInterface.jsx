@@ -10,7 +10,7 @@ import useTypingEffect from '../hooks/useTypingEffect';
 import VoiceRecorder from './VoiceRecorder';
 
 
-const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId }) => {
+const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId, onGenerateTests, generatingTestId }) => {
   // Smooth typing effect
   const displayedText = useTypingEffect(content, isStreaming);
 
@@ -26,27 +26,49 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
             <div className="relative group my-4">
               <div className="flex items-center justify-between bg-gray-900 px-4 py-2 rounded-t-lg border-b border-gray-700">
                 <span className="text-xs text-gray-400 font-mono uppercase">{match[1]}</span>
-                <button
-                  onClick={() => onCopyCode(codeString, codeBlockId)}
-                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
-                  title="Copy Code"
-                >
-                  {copiedCodeId === codeBlockId ? (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span className="text-green-400">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      <span>Copy</span>
-                    </>
+                <div className="flex items-center gap-2">
+                  {onGenerateTests && (
+                    <button
+                      onClick={() => onGenerateTests(codeString, match[1], codeBlockId)}
+                      disabled={generatingTestId === codeBlockId}
+                      className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700 disabled:opacity-50"
+                      title="Generate Unit Tests (AI)"
+                    >
+                      {generatingTestId === codeBlockId ? (
+                        <>
+                          <div className="w-3 h-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
+                          <span>Generating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🧪</span>
+                          <span>Generate Tests</span>
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={() => onCopyCode(codeString, codeBlockId)}
+                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
+                    title="Copy Code"
+                  >
+                    {copiedCodeId === codeBlockId ? (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-green-400">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Robust Diff Check: Trigger if markers present, regardless of language tag */}
@@ -165,7 +187,8 @@ const ChatInterface = ({
   onSpeak,
   currentlySpeakingId,
   onShare,
-  activeConversationId
+  activeConversationId,
+  onShowCodeHealth
 }) => {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -202,6 +225,15 @@ const ChatInterface = ({
 
   // Toast State
   const [toast, setToast] = useState({ show: false, message: '', type: 'success', url: null });
+  const [generatingTestId, setGeneratingTestId] = useState(null);
+
+  // Security Audit Modal State
+  const [auditModal, setAuditModal] = useState({
+    show: false,
+    issues: [],
+    onConfirm: null,
+    onCancel: null
+  });
 
   const showToast = (message, type = 'success', url = null) => {
     setToast({ show: true, message, type, url });
@@ -274,6 +306,47 @@ const ChatInterface = ({
       const repoName = linkedRepo.split(' ')[0]; // remove the branch part (main)
       const baseBranch = githubBranchInput || 'main';
 
+      // 1. AI Pre-flight & Security Audit
+      try {
+        const auditRes = await fetch(`${apiBase}/api/github/audit_pr`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ file_changes: prFormData.codeBlocks })
+        });
+        const auditData = await auditRes.json();
+
+        if (!auditData.passed && auditData.issues && auditData.issues.length > 0) {
+          // Pause and show custom modal instead of window.confirm
+          setPrFormData(prev => ({ ...prev, isSubmitting: false }));
+          setAuditModal({
+            show: true,
+            issues: auditData.issues,
+            onConfirm: () => {
+              setAuditModal(prev => ({ ...prev, show: false }));
+              // User chose to proceed, re-trigger submit with a flag or isolated function
+              executePRSubmission();
+            },
+            onCancel: () => {
+              setAuditModal({ show: false, issues: [], onConfirm: null, onCancel: null });
+            }
+          });
+          return; // Stop current execution, wait for modal un-pause
+        }
+      } catch (err) {
+        console.warn("Audit check failed; proceeding with PR", err);
+      }
+
+      await executePRSubmission();
+    } catch (err) {
+      console.error("Submit PR Error:", err);
+      setPrFormData(prev => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
+  const executePRSubmission = async () => {
+    setPrFormData(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      // 2. Submit Pull Request
       const res = await fetch(`${apiBase}/api/github/pr`, {
         method: 'POST',
         headers: {
@@ -303,6 +376,38 @@ const ChatInterface = ({
       if (showPrModal) { // only if not closed above
         setPrFormData(prev => ({ ...prev, isSubmitting: false }));
       }
+    }
+  };
+
+  const handleGenerateTests = async (codeString, language, codeBlockId) => {
+    if (!user) {
+      onAuthRequired?.();
+      return;
+    }
+    setGeneratingTestId(codeBlockId);
+    try {
+      showToast("Generating unit tests via AI...", "success");
+      const res = await fetch(`${apiBase}/api/generate_tests`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({ code: codeString, language })
+      });
+      const data = await res.json();
+      if (res.ok && data.tests) {
+        // Prepare generated tests as a markdown codeblock
+        const generatedMarkdown = `\n\n**Generated Unit Tests:**\n\`\`\`${language}\n${data.tests}\n\`\`\``;
+        setQuestion(prev => `${prev}\n${generatedMarkdown}`.trim());
+        showToast("Tests generated! Added to your text input below.", "success");
+      } else {
+        showToast(data.error || "Failed to generate tests.", "error");
+      }
+    } catch (err) {
+      showToast("Error generating tests.", "error");
+    } finally {
+      setGeneratingTestId(null);
     }
   };
 
@@ -669,6 +774,8 @@ const ChatInterface = ({
                         onCopyCode={copyCodeToClipboard}
                         copiedCodeId={copiedCodeId}
                         messageId={`${turn.id}-r1`}
+                        onGenerateTests={handleGenerateTests}
+                        generatingTestId={generatingTestId}
                       />
                     </div>
                   </div>
@@ -698,6 +805,8 @@ const ChatInterface = ({
                         onCopyCode={copyCodeToClipboard}
                         copiedCodeId={copiedCodeId}
                         messageId={`${turn.id}-r2`}
+                        onGenerateTests={handleGenerateTests}
+                        generatingTestId={generatingTestId}
                       />
                     </div>
                   </div>
@@ -727,6 +836,8 @@ const ChatInterface = ({
                       onCopyCode={copyCodeToClipboard}
                       copiedCodeId={copiedCodeId}
                       messageId={turn.id}
+                      onGenerateTests={handleGenerateTests}
+                      generatingTestId={generatingTestId}
                     />
                   </div>
 
@@ -1001,6 +1112,13 @@ const ChatInterface = ({
               >
                 <span>🌌</span> Graph View
               </button>
+              <button
+                onClick={onShowCodeHealth}
+                className="px-3 py-1.5 bg-cyan-900/20 hover:bg-cyan-900/40 border border-cyan-500/30 rounded-lg text-xs text-cyan-300 transition-colors flex items-center gap-1 shadow-sm shadow-cyan-500/10"
+                title="View Code Health Dashboard"
+              >
+                <span>🌡️</span> Health
+              </button>
               {history.length > 0 && (
                 <button
                   onClick={onShare}
@@ -1031,7 +1149,7 @@ const ChatInterface = ({
               <div className="flex items-center gap-1">
                 <input
                   type="file"
-                  accept="image/*,audio/*,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m,.pdf,.doc,.docx"
+                  accept="image/*,audio/*,.pdf,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m"
                   className="hidden"
                   ref={fileInputRef}
                   onChange={handleFileSelect}
@@ -1311,6 +1429,66 @@ const ChatInterface = ({
                     </svg>
                     Submit Pull Request
                   </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Security Audit Custom Modal */}
+      {auditModal.show && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+          <div className="bg-gray-900 border border-red-500/50 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col shadow-red-900/20">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-red-900/50 flex justify-between items-center bg-red-950/20">
+              <h3 className="text-lg font-bold text-red-400 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                AI Security Audit Priority Alert
+              </h3>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto custom-scrollbar">
+              <p className="text-gray-300 text-sm mb-4 leading-relaxed">
+                The AI Pre-flight Check has detected potential vulnerabilities or issues in your code changes. Are you sure you want to proceed with this Pull Request?
+              </p>
+
+              <div className="bg-red-950/30 border border-red-900/50 rounded-lg p-4 mb-4">
+                <ul className="list-disc list-inside space-y-2 text-sm text-red-200">
+                  {auditModal.issues.map((issue, idx) => (
+                    <li key={idx} className="leading-relaxed">{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-gray-800/50 border-t border-gray-700 flex justify-end gap-3">
+              <button
+                onClick={auditModal.onCancel}
+                className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                disabled={prFormData.isSubmitting}
+              >
+                Cancel PR Request
+              </button>
+              <button
+                onClick={auditModal.onConfirm}
+                disabled={prFormData.isSubmitting}
+                className="px-6 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-medium rounded-lg text-sm shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all"
+              >
+                {prFormData.isSubmitting ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Proceeding...
+                  </>
+                ) : (
+                  "Proceed Anyway"
                 )}
               </button>
             </div>

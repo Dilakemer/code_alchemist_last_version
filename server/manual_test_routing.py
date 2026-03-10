@@ -34,7 +34,7 @@ def test_prompt(name, prompt, model="auto"):
             print(f"✅ Result: {routing_reason}")
         else:
             print("❌ Could not find routing reason in response.")
-            
+           
     except Exception as e:
         print(f"Error: {e}")
 

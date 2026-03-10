@@ -14,6 +14,7 @@ import ModelCompare from './components/ModelCompare';
 import FollowingFeed from './components/FollowingFeed';
 import StatusModal from './components/StatusModal';
 import ExportButton from './components/ExportButton';
+import CodeHealthDashboard from './components/CodeHealthDashboard';
 import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
 
 
@@ -32,7 +33,8 @@ function App() {
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [preLinkedRepo, setPreLinkedRepo] = useState(null);
   const [preLinkedBranch, setPreLinkedBranch] = useState('main');
-
+  const [showArchData, setShowArchData] = useState(false);
+  const [showCodeHealth, setShowCodeHealth] = useState(false);
 
   // Community State
   const [activeCommunityPost, setActiveCommunityPost] = useState(null);
@@ -1332,6 +1334,7 @@ function App() {
                 }
                 setShareOpen(true);
               }}
+              onShowCodeHealth={() => setShowCodeHealth(true)}
             />
           </div>
         </section >
@@ -1399,6 +1402,29 @@ function App() {
             </div>
           )
         }
+
+        {/* Architecture Graph Modal */}
+        {showArchData && (
+          <GitHubGraph
+            repo={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.linked_repo : preLinkedRepo}
+            branch={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.repo_branch : preLinkedBranch}
+            conversationId={activeConversationId}
+            onClose={() => setShowArchData(false)}
+            apiBase={API_BASE}
+            authHeaders={authHeaders}
+          />
+        )}
+
+        {/* Code Health Dashboard Modal */}
+        {showCodeHealth && (activeConversationId && conversations.find(c => c.id === activeConversationId)?.linked_repo || preLinkedRepo) && (
+          <CodeHealthDashboard
+            repo={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.linked_repo : preLinkedRepo}
+            branch={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.repo_branch : preLinkedBranch}
+            onClose={() => setShowCodeHealth(false)}
+            apiBase={API_BASE}
+            authHeaders={authHeaders}
+          />
+        )}
 
         {/* Share Modal */}
         {

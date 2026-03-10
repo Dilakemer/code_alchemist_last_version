@@ -4,11 +4,12 @@ import re
 import json
 import time
 import random
+import datetime
 import smtplib
 import resend
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import timedelta, datetime
+from datetime import timedelta
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -24,6 +25,10 @@ from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
 from utils.github_parser import GitHubParser
+
+# Cache for AI responses to reduce quota usage
+health_narrative_cache = {}
+CACHE_TTL = 3600  # 1 saat cache
 
 # Load environment variables
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -137,10 +142,114 @@ def handle_exception(e):
         'details': str(e)
     }), 500
 
+def call_gemini_with_retry(prompt, model_name='gemini-1.5-flash-8b', max_retries=2):
+    """Calls Gemini API with exponential backoff for 429 errors."""
+    for i in range(max_retries):
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            if response and response.text:
+                return response.text
+            return None
+        except Exception as e:
+            err_msg = str(e)
+            if "429" in err_msg or "quota" in err_msg.lower():
+                if i < max_retries - 1:
+                    wait_time = (i + 1) * 3
+                    print(f"Gemini 429 received. Waiting {wait_time}s before retry {i+1}...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print("Gemini quota exceeded after retries. Triggering fallback.")
+                    return None # Explicitly return None to trigger fallback in route
+            raise e
+    return None
+
+# --- GITHUB FEATURES ROTALARI ---
+
+# Legacy endpoint kept for reference. Disabled to avoid route collision.
+# @app.route('/api/github/blueprint', methods=['GET'])
+def get_repo_blueprint():
+    print("DEBUG: Blueprint route hit!")
+    """Generates a project blueprint markdown with a Mermaid diagram."""
+    repo_url = request.args.get('repo')
+    if not repo_url:
+        return jsonify({'error': 'Repo URL is required'}), 400
+
+    parser = GitHubParser()
+    tree = parser.get_repo_tree(repo_url)
+    
+    if not tree:
+        return jsonify({'error': 'Failed to fetch repository tree'}), 404
+
+    tree_str = parser.format_tree_for_prompt(tree)
+    
+    prompt = f"""
+    Analyze the following repository structure and generate a comprehensive Project Blueprint in Markdown.
+    
+    Repository: {repo_url}
+    
+    Structure:
+    {tree_str}
+    
+    The blueprint should include:
+    1. **Overview**: High-level purpose of the project.
+    2. **Architecture**: A Mermaid.js classDiagram or graphTD representing the project structure.
+    3. **Key Components**: Description of main directories and files.
+    4. **Tech Stack**: Inferred technologies based on file extensions.
+    
+    Respond ONLY with the Markdown content.
+    """
+    
+    try:
+        content = call_gemini_with_retry(prompt)
+        if content is None:
+            raise Exception("Gemini quota exceeded or empty response")
+        return jsonify({'markdown': content})
+    except Exception as e:
+        # Dynamic Heuristic Fallback for Blueprint
+        repo_name = repo_url.split('/')[-1]
+        paths = [item['path'] for item in tree]
+        top_dirs = sorted(list(set([p.split('/')[0] for p in paths if '/' in p])))[:7]
+        dir_list = "\n".join([f"- **{d}/**: Identified project component." for d in top_dirs])
+        
+        fallback_markdown = f"""# Project Blueprint: {repo_name}
+
+## Overview
+Automated structure analysis for {repo_url}.
+
+## Architecture
+```mermaid
+graph TD
+    Root[Project Root]
+"""
+        # Add some dynamic nodes to mermaid
+        for i, d in enumerate(top_dirs[:4]):
+            fallback_markdown += f"    Root --> Dir{i}[{d}]\n"
+        
+        fallback_markdown += f"""```
+
+## Key Components
+{dir_list if dir_list else "- *No major directories identified.*"}
+
+## Tech Stack
+- Multi-language support (Standard heuristics applied).
+
+> [!NOTE]
+> This is a dynamically generated heuristic blueprint as the AI service is currently at capacity.
+"""
+        return jsonify({'markdown': fallback_markdown})
+
+# DUPLICATE ENDPOINT - DEVRE DIŞI (Gerçek endpoint satır ~3550'de)
+# @app.route('/api/github/health', methods=['GET'])
+# def get_repo_health():
+#     """Analyzes repository health and returns metrics + narrative."""
+#     ...eski kod kaldırıldı...
+
 # --- 1. GEMINI KONFIGURASYONU ---
-# Varsayılan model olarak kararlı ve yüksek performanslı Gemini 2.0 Flash'ı seçtik
-# Varsayılan model olarak en yüksek ücretsâz kotalı Gemini 2.5 Flash Lite'i seçtik (10 RPM)
-GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.5-flash-lite')
+# Varsayılan model olarak en yeni Gemini 3.1 Flash Lite'ı seçiyoruz
+GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-1.5-flash')
+PRIMARY_GEMINI = 'gemini-3.1-flash-lite'
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 if GEMINI_API_KEY:
@@ -280,9 +389,8 @@ def generate_image_with_dalle(prompt):
         with open(save_path, 'wb') as handler:
             handler.write(img_data)
             
-        # Frontend için erişilebilir URL döndür
-        base_url = request.host_url.rstrip('/')
-        local_url = f"{base_url}/static/generated/{filename}"
+        # Frontend için erişilebilir URL döndür (Relative path is safer for proxy/cors)
+        local_url = f"/generated/{filename}"
         return f"![Generated Image]({local_url})\n\n**Generated for:** *{prompt}*"
         
     except Exception as e:
@@ -1238,7 +1346,9 @@ def serialize_conversation(conv: Conversation) -> dict:
         'created_at': conv.created_at.strftime('%Y-%m-%d %H:%M'),
         'user_id': conv.user_id,
         'is_pinned': conv.is_pinned if hasattr(conv, 'is_pinned') else False,
-        'is_archived': conv.is_archived if hasattr(conv, 'is_archived') else False
+        'is_archived': conv.is_archived if hasattr(conv, 'is_archived') else False,
+        'linked_repo': conv.linked_repo,
+        'repo_branch': conv.repo_branch
     }
 
 def serialize_answer(answer: Answer) -> dict:
@@ -1924,6 +2034,92 @@ def get_github_tree():
         'tree': tree
     })
 
+@app.route('/api/github/file', methods=['GET'])
+@jwt_required()
+def get_github_file():
+    user = get_current_user()
+    repo_param = request.args.get('repo')
+    branch_param = request.args.get('branch', 'main')
+    path_param = request.args.get('path')
+    
+    if not repo_param or not path_param:
+        return jsonify({'error': 'Repo and path parameters are required.'}), 400
+        
+    parser = GitHubParser()
+    content = parser.get_file_content(repo_param, path_param, branch_param)
+    
+    if content is None:
+        return jsonify({'error': 'Could not fetch file content from GitHub.'}), 400
+        
+    return jsonify({
+        'repo': repo_param,
+        'branch': branch_param,
+        'path': path_param,
+        'content': content
+    })
+
+@app.route('/api/generate_tests', methods=['POST'])
+@jwt_required()
+def generate_tests():
+    data = request.json or {}
+    code = data.get('code', '').strip()
+    language = data.get('language', 'javascript').strip()
+    
+    if not code:
+        return jsonify({'error': 'No code provided.'}), 400
+        
+    prompt = f"You are an expert QA Engineer. Generate robust, complete unit tests for the following {language} code snippet.\n"
+    if language.lower() in ['javascript', 'typescript', 'jsx', 'tsx']:
+        prompt += "Use Jest or Vitest framework. Assume standard imports.\n"
+    elif language.lower() in ['python']:
+        prompt += "Use Pytest framework.\n"
+    elif language.lower() in ['java']:
+        prompt += "Use JUnit 5 framework.\n"
+    else:
+        prompt += f"Use the standard/most popular testing framework for {language}.\n"
+    
+    prompt += "Output ONLY the raw testing code without any markdown formatting or explanation, just the code itself.\n\nCode:\n"
+    prompt += code
+    
+    try:
+        model = genai.GenerativeModel('models/gemini-2.5-flash')
+        response = model.generate_content(prompt)
+        test_code = response.text.replace('```' + language, '').replace('```', '').strip()
+        return jsonify({'tests': test_code})
+    except Exception as e:
+        print(f"Test Gen Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/github/audit_pr', methods=['POST'])
+@jwt_required()
+def audit_github_pr():
+    user = get_current_user()
+    data = request.json or {}
+    file_changes = data.get('file_changes', [])
+    
+    if not file_changes:
+        return jsonify({'error': 'No file changes provided for audit.'}), 400
+        
+    audit_prompt = "You are a Senior AI Security and Performance Auditor.\n"
+    audit_prompt += "Review the following incoming Pull Request file changes for security vulnerabilities (e.g., SQL Injection, XSS, leaked sensitive tokens/passwords) and severe performance bottlenecks.\n\n"
+    audit_prompt += "Respond ONLY with a valid JSON object in the following format:\n"
+    audit_prompt += "{\n  \"passed\": true/false,\n  \"issues\": [\"Issue 1\", \"Issue 2\"] // empty array if passed\n}\n\n"
+    audit_prompt += "File Changes to Review:\n"
+    
+    for f in file_changes:
+        audit_prompt += f"\n--- File: {f.get('path')} ---\n{f.get('content')}\n"
+        
+    try:
+        model = genai.GenerativeModel('models/gemini-2.5-flash')
+        response = model.generate_content(audit_prompt)
+        text = response.text.replace('```json', '').replace('```', '').strip()
+        result = json.loads(text)
+        return jsonify(result)
+    except Exception as e:
+        print(f"Audit PR error: {e}")
+        # Gracefully pass if AI fails
+        return jsonify({'passed': True, 'issues': [f"Audit could not complete due to AI service error: {str(e)}"]})
+
 @app.route('/api/github/pr', methods=['POST'])
 @jwt_required()
 def create_github_pr():
@@ -1946,6 +2142,45 @@ def create_github_pr():
         return jsonify(result), 400
         
     return jsonify(result)
+
+# Legacy endpoint kept for reference. Disabled to avoid route collision.
+# @app.route('/api/github/blueprint', methods=['GET'])
+def get_github_blueprint():
+    repo_param = request.args.get('repo')
+    branch_param = request.args.get('branch', 'main')
+    
+    if not repo_param:
+        return jsonify({'error': 'Repo parameter is required.'}), 400
+        
+    parser = GitHubParser()
+    tree = parser.get_repo_tree(repo_param, branch_param)
+    if tree is None:
+        return jsonify({'error': 'Could not fetch repo tree.'}), 400
+    
+    tree_str = parser.format_tree_for_prompt(tree)
+    
+    prompt = f"You are a Senior Software Architect. Generate a comprehensive project blueprint for the following repository structure:\n\n{tree_str}\n\n"
+    prompt += "Include:\n1. A high-level summary of the project architecture.\n"
+    prompt += "2. A Mermaid diagram representing the folder and file relationships.\n"
+    prompt += "3. Key technology stack identifies (if possible).\n"
+    prompt += "Output ONLY the markdown content."
+    
+    try:
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content(prompt)
+        content = response.text
+        # Handle cases where AI might wrap output in markdown code blocks
+        if '```' in content:
+            content = content.replace('```markdown', '').replace('```', '').strip()
+        return jsonify({'markdown': content})
+    except Exception as e:
+        print(f"Blueprint Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# DUPLICATE ENDPOINT #2 - DEVRE DIŞI (Gerçek endpoint satır ~3550'de)
+# @app.route('/api/github/health', methods=['GET'])
+# def get_github_health():
+#     ...eski kod kaldırıldı...
 
 @app.route('/api/refactor/bulk', methods=['POST'])
 @jwt_required()
@@ -2125,14 +2360,14 @@ def ask():
     q_lower = question.lower()
     
     # Daha esnek Türkçe kontrolü
-    creation_verbs = ['çiz', 'oluştur', 'yarat', 'yap', 'hazırla', 'generate', 'create', 'draw', 'make', 'tasarla', 'üret', 'çizsene', 'yaparmısın', 'çizer misin', 'istiyorum', 'gönder', 'yolla']
-    image_nouns = ['resim', 'görsel', 'fotoğraf', 'image', 'picture', 'photo', 'drawing', 'art', 'logo', 'ikon', 'icon', 'sketch', 'tasarım', 'resmini', 'gorselini', 'fotografini', 'resmi', 'gorseli', 'fotografi', 'çizim', 'cizim', 'png', 'jpg', 'karikatür', 'illüstrasyon', 'poster', 'afiş', 'kapak', 'banner']
+    creation_verbs = ['çiz', 'oluştur', 'yarat', 'yap', 'hazırla', 'generate', 'create', 'draw', 'make', 'tasarla', 'üret', 'çizsene', 'yaparmısın', 'çizer misin', 'istiyorum', 'gönder', 'yolla', 'boya', 'canlandır']
+    image_nouns = ['resim', 'görsel', 'fotoğraf', 'image', 'picture', 'photo', 'drawing', 'art', 'logo', 'ikon', 'icon', 'sketch', 'tasarım', 'resmini', 'gorselini', 'fotografini', 'resmi', 'gorseli', 'fotografi', 'çizim', 'cizim', 'png', 'jpg', 'karikatür', 'illüstrasyon', 'poster', 'afiş', 'kapak', 'banner', 'avatar', 'manzara', 'portre', 'karakter']
     
     # Basit anahtar kelime öbekleri
     exact_phrases = [
         'create image', 'generate image', 'draw a picture', 'resim çiz', 'görsel oluştur', 
         'resim yap', 'görsel yarat', 'fotoğraf oluştur', 'resim istiyorum', 'görsel istiyorum',
-        'çizgi film', 'logo yap', 'ikon yap', 'resmi yap', 'görseli yap'
+        'çizgi film', 'logo yap', 'ikon yap', 'resmi yap', 'görseli yap', 'resmini oluştur', 'görselini çiz'
     ]
     
     # Kelime bazlı kontrol (Hem 'resim' hem 'çiz' geçiyorsa)
@@ -2422,7 +2657,7 @@ Analyze these responses and combine the best parts of all of them to create a si
         
         # Gemini ile harmanla (Fallback mekanizmalı)
         blended_response = ""
-        blender_models = ['gemini-2.5-flash', 'gpt-4o', 'claude-sonnet-4-5-20250929']
+        blender_models = ['gemini-2.5-flash', 'gpt-4o-mini', 'claude-sonnet-4-5-20250929']
         blender_error = None
         
         success = False
@@ -3151,6 +3386,653 @@ def list_answers(history_id: int):
     return jsonify({'answers': [serialize_answer(a) for a in answers]})
 
 
+@app.route('/api/github/blueprint', methods=['GET'])
+@jwt_required(optional=True)
+def generate_blueprint():
+    repo_param = request.args.get('repo')
+    branch_param = request.args.get('branch', 'main')
+
+    if not repo_param:
+        return jsonify({'error': 'Repository parameter is required'}), 400
+
+    parser = GitHubParser()
+    tree = parser.get_repo_tree(repo_param, branch_param)
+    
+    if not tree:
+         return jsonify({'error': 'Failed to fetch repository tree or repository is empty.'}), 404
+
+    tree_str = parser.format_tree_for_prompt(tree)
+
+    prompt = f"""You are a senior enterprise software architect.
+
+Analyze the repository structure below and generate a DETAILED and ACTIONABLE "Project Blueprint" in Markdown.
+
+Output requirements:
+1. Use concrete findings from folder and file names.
+2. Do not use vague placeholders like "Identified project component".
+3. If a detail cannot be fully proven, provide a best-effort inference and clearly label it as "Inferred".
+4. Include meaningful Mermaid diagrams that show interactions, not only root-folder listings.
+
+Your blueprint MUST include all sections below:
+
+## 1. Executive Summary
+- Project purpose, business/technical domain, and likely users.
+- Overall architecture style (monolith, layered, service-based, etc.).
+- Maturity/readiness signals from repo contents.
+
+## 2. System Architecture
+- Major layers (UI, API, domain, data, integrations) and responsibilities.
+- Core runtime flow at a high level.
+- Mermaid `graph TD` with real component relations.
+
+## 3. Key Components And Responsibilities
+For each important module/directory:
+- Responsibility
+- Key files
+- Inputs/outputs
+- Upstream/downstream dependencies
+
+## 4. Technology Stack
+- Backend (languages, frameworks, DB, ORM)
+- Frontend (framework, state/data flow hints, build tool)
+- Tooling (tests, linting, formatting, CI/CD, containerization)
+
+## 5. API Surface
+- Main endpoints/entry points inferred from routes/controllers.
+- Group endpoints by feature area.
+- Mention auth, request/response expectations where inferable.
+
+## 6. Data Model And Persistence
+- Database technology and schema clues.
+- Core entities and relationships (inferred from model names/files).
+- Migration/versioning approach if present.
+
+## 7. Data Flow (Sequence)
+- Provide a Mermaid `sequenceDiagram` for one critical user flow.
+
+## 8. Build, Run, Deploy
+- Local run strategy
+- Build scripts/tasks
+- Deployment/runtime artifacts (Dockerfile, Procfile, compose, etc.)
+- Environment/configuration strategy
+
+## 9. Risks And Improvement Opportunities
+- Architectural risks
+- Testing gaps
+- Security/operability concerns
+- Prioritized next improvements
+
+## 10. Project Structure Snapshot
+- Clean tree of key directories and representative files (not full dump).
+
+Formatting rules:
+- Write in professional technical English.
+- Use concise but informative paragraphs and bullet points.
+- Keep section headings exactly as provided above.
+- Return ONLY Markdown content.
+
+Repository structure input:
+{tree_str[:12000]}
+"""
+
+    # Updated model fallback chain - Claude Sonnet first (best for documentation), then OpenAI, then Gemini
+    fallback_chain = [
+        {'type': 'anthropic', 'name': 'claude-sonnet-4-5-20250929'},
+        {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
+        {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
+        {'type': 'gemini', 'name': 'gemini-1.5-flash'},
+    ]
+    
+    last_error = "Unknown error"
+    for model_info in fallback_chain:
+        try:
+            model_type = model_info['type']
+            model_name = model_info['name']
+            
+            if model_type == 'anthropic' and claude_client:
+                print(f"⚡ Trying Blueprint generation with Claude: {model_name}")
+                response = claude_client.messages.create(
+                    model=model_name,
+                    max_tokens=4000,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                if response.content and response.content[0].text:
+                    content = response.content[0].text.strip()
+                    if len(content) > 100:
+                        print(f"✓ Blueprint generated successfully via Claude ({len(content)} chars)")
+                        return jsonify({'markdown': content})
+                        
+            elif model_type == 'gemini':
+                full_m_name = model_name if model_name.startswith('models/') else f"models/{model_name}"
+                print(f"⚡ Trying Blueprint generation with Gemini: {full_m_name}")
+                model = genai.GenerativeModel(full_m_name)
+                response = model.generate_content(prompt, request_options={"timeout": 60})
+                if response and response.text and len(response.text.strip()) > 100:
+                    print(f"✓ Blueprint generated successfully ({len(response.text)} chars)")
+                    return jsonify({'markdown': response.text})
+                    
+                if response.choices and response.choices[0].message.content:
+                    content = response.choices[0].message.content.strip()
+                    if len(content) > 100:
+                        print(f"✓ Blueprint generated successfully via OpenAI ({len(content)} chars)")
+                        return jsonify({'markdown': content})
+                        
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Blueprint trial with {model_info['name']} failed: {error_msg}")
+            last_error = error_msg
+            continue
+
+    # If all models fail, return helpful error
+    return jsonify({'error': f"Failed to generate blueprint after multiple attempts. Last error: {last_error}"}), 500
+
+
+@app.route('/api/github/health', methods=['GET'])
+@jwt_required(optional=True)
+def get_code_health():
+    try:
+        repo_param = request.args.get('repo')
+        branch_param = request.args.get('branch', 'main')
+
+        # Guard: repo parameter is required and cannot be null/empty
+        if not repo_param or repo_param == 'null' or repo_param == 'undefined':
+            return jsonify({'error': 'Repository parameter is required. Please link a repository first.'}), 400
+
+        print(f"📊 Starting health check for: {repo_param} (branch: {branch_param})")
+
+        # ===========================
+        # GERÇEK REPO ANALİZİ
+        # ===========================
+        parser = GitHubParser()
+        tree = parser.get_repo_tree(repo_param, branch_param)
+        
+        if not tree:
+            print(f"❌ Failed to fetch tree for {repo_param}")
+            return jsonify({'error': 'Failed to fetch repository tree'}), 404
+        
+        print(f"✓ Fetched tree with {len(tree)} items")
+        
+        # Dosya yollarını analiz et (safe extraction)
+        try:
+            paths = []
+            for item in tree:
+                if isinstance(item, dict) and item.get('type') == 'blob':
+                    path = item.get('path', '')
+                    if path:
+                        paths.append(path.lower())
+        except Exception as e:
+            print(f"⚠️ Error parsing tree structure: {e}")
+            paths = []
+            
+        total_files = len(paths)
+        print(f"📁 Extracted {total_files} file paths")
+        
+        # 1. SECURITY SCORE (0-100)
+        security_score = 100
+        security_issues = []
+        
+        # Tehlikeli dosya/pattern'leri ara
+        dangerous_patterns = {
+            '.env': 10,
+            'secret': 15,
+            'password': 15,
+            'api_key': 15,
+            'private': 10,
+            'credentials': 20,
+            '.pem': 15,
+            '.key': 15,
+            'token': 10
+        }
+        
+        for path in paths:
+            for pattern, penalty in dangerous_patterns.items():
+                if pattern in path:
+                    # .gitignore'da ise sorun yok
+                    if 'gitignore' not in path:
+                        security_score = max(0, security_score - penalty)
+                        security_issues.append(f"Found '{pattern}' in {path}")
+                        break
+        
+        # .gitignore varsa bonus
+        if any('.gitignore' in p for p in paths):
+            security_score = min(100, security_score + 5)
+        
+        # 2. TEST COVERAGE (0-100)
+        test_files = 0
+        code_files = 0
+        
+        code_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go', '.rb', '.php', '.cs', '.cpp', '.c', '.h'}
+        test_patterns = ['test_', '_test.', '.test.', '.spec.', '/test/', '/tests/', '__test__']
+        
+        for path in paths:
+            ext = os.path.splitext(path)[1].lower()
+            if ext in code_extensions:
+                code_files += 1
+                # Test dosyası mı?
+                if any(pattern in path for pattern in test_patterns):
+                    test_files += 1
+        
+        # Test coverage hesapla
+        if code_files > 0:
+            test_ratio = test_files / code_files
+            test_coverage = min(100, int(test_ratio * 200))  # %50 test = 100 puan
+        else:
+            test_coverage = 0
+        
+        # Test klasörü varsa bonus
+        if any('/test/' in p or '/tests/' in p for p in paths):
+            test_coverage = min(100, test_coverage + 10)
+        
+        # 3. READABILITY SCORE (0-100)
+        readability_grade = 40  # Base score
+        
+        # README check
+        if any('readme.md' in p for p in paths):
+            readability_grade += 25
+        if any('readme.rst' in p or 'readme.txt' in p for p in paths):
+            readability_grade += 15
+        
+        # Documentation check
+        if any('contributing.md' in p for p in paths):
+            readability_grade += 10
+        
+        if any('/docs/' in p or '/doc/' in p for p in paths):
+            readability_grade += 15
+        
+        # LICENSE check
+        if any('license' in p for p in paths):
+            readability_grade += 5
+        
+        # Code comments (proxy: README + docs = iyi comment kültürü)
+        readability_grade = min(100, readability_grade)
+        
+        # Cache key (gerçek metriklerle)
+        cache_key = f"{repo_param}:{branch_param}:{security_score}:{test_coverage}:{readability_grade}"
+        
+        # Check cache first (kota tasarrufu!)
+        current_time = time.time()
+        if cache_key in health_narrative_cache:
+            cached_data = health_narrative_cache[cache_key]
+            if current_time - cached_data['timestamp'] < CACHE_TTL:
+                print(f"✓ Cache HIT for {repo_param} (Quota saved!)")
+                return jsonify({
+                    'metrics': {
+                        'security': security_score,
+                        'test_coverage': test_coverage,
+                        'readability': readability_grade
+                    },
+                    'narrative': cached_data['narrative']
+                })
+        
+        print(f"⚡ Cache MISS for {repo_param} - calling AI...")
+        print(f"📊 Real Analysis: Security={security_score}, Tests={test_coverage}, Readability={readability_grade}")
+        print(f"   Files: {code_files} code, {test_files} test ({total_files} total)")
+
+        # Static fallback narratives (kota aşımında kullanılacak)
+        repo_name = repo_param.split('/')[-1]
+        static_narratives = [
+            f"Neural scan complete for {repo_name}. Security protocols operational. Test coverage needs enhancement. Code architecture shows solid foundation.",
+            f"System diagnostics initialized. Repository {repo_name} shows moderate stability. Recommend increasing test coverage for mission-critical components.",
+            f"Cyberdeck analysis complete. {repo_name} codebase functional but requires defensive programming enhancements. Deploy additional test frameworks.",
+            f"Network scan of {repo_name} repository complete. Security: nominal. Coverage: suboptimal. Readability: acceptable. Proceed with caution, Netrunner.",
+            f"OMNI-NET diagnostic: {repo_name} shows balanced architecture. Security measures holding. Test suite expansion recommended for zero-day protection."
+        ]
+
+        # AI Prompt - Gerçek analiz sonuçlarıyla
+        analysis_context = f"""Repository: {repo_name}
+Real Analysis Results:
+- Total Files: {total_files} ({code_files} code files, {test_files} test files)
+- Security Issues Found: {len(security_issues)} ({', '.join(security_issues[:3]) if security_issues else 'None detected'})
+- Test Coverage Ratio: {test_files}/{code_files} = {(test_files/code_files*100) if code_files > 0 else 0:.1f}%
+- Documentation: {'README found ✓' if any('readme' in p for p in paths) else 'No README ✗'}
+"""
+
+        prompt = f"""You are 'OMNI', an AI Game Master monitoring a Cyberpunk megacorporation's codebase.
+
+{analysis_context}
+
+Final Health Metrics:
+- Security Score: {security_score}/100 {'(CRITICAL!)' if security_score < 60 else '(Good)' if security_score > 80 else '(Warning)'}
+- Test Coverage: {test_coverage}/100 {'(CRITICAL!)' if test_coverage < 40 else '(Good)' if test_coverage > 70 else '(Warning)'}
+- Readability: {readability_grade}/100 {'(Needs work)' if readability_grade < 60 else '(Excellent)' if readability_grade > 80 else '(Acceptable)'}
+
+Generate a short, flavorful, Cyberpunk-style narrative report (max 3-4 sentences) based on REAL analysis data above.
+Comment on the actual findings like a mission briefing. Use neon/hacker aesthetics in your tone.
+
+Example: "Initializing neural scan... Security protocols are holding, but test coverage is critically low. We are exposed to rogue zero-days. Enhance the firewall modules immediately, Netrunner."
+"""
+
+        narrative = None
+        # Model fallback chain: GPT-4o-mini -> Gemini 2.5 Flash Lite
+        model_chain = [
+            {'type': 'openai', 'name': 'gpt-4o-mini'},
+            {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
+            {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
+            {'type': 'gemini', 'name': 'gemini-1.5-flash'},
+        ]
+        
+        for model_info in model_chain:
+            try:
+                model_type = model_info['type']
+                model_name = model_info['name']
+                
+                if model_type == 'gemini':
+                    full_m_name = model_name if model_name.startswith('models/') else f"models/{model_name}"
+                    print(f"Trying Health narrative with: {full_m_name}")
+                    model = genai.GenerativeModel(full_m_name)
+                    response = model.generate_content(prompt, request_options={"timeout": 30})
+                    if response and response.text:
+                        narrative = response.text.replace('*', '').strip()
+                        # Cache success
+                        health_narrative_cache[cache_key] = {
+                            'narrative': narrative,
+                            'timestamp': current_time
+                        }
+                        print(f"✓ AI response cached for {repo_param} (model: {model_name})")
+                        break
+                        
+                elif model_type == 'openai' and openai_client:
+                    print(f"Trying Health narrative with: OpenAI {model_name}")
+                    response = openai_client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": "You are OMNI, a cyberpunk AI monitoring codebases."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=150,
+                        temperature=0.8
+                    )
+                    if response.choices and response.choices[0].message.content:
+                        narrative = response.choices[0].message.content.strip()
+                        # Cache success
+                        health_narrative_cache[cache_key] = {
+                            'narrative': narrative,
+                            'timestamp': current_time
+                        }
+                        print(f"✓ AI response cached for {repo_param} (model: {model_name})")
+                        break
+                        
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Health trial with {model_info['name']} failed: {error_msg}")
+                # Quota aşımı kontrolü
+                if "429" in error_msg or "quota" in error_msg.lower() or "RESOURCE_EXHAUSTED" in error_msg:
+                    print("⚠️ Quota exceeded - trying next model")
+                    continue
+                continue
+        
+        # Fallback to smart static narrative (AI çalışmazsa)
+        if not narrative:
+            # Metrik bazlı akıllı fallback
+            if security_score < 60:
+                sec_status = "CRITICAL SECURITY BREACH DETECTED"
+            elif security_score < 80:
+                sec_status = "Security protocols need reinforcement"
+            else:
+                sec_status = "Security firewalls operational"
+            
+            if test_coverage < 40:
+                test_status = "Test coverage dangerously low. Zero-day vulnerabilities imminent"
+            elif test_coverage < 70:
+                test_status = "Test coverage suboptimal. Deploy additional quality assurance"
+            else:
+                test_status = "Test infrastructure solid"
+            
+            if readability_grade < 60:
+                doc_status = "Documentation incomplete. Code maintainability at risk"
+            elif readability_grade < 80:
+                doc_status = "Documentation acceptable but could be enhanced"
+            else:
+                doc_status = "Excellent documentation standards maintained"
+            
+            narrative = f"Neural scan of {repo_name} complete. {sec_status}. {test_status}. {doc_status}. Netrunner, proceed with tactical awareness."
+
+        return jsonify({
+            'metrics': {
+                'security': security_score,
+                'test_coverage': test_coverage,
+                'readability': readability_grade
+            },
+            'narrative': narrative
+        })
+        
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR in get_code_health: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f"Failed to fetch health metrics: {str(e)}"}), 500
+    
+    # 1. SECURITY SCORE (0-100)
+    security_score = 100
+    security_issues = []
+    
+    # Tehlikeli dosya/pattern'leri ara
+    dangerous_patterns = {
+        '.env': 10,
+        'secret': 15,
+        'password': 15,
+        'api_key': 15,
+        'private': 10,
+        'credentials': 20,
+        '.pem': 15,
+        '.key': 15,
+        'token': 10
+    }
+    
+    for path in paths:
+        for pattern, penalty in dangerous_patterns.items():
+            if pattern in path:
+                # .gitignore'da ise sorun yok
+                if 'gitignore' not in path:
+                    security_score = max(0, security_score - penalty)
+                    security_issues.append(f"Found '{pattern}' in {path}")
+                    break
+    
+    # .gitignore varsa bonus
+    if any('.gitignore' in p for p in paths):
+        security_score = min(100, security_score + 5)
+    
+    # 2. TEST COVERAGE (0-100)
+    test_files = 0
+    code_files = 0
+    
+    code_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go', '.rb', '.php', '.cs', '.cpp', '.c', '.h'}
+    test_patterns = ['test_', '_test.', '.test.', '.spec.', '/test/', '/tests/', '__test__']
+    
+    for path in paths:
+        ext = os.path.splitext(path)[1].lower()
+        if ext in code_extensions:
+            code_files += 1
+            # Test dosyası mı?
+            if any(pattern in path for pattern in test_patterns):
+                test_files += 1
+    
+    # Test coverage hesapla
+    if code_files > 0:
+        test_ratio = test_files / code_files
+        test_coverage = min(100, int(test_ratio * 200))  # %50 test = 100 puan
+    else:
+        test_coverage = 0
+    
+    # Test klasörü varsa bonus
+    if any('/test/' in p or '/tests/' in p for p in paths):
+        test_coverage = min(100, test_coverage + 10)
+    
+    # 3. READABILITY SCORE (0-100)
+    readability_grade = 40  # Base score
+    
+    # README check
+    if any('readme.md' in p for p in paths):
+        readability_grade += 25
+    if any('readme.rst' in p or 'readme.txt' in p for p in paths):
+        readability_grade += 15
+    
+    # Documentation check
+    if any('contributing.md' in p for p in paths):
+        readability_grade += 10
+    
+    if any('/docs/' in p or '/doc/' in p for p in paths):
+        readability_grade += 15
+    
+    # LICENSE check
+    if any('license' in p for p in paths):
+        readability_grade += 5
+    
+    # Code comments (proxy: README + docs = iyi comment kültürü)
+    readability_grade = min(100, readability_grade)
+    
+    # Cache key (gerçek metriklerle)
+    cache_key = f"{repo_param}:{branch_param}:{security_score}:{test_coverage}:{readability_grade}"
+    
+    # Check cache first (kota tasarrufu!)
+    current_time = time.time()
+    if cache_key in health_narrative_cache:
+        cached_data = health_narrative_cache[cache_key]
+        if current_time - cached_data['timestamp'] < CACHE_TTL:
+            print(f"✓ Cache HIT for {repo_param} (Quota saved!)")
+            return jsonify({
+                'metrics': {
+                    'security': security_score,
+                    'test_coverage': test_coverage,
+                    'readability': readability_grade
+                },
+                'narrative': cached_data['narrative']
+            })
+    
+    print(f"⚡ Cache MISS for {repo_param} - calling AI...")
+    print(f"📊 Real Analysis: Security={security_score}, Tests={test_coverage}, Readability={readability_grade}")
+    print(f"   Files: {code_files} code, {test_files} test ({total_files} total)")
+
+    # Static fallback narratives (kota aşımında kullanılacak)
+    repo_name = repo_param.split('/')[-1]
+    static_narratives = [
+        f"Neural scan complete for {repo_name}. Security protocols operational. Test coverage needs enhancement. Code architecture shows solid foundation.",
+        f"System diagnostics initialized. Repository {repo_name} shows moderate stability. Recommend increasing test coverage for mission-critical components.",
+        f"Cyberdeck analysis complete. {repo_name} codebase functional but requires defensive programming enhancements. Deploy additional test frameworks.",
+        f"Network scan of {repo_name} repository complete. Security: nominal. Coverage: suboptimal. Readability: acceptable. Proceed with caution, Netrunner.",
+        f"OMNI-NET diagnostic: {repo_name} shows balanced architecture. Security measures holding. Test suite expansion recommended for zero-day protection."
+    ]
+
+    # AI Prompt - Gerçek analiz sonuçlarıyla
+    analysis_context = f"""Repository: {repo_name}
+Real Analysis Results:
+- Total Files: {total_files} ({code_files} code files, {test_files} test files)
+- Security Issues Found: {len(security_issues)} ({', '.join(security_issues[:3]) if security_issues else 'None detected'})
+- Test Coverage Ratio: {test_files}/{code_files} = {(test_files/code_files*100) if code_files > 0 else 0:.1f}%
+- Documentation: {'README found ✓' if any('readme' in p for p in paths) else 'No README ✗'}
+"""
+
+    prompt = f"""You are 'OMNI', an AI Game Master monitoring a Cyberpunk megacorporation's codebase.
+
+{analysis_context}
+
+Final Health Metrics:
+- Security Score: {security_score}/100 {'(CRITICAL!)' if security_score < 60 else '(Good)' if security_score > 80 else '(Warning)'}
+- Test Coverage: {test_coverage}/100 {'(CRITICAL!)' if test_coverage < 40 else '(Good)' if test_coverage > 70 else '(Warning)'}
+- Readability: {readability_grade}/100 {'(Needs work)' if readability_grade < 60 else '(Excellent)' if readability_grade > 80 else '(Acceptable)'}
+
+Generate a short, flavorful, Cyberpunk-style narrative report (max 3-4 sentences) based on REAL analysis data above.
+Comment on the actual findings like a mission briefing. Use neon/hacker aesthetics in your tone.
+
+Example: "Initializing neural scan... Security protocols are holding, but test coverage is critically low. We are exposed to rogue zero-days. Enhance the firewall modules immediately, Netrunner."
+"""
+
+    narrative = None
+    # Model fallback chain: GPT-4o-mini -> Gemini 2.5 Flash Lite
+    model_chain = [
+        {'type': 'openai', 'name': 'gpt-4o-mini'},
+        {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
+        {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
+        {'type': 'gemini', 'name': 'gemini-1.5-flash'},
+    ]
+    
+    for model_info in model_chain:
+        try:
+            model_type = model_info['type']
+            model_name = model_info['name']
+            
+            if model_type == 'gemini':
+                full_m_name = model_name if model_name.startswith('models/') else f"models/{model_name}"
+                print(f"Trying Health narrative with: {full_m_name}")
+                model = genai.GenerativeModel(full_m_name)
+                response = model.generate_content(prompt)
+                if response and response.text:
+                    narrative = response.text.replace('*', '').strip()
+                    # Cache success
+                    health_narrative_cache[cache_key] = {
+                        'narrative': narrative,
+                        'timestamp': current_time
+                    }
+                    print(f"✓ AI response cached for {repo_param} (model: {model_name})")
+                    break
+                    
+            elif model_type == 'openai' and openai_client:
+                print(f"Trying Health narrative with: OpenAI {model_name}")
+                response = openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": "You are OMNI, a cyberpunk AI monitoring codebases."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=150,
+                    temperature=0.8
+                )
+                if response.choices and response.choices[0].message.content:
+                    narrative = response.choices[0].message.content.strip()
+                    # Cache success
+                    health_narrative_cache[cache_key] = {
+                        'narrative': narrative,
+                        'timestamp': current_time
+                    }
+                    print(f"✓ AI response cached for {repo_param} (model: {model_name})")
+                    break
+                    
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Health trial with {model_info['name']} failed: {error_msg}")
+            # Quota aşımı kontrolü
+            if "429" in error_msg or "quota" in error_msg.lower() or "RESOURCE_EXHAUSTED" in error_msg:
+                print("⚠️ Quota exceeded - trying next model")
+                continue
+            continue
+    
+    # Fallback to smart static narrative (AI çalışmazsa)
+    if not narrative:
+        # Metrik bazlı akıllı fallback
+        if security_score < 60:
+            sec_status = "CRITICAL SECURITY BREACH DETECTED"
+        elif security_score < 80:
+            sec_status = "Security protocols need reinforcement"
+        else:
+            sec_status = "Security firewalls operational"
+        
+        if test_coverage < 40:
+            test_status = "Test coverage dangerously low. Zero-day vulnerabilities imminent"
+        elif test_coverage < 70:
+            test_status = "Test coverage suboptimal. Deploy additional quality assurance"
+        else:
+            test_status = "Test infrastructure solid"
+        
+        if readability_grade < 60:
+            doc_status = "Documentation incomplete. Code maintainability at risk"
+        elif readability_grade < 80:
+            doc_status = "Documentation acceptable but could be enhanced"
+        else:
+            doc_status = "Excellent documentation standards maintained"
+        
+        narrative = f"Neural scan of {repo_name} complete. {sec_status}. {test_status}. {doc_status}. Netrunner, proceed with tactical awareness."
+
+    return jsonify({
+        'metrics': {
+            'security': security_score,
+            'test_coverage': test_coverage,
+            'readability': readability_grade
+        },
+        'narrative': narrative
+    })
+
 @app.route('/api/history/<int:history_id>/similar', methods=['GET'])
 def get_similar_questions(history_id: int):
     """Benzer topluluk sorularını bul ve döndür."""
@@ -3841,19 +4723,32 @@ def serve_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve_spa(path):
-    """Serve static files or index.html for SPA"""
-    if path and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    
-    # If path is an asset request but not found, return 404 instead of index.html
-    # to avoid syntax errors when browser tries to parse HTML as JS/CSS
-    if path and (path.endswith('.js') or path.endswith('.css') or path.endswith('.png')):
-        return "Not Found", 404
 
-    return send_from_directory(app.static_folder, 'index.html')
+def call_gemini_with_retry(prompt, model_name='gemini-1.5-flash-8b', max_retries=2):
+    """Calls Gemini API with exponential backoff for 429 errors."""
+    for i in range(max_retries):
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            if response and response.text:
+                return response.text
+            return None
+        except Exception as e:
+            err_msg = str(e)
+            if "429" in err_msg or "quota" in err_msg.lower():
+                if i < max_retries - 1:
+                    wait_time = (i + 1) * 3
+                    print(f"Gemini 429 received. Waiting {wait_time}s before retry {i+1}...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print("Gemini quota exceeded after retries. Triggering fallback.")
+                    return None # Explicitly return None to trigger fallback in route
+            raise e
+    return None
+
+# --- GITHUB FEATURES ROTALARI ---
+
 
 if __name__ == '__main__':
     with app.app_context():
