@@ -242,6 +242,22 @@ const ChatInterface = ({
     }
   };
 
+  const handleShowCodeHealthClick = () => {
+    if (!linkedRepo) {
+      showToast("Please link a repository first to view System Health.", "error");
+      return;
+    }
+    onShowCodeHealth?.();
+  };
+
+  const handleShowGraphClick = () => {
+    if (!linkedRepo) {
+      showToast("Please link a repository first to view Graph View.", "error");
+      return;
+    }
+    setShowGraph(true);
+  };
+
   // Check for error patterns in input
   useEffect(() => {
     const errorPattern = /(Traceback|Error|Exception|TypeError|ValueError|ReferenceError|SyntaxError|IndexError|KeyError|ModuleNotFoundError|RuntimeError|Hata|Failed|Failure)\b/i;
@@ -1097,7 +1113,11 @@ const ChatInterface = ({
               </svg>
               <span>Linked to: <strong>{linkedRepo}</strong></span>
               <button
-                onClick={() => setLinkedRepo(null)}
+                onClick={() => {
+                  setLinkedRepo(null);
+                  if (onUpdate) onUpdate({ linkedRepo: null, linkedBranch: null });
+                  showToast("Repository link removed.", "success");
+                }}
                 className="ml-2 hover:text-white transition-colors"
                 title="Remove Link"
               >
@@ -1106,14 +1126,14 @@ const ChatInterface = ({
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowGraph(true)}
+                onClick={handleShowGraphClick}
                 className="px-3 py-1.5 bg-pink-900/20 hover:bg-pink-900/40 border border-pink-500/30 rounded-lg text-xs text-pink-300 transition-colors flex items-center gap-1 shadow-sm"
                 title="View Context Architecture Graph"
               >
                 <span>🌌</span> Graph View
               </button>
               <button
-                onClick={onShowCodeHealth}
+                onClick={handleShowCodeHealthClick}
                 className="px-3 py-1.5 bg-cyan-900/20 hover:bg-cyan-900/40 border border-cyan-500/30 rounded-lg text-xs text-cyan-300 transition-colors flex items-center gap-1 shadow-sm shadow-cyan-500/10"
                 title="View Code Health Dashboard"
               >

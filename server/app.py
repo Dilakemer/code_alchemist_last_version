@@ -162,7 +162,7 @@ def handle_exception(e):
         'details': str(e)
     }), 500
 
-def call_gemini_with_retry(prompt, model_name='gemini-1.5-flash-8b', max_retries=2):
+def call_gemini_with_retry(prompt, model_name='gemini-2.5-flash', max_retries=2):
     """Calls Gemini API with exponential backoff for 429 errors."""
     for i in range(max_retries):
         try:
@@ -267,9 +267,7 @@ graph TD
 #     ...eski kod kaldırıldı...
 
 # --- 1. GEMINI KONFIGURASYONU ---
-# Varsayılan model olarak en yeni Gemini 3.1 Flash Lite'ı seçiyoruz
-GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-1.5-flash')
-PRIMARY_GEMINI = 'gemini-3.1-flash-lite'
+GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.5-flash')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 if GEMINI_API_KEY:
@@ -1540,11 +1538,26 @@ def update_profile():
     return jsonify({'user': serialize_user(user), 'message': 'Profile updated.'})
 
 
-@app.route('/api/auth/profile/image', methods=['POST'])
+@app.route('/api/auth/profile/image', methods=['POST', 'DELETE'])
 @jwt_required()
 def upload_profile_image():
-    """Profil fotoğrafı yükle."""
+    """Profil fotoğrafı yükle veya kaldır."""
     user = get_current_user()
+
+    if request.method == 'DELETE':
+        if user.profile_image and os.path.exists(user.profile_image):
+            try:
+                os.remove(user.profile_image)
+            except:
+                pass
+
+        user.profile_image = None
+        db.session.commit()
+
+        return jsonify({
+            'user': serialize_user(user),
+            'message': 'Profile picture removed.'
+        })
     
     if 'image' not in request.files:
         return jsonify({'error': 'Image file required.'}), 400
@@ -3500,7 +3513,7 @@ Repository structure input:
         {'type': 'anthropic', 'name': 'claude-sonnet-4-5-20250929'},
         {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
         {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
-        {'type': 'gemini', 'name': 'gemini-1.5-flash'},
+        {'type': 'gemini', 'name': 'gemini-2.5-flash'},
     ]
     
     last_error = "Unknown error"
@@ -3730,7 +3743,7 @@ Example: "Initializing neural scan... Security protocols are holding, but test c
             {'type': 'openai', 'name': 'gpt-4o-mini'},
             {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
             {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
-            {'type': 'gemini', 'name': 'gemini-1.5-flash'},
+            {'type': 'gemini', 'name': 'gemini-2.5-flash'},
         ]
         
         for model_info in model_chain:
@@ -3965,7 +3978,7 @@ Example: "Initializing neural scan... Security protocols are holding, but test c
         {'type': 'openai', 'name': 'gpt-4o-mini'},
         {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
         {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
-        {'type': 'gemini', 'name': 'gemini-1.5-flash'},
+        {'type': 'gemini', 'name': 'gemini-2.5-flash'},
     ]
     
     for model_info in model_chain:
@@ -4744,7 +4757,7 @@ def serve_file(filename):
 
 
 
-def call_gemini_with_retry(prompt, model_name='gemini-1.5-flash-8b', max_retries=2):
+def call_gemini_with_retry(prompt, model_name='gemini-2.5-flash', max_retries=2):
     """Calls Gemini API with exponential backoff for 429 errors."""
     for i in range(max_retries):
         try:

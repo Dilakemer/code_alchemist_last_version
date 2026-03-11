@@ -108,6 +108,32 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout }) => {
         }
     };
 
+    const handleImageRemove = async () => {
+        setImageLoading(true);
+        setMessage({ type: '', text: '' });
+
+        try {
+            const res = await fetch(`${apiBase}/api/auth/profile/image`, {
+                method: 'DELETE',
+                headers: authHeaders
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                setMessage({ type: 'success', text: data.message || 'Profile picture removed!' });
+                if (onUpdate) onUpdate(data.user);
+            } else {
+                setMessage({ type: 'error', text: data.error || 'An error occurred.' });
+            }
+        } catch (err) {
+            console.error('Image remove error:', err);
+            setMessage({ type: 'error', text: 'Connection error.' });
+        } finally {
+            setImageLoading(false);
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setMessage({ type: '', text: '' });
@@ -208,6 +234,16 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout }) => {
                             </div>
                         </div>
                         <p className="text-[10px] text-gray-500 text-center mt-1">Click to change</p>
+                        {profileImageUrl && (
+                            <button
+                                type="button"
+                                onClick={handleImageRemove}
+                                disabled={imageLoading}
+                                className="w-full mt-2 text-[11px] text-red-300 hover:text-red-200 border border-red-500/40 rounded-full py-1 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                            >
+                                {imageLoading ? 'Processing...' : 'Remove photo'}
+                            </button>
+                        )}
                     </div>
 
                     <div>

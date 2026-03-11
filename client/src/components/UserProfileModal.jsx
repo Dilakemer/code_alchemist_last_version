@@ -79,6 +79,30 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
     const bioRaw = user?.bio || user?.description || user?.about || '';
     const bio = bioRaw && !/okunaksız/i.test(bioRaw) ? bioRaw : '';
 
+    const handleRemovePhoto = async () => {
+        setImageLoading(true);
+        setMessage({ type: '', text: '' });
+
+        try {
+            const res = await fetch(`${apiBase}/api/auth/profile/image`, {
+                method: 'DELETE',
+                headers: authHeaders
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                setMessage({ type: 'success', text: data.message || 'Photo removed!' });
+                if (onUserUpdate) onUserUpdate(data.user);
+            } else {
+                setMessage({ type: 'error', text: data.error || 'Error occurred.' });
+            }
+        } catch {
+            setMessage({ type: 'error', text: 'Connection error.' });
+        } finally {
+            setImageLoading(false);
+        }
+    };
+
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl h-[85vh] flex flex-col relative shadow-2xl overflow-hidden">
@@ -432,9 +456,20 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                         } catch { setMessage({ type: 'error', text: 'Connection error.' }); }
                                         finally { setImageLoading(false); }
                                     }} />
-                                    <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-white transition-colors">
-                                        {imageLoading ? 'Uploading...' : 'Change Photo'}
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-white transition-colors disabled:opacity-50" disabled={imageLoading}>
+                                            {imageLoading ? 'Processing...' : 'Change Photo'}
+                                        </button>
+                                        {avatarUrl && (
+                                            <button
+                                                onClick={handleRemovePhoto}
+                                                className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 rounded-lg text-sm text-red-300 transition-colors disabled:opacity-50"
+                                                disabled={imageLoading}
+                                            >
+                                                Remove Photo
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Display Name */}

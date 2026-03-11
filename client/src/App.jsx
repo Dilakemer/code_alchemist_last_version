@@ -1309,8 +1309,8 @@ function App() {
               authHeaders={authHeaders}
               theme={theme}
               onUpdate={(data) => {
-                if (data && data.linkedRepo) {
-                  setPreLinkedRepo(data.linkedRepo);
+                if (data && Object.prototype.hasOwnProperty.call(data, 'linkedRepo')) {
+                  setPreLinkedRepo(data.linkedRepo || null);
                   setPreLinkedBranch(data.linkedBranch || 'main');
                 }
                 if (activeConversationId) fetchConversationDetails(activeConversationId);
@@ -1404,7 +1404,7 @@ function App() {
         }
 
         {/* Architecture Graph Modal */}
-        {showArchData && (
+        {showArchData && (activeConversationId && conversations.find(c => c.id === activeConversationId)?.linked_repo || preLinkedRepo) && (
           <GitHubGraph
             repo={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.linked_repo : preLinkedRepo}
             branch={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.repo_branch : preLinkedBranch}
