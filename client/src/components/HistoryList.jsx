@@ -8,6 +8,8 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, id: null, title: '' });
+  const [searchText, setSearchText] = useState('');
+  const [filterDate, setFilterDate] = useState('all'); // 'all', 'today', 'week', 'month'
   const menuRef = useRef(null);
 
   const formatDateOnly = (value) => {
@@ -18,7 +20,6 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
     }
     return String(value).split(' ')[0];
   };
-
 
   // Click outside to close menu
   useEffect(() => {
@@ -78,6 +79,27 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
     setMenuOpen(null);
   };
 
+  // Client-side filtering
+  const filtered = (conversations || []).filter(item => {
+    // Text search
+    const matchesText = !searchText.trim() || (item.title || '').toLowerCase().includes(searchText.toLowerCase());
+    
+    // Date filter
+    if (!matchesText) return false;
+    if (filterDate === 'all') return true;
+
+    const convDate = new Date(item.created_at);
+    const now = new Date();
+    const diffTime = Math.abs(now - convDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (filterDate === 'today') return diffDays <= 1;
+    if (filterDate === 'week') return diffDays <= 7;
+    if (filterDate === 'month') return diffDays <= 30;
+
+    return true;
+  });
+
   if (!conversations || !conversations.length) return (
     <div className="bg-gray-900/60 rounded-lg p-4 border border-violet-800 text-xs text-gray-400 text-center drop-shadow-sm">
       No conversations yet.
@@ -86,9 +108,49 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
 
   return (
     <div>
-      <h2 className="text-lg font-bold mb-3 text-fuchsia-300">Conversations</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-bold text-fuchsia-300">Conversations</h2>
+        <select 
+          value={filterDate} 
+          onChange={(e) => setFilterDate(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-[10px] text-gray-400 rounded px-2 py-1 outline-none focus:border-fuchsia-500/50"
+        >
+          <option value="all">All Time</option>
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+        </select>
+      </div>
+
+      {/* Search Bar */}
+      <div className="relative mb-3">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs pointer-events-none">🔍</span>
+        <input
+          type="text"
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          placeholder="Search conversations..."
+          className="w-full bg-gray-900/60 border border-gray-700 rounded-lg pl-8 pr-8 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-fuchsia-500/60 transition-colors"
+        />
+        {searchText && (
+          <button
+            onClick={() => setSearchText('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* No results */}
+      {filtered.length === 0 && (searchText || filterDate !== 'all') && (
+        <div className="text-center text-xs text-gray-500 py-4">
+          No matches found.
+        </div>
+      )}
+
       <ul className="space-y-2">
-        {conversations.map((item) => {
+        {filtered.map((item) => {
           const isActive = activeId === item.id;
           const isEditing = editingId === item.id;
 
@@ -145,14 +207,11 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
                   e.stopPropagation();
                   const rect = e.currentTarget.getBoundingClientRect();
                   const screenHeight = window.innerHeight;
-                  const menuEstimatedHeight = 250; // Share, Rename, Pin, Archive, Divider, Delete
-
+                  const menuEstimatedHeight = 250;
                   let yPos = rect.top;
-                  // If menu would go off bottom, open it upwards from the bottom of the trigger
                   if (yPos + menuEstimatedHeight > screenHeight) {
                     yPos = Math.max(10, rect.bottom - menuEstimatedHeight);
                   }
-
                   setMenuCoords({ x: rect.right + 5, y: yPos });
                   setMenuOpen(menuOpen === item.id ? null : item.id);
                 }}
@@ -174,12 +233,8 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
                   className="fixed z-[9999] w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden animate-fadeIn"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {/* Paylaş */}
                   <button
-                    onClick={() => {
-                      if (onShare) onShare(item);
-                      setMenuOpen(null);
-                    }}
+                    onClick={() => { if (onShare) onShare(item); setMenuOpen(null); }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -187,14 +242,8 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
                     </svg>
                     Share
                   </button>
-
-                  {/* Yeniden Adlandır */}
                   <button
-                    onClick={() => {
-                      setEditTitle(item.title || '');
-                      setEditingId(item.id);
-                      setMenuOpen(null);
-                    }}
+                    onClick={() => { setEditTitle(item.title || ''); setEditingId(item.id); setMenuOpen(null); }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -202,8 +251,6 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
                     </svg>
                     Rename
                   </button>
-
-                  {/* Sabitle */}
                   <button
                     onClick={() => handlePin(item.id)}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
@@ -213,8 +260,6 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
                     </svg>
                     {item.is_pinned ? 'Unpin' : 'Pin Chat'}
                   </button>
-
-                  {/* Arşivle */}
                   <button
                     onClick={() => handleArchive(item.id)}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-gray-200 hover:bg-gray-800 transition-colors"
@@ -224,18 +269,11 @@ const HistoryList = ({ conversations, onDelete, activeId, onSelect, onRename, on
                     </svg>
                     {item.is_archived ? 'Unarchive' : 'Archive'}
                   </button>
-
                   <div className="h-px bg-gray-700 my-1"></div>
-
-                  {/* Sil */}
                   <button
                     onClick={() => {
                       setMenuOpen(null);
-                      setConfirmModal({
-                        isOpen: true,
-                        id: item.id,
-                        title: item.title || 'This conversation'
-                      });
+                      setConfirmModal({ isOpen: true, id: item.id, title: item.title || 'This conversation' });
                     }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors"
                   >

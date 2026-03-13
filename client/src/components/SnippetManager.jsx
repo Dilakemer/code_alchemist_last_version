@@ -90,36 +90,36 @@ const SnippetManager = ({ apiBase, authHeaders, user, onAuthRequired, onClose })
     }
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-gray-800">
-                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-fuchsia-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        <div className="h-full flex flex-col bg-gray-900 border-l border-gray-800 w-full animate-in slide-in-from-right duration-300">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-gray-900/50 sticky top-0 z-10">
+                <h2 className="text-md font-bold text-white flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-fuchsia-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    Snippets
+                </h2>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setShowForm(!showForm)}
+                        className="flex items-center gap-1 bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-300 px-2 py-1 rounded text-xs transition-colors border border-fuchsia-500/30"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
-                        Code Snippets
-                    </h2>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setShowForm(!showForm)}
-                            className="flex items-center gap-1 bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-fuchsia-500/30"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            New
-                        </button>
-                        <button
-                            onClick={onClose}
-                            className="text-gray-400 hover:text-white p-1"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
+                        New
+                    </button>
+                    <button
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-white p-1"
+                        title="Close Sidebar"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
+            </div>
 
                 {/* Form */}
                 {showForm && (
@@ -217,8 +217,7 @@ const SnippetManager = ({ apiBase, authHeaders, user, onAuthRequired, onClose })
                     )}
                 </div>
             </div>
-        </div>
-    );
-};
+        );
+    };
 
-export default SnippetManager;
+    export default SnippetManager;

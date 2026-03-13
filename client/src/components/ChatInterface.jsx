@@ -6,6 +6,7 @@ import ReactDiffViewer from 'react-diff-viewer-continued';
 import SimilarSolutions from './SimilarSolutions';
 import PromptTemplates from './PromptTemplates';
 import GitHubGraph from './GitHubGraph';
+import MonacoCodeEditor from './MonacoCodeEditor';
 import useTypingEffect from '../hooks/useTypingEffect';
 import VoiceRecorder from './VoiceRecorder';
 
@@ -188,7 +189,8 @@ const ChatInterface = ({
   currentlySpeakingId,
   onShare,
   activeConversationId,
-  onShowCodeHealth
+  onShowCodeHealth,
+  onFeedbackDetail
 }) => {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -198,6 +200,13 @@ const ChatInterface = ({
   const [copiedId, setCopiedId] = useState(null);
   const [copiedCodeId, setCopiedCodeId] = useState(null);
   const [favorites, setFavorites] = useState(new Set());
+  // Feedback state: { [historyId]: +1 | -1 | null }
+  const [feedbacks, setFeedbacks] = useState({});
+  // Monaco code editor state
+  const [useMonacoEditor, setUseMonacoEditor] = useState(false);
+  const [monacoLanguage, setMonacoLanguage] = useState('python');
+  // Active project context (injected into prompts)
+  const [activeProject, setActiveProject] = useState(null);
 
   // GitHub Repo Link State
   const [showGithubModal, setShowGithubModal] = useState(false);
@@ -504,6 +513,30 @@ const ChatInterface = ({
     }
   }, [user, authHeaders, apiBase]);
 
+
+  const handleFeedback = async (historyId, rating) => {
+    // Optimistic update
+    const current = feedbacks[historyId];
+    const newRating = current === rating ? null : rating; // toggle
+    setFeedbacks(prev => ({ ...prev, [historyId]: newRating }));
+
+    try {
+      await fetch(`${apiBase}/api/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ history_id: historyId, rating })
+      });
+
+      // Yeni oy -1 ise (geri çekme değil, yeni dislike) detaylı geri bildirim modalını aç
+      if (rating === -1 && newRating === -1 && onFeedbackDetail) {
+        onFeedbackDetail(historyId);
+      }
+    } catch (err) {
+      // Hata olursa geri al
+      setFeedbacks(prev => ({ ...prev, [historyId]: current }));
+      console.error('Feedback error:', err);
+    }
+  };
 
   const toggleFavorite = async (historyId) => {
     if (!user) {
@@ -978,6 +1011,32 @@ const ChatInterface = ({
                           <span>Continue</span>
                         </button>
                       )}
+
+                      {/* Feedback Buttons (👍 / 👎) */}
+                      <div className="flex items-center gap-1 ml-auto">
+                        <button
+                          onClick={() => handleFeedback(turn.id, 1)}
+                          className={`text-sm px-2 py-1 rounded-lg transition-all ${
+                            feedbacks[turn.id] === 1
+                              ? 'bg-green-500/20 text-green-400 border border-green-500/40 scale-110'
+                              : 'text-gray-500 hover:text-green-400 hover:bg-green-500/10'
+                          }`}
+                          title="Helpful"
+                        >
+                          👍
+                        </button>
+                        <button
+                          onClick={() => handleFeedback(turn.id, -1)}
+                          className={`text-sm px-2 py-1 rounded-lg transition-all ${
+                            feedbacks[turn.id] === -1
+                              ? 'bg-red-500/20 text-red-400 border border-red-500/40 scale-110'
+                              : 'text-gray-500 hover:text-red-400 hover:bg-red-500/10'
+                          }`}
+                          title="Not Helpful"
+                        >
+                          👎
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1154,14 +1213,25 @@ const ChatInterface = ({
             </div>
           </div>
           <div className="w-full bg-gray-800/80 rounded-2xl border border-gray-700/50 focus-within:border-fuchsia-500/50 focus-within:ring-1 focus-within:ring-fuchsia-500/50 shadow-inner flex flex-col transition-all backdrop-blur-sm relative">
-            <textarea
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type your question here..."
-              className="w-full bg-transparent p-4 outline-none resize-none min-h-[60px] max-h-[200px] custom-scrollbar text-white placeholder-gray-500"
-              style={{ minHeight: '60px' }}
-            />
+            {useMonacoEditor ? (
+              <MonacoCodeEditor
+                value={question}
+                onChange={setQuestion}
+                language={monacoLanguage}
+                onLanguageChange={setMonacoLanguage}
+                theme="dark"
+                height="180px"
+              />
+            ) : (
+              <textarea
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type your question here..."
+                className="w-full bg-transparent p-4 outline-none resize-none min-h-[60px] max-h-[200px] custom-scrollbar text-white placeholder-gray-500"
+                style={{ minHeight: '60px' }}
+              />
+            )}
 
             {/* Bottom Action Bar */}
             <div className="flex items-center justify-between px-3 pb-3">
@@ -1174,6 +1244,20 @@ const ChatInterface = ({
                   ref={fileInputRef}
                   onChange={handleFileSelect}
                 />
+
+                {/* Monaco Editor Toggle */}
+                <button
+                  onClick={() => setUseMonacoEditor(v => !v)}
+                  className={`p-2 rounded-xl transition-all text-xs flex items-center gap-1 ${
+                    useMonacoEditor
+                      ? 'text-fuchsia-400 bg-fuchsia-900/30'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                  }`}
+                  title={useMonacoEditor ? 'Switch to plain text' : 'Switch to Monaco Code Editor'}
+                >
+                  <span>{useMonacoEditor ? '⌨️' : '💻'}</span>
+                  <span className="hidden sm:block text-xs">{useMonacoEditor ? 'Plain' : 'Code'}</span>
+                </button>
 
                 {/* Paperclip / Attach Button */}
                 <button

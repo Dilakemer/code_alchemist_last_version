@@ -15,6 +15,10 @@ import FollowingFeed from './components/FollowingFeed';
 import StatusModal from './components/StatusModal';
 import ExportButton from './components/ExportButton';
 import CodeHealthDashboard from './components/CodeHealthDashboard';
+import FeedbackModal from './components/FeedbackModal';
+import OnboardingTour, { shouldShowOnboarding } from './components/OnboardingTour';
+import ProjectManager from './components/ProjectManager';
+import ProjectWorkspace from './components/ProjectWorkspace';
 import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
 
 
@@ -35,6 +39,8 @@ function App() {
   const [preLinkedBranch, setPreLinkedBranch] = useState('main');
   const [showArchData, setShowArchData] = useState(false);
   const [showCodeHealth, setShowCodeHealth] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackHistoryId, setFeedbackHistoryId] = useState(null);
 
   // Community State
   const [activeCommunityPost, setActiveCommunityPost] = useState(null);
@@ -109,6 +115,14 @@ function App() {
   const [userHistory, setUserHistory] = useState([]);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [currentlySpeakingId, setCurrentlySpeakingId] = useState(null);
+  // Onboarding
+  const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding());
+  // Projects
+  const [showProjectManager, setShowProjectManager] = useState(false);
+  const [activeProject, setActiveProject] = useState(null);
+  const [projects, setProjects] = useState([]);
+    const [projectConversations, setProjectConversations] = useState({}); // { [projectId]: [convs] }
+    const [expandedProjects, setExpandedProjects] = useState(new Set());
 
   // Request notification permission when user logs in
   // Request notification permission when user logs in
@@ -227,6 +241,22 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDeleteProject = async (projectId) => {
+    if (!window.confirm('Bu projeyi ve ona ait tüm sohbetleri silmek istediğinizden emin misiniz?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${projectId}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      });
+      if (res.ok) {
+        if (activeProject?.id === projectId) setActiveProject(null);
+        fetchProjects();
+      }
+    } catch (e) {
+      console.error('Project delete error:', e);
+    }
+  };
+
   const authHeaders = useMemo(() =>
     token ? { 'Authorization': `Bearer ${token}` } : {}
     , [token]);
@@ -263,8 +293,47 @@ function App() {
     if (token) {
       fetchConversations();
       fetchNotifications(); // Initial fetch
+      fetchProjects();
     }
   }, [token]);
+
+  const fetchProjects = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/projects`, { headers: authHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.projects || []);
+      }
+    } catch (e) {
+      console.error('Projects fetch error:', e);
+    }
+  };
+
+    const fetchProjectConversations = async (projectId) => {
+      try {
+        const res = await fetch(`${API_BASE}/api/conversations?project_id=${projectId}`, { headers: authHeaders });
+        if (res.ok) {
+          const data = await res.json();
+          setProjectConversations(prev => ({ ...prev, [projectId]: data.conversations || [] }));
+        }
+      } catch (e) {
+        console.error('Project conversations fetch error:', e);
+      }
+    };
+
+    const toggleProjectExpanded = (projectId) => {
+      setExpandedProjects(prev => {
+        const next = new Set(prev);
+        if (next.has(projectId)) {
+          next.delete(projectId);
+        } else {
+          next.add(projectId);
+          fetchProjectConversations(projectId);
+        }
+        return next;
+      });
+    };
 
   const fetchNotifications = async () => {
     try {
@@ -434,14 +503,16 @@ function App() {
     }
   };
 
-  async function handleAsk() {
-    if (!question.trim() && !image) return;
+  async function handleAsk(opts = {}) {
+    const effectiveQuestion = opts.question !== undefined ? opts.question : question;
+    const effectiveConversationId = opts.conversationId !== undefined ? opts.conversationId : activeConversationId;
+    if (!effectiveQuestion.trim() && !image) return;
 
     // 1. Optimistic UI Update
     const tempId = Date.now();
     const newHistoryItem = {
       id: tempId,
-      user_question: question,
+      user_question: effectiveQuestion,
       ai_response: '',
       // Store full ISO so UI can render only the date (no time)
       timestamp: new Date().toISOString(),
@@ -453,7 +524,7 @@ function App() {
     setChatHistory(prev => [...prev, newHistoryItem]);
 
     // Reset inputs immediately
-    const currentQuestion = question;
+    const currentQuestion = effectiveQuestion;
     const currentCode = code;
     const currentImage = image;
     const currentModel = model;
@@ -475,10 +546,10 @@ function App() {
         formData.append('question', currentQuestion);
         formData.append('code', currentCode);
         formData.append('model', currentModel);
-        if (activeConversationId) formData.append('conversation_id', activeConversationId);
+        if (effectiveConversationId) formData.append('conversation_id', effectiveConversationId);
 
         // Add repo/branch if this is the first message
-        if (!activeConversationId && preLinkedRepo) {
+        if (!effectiveConversationId && preLinkedRepo) {
           formData.append('repo', preLinkedRepo);
           formData.append('branch', preLinkedBranch);
         }
@@ -492,9 +563,9 @@ function App() {
           code: currentCode,
           model: currentModel,
           models: currentModels, // For blend mode
-          conversation_id: activeConversationId,
-          repo: !activeConversationId ? preLinkedRepo : null,
-          branch: !activeConversationId ? preLinkedBranch : 'main'
+          conversation_id: effectiveConversationId,
+          repo: !effectiveConversationId ? preLinkedRepo : null,
+          branch: !effectiveConversationId ? preLinkedBranch : 'main'
         });
       }
 
@@ -558,7 +629,7 @@ function App() {
 
 
               if (data.done) {
-                if (data.conversation_id && activeConversationId !== data.conversation_id) {
+                if (data.conversation_id && effectiveConversationId !== data.conversation_id) {
                   setActiveConversationId(data.conversation_id);
                   setPreLinkedRepo(null); // Clear after linked to a real conv
                   fetchConversations();
@@ -687,6 +758,8 @@ function App() {
     setCode('');
     setImage(null);
     fetchConversations();
+    // Show onboarding for new registrations
+    if (shouldShowOnboarding()) setShowOnboarding(true);
   };
 
   const handleLogout = () => {
@@ -701,6 +774,28 @@ function App() {
   return (
     <div className="flex h-screen bg-black text-gray-100 font-sans selection:bg-fuchsia-500/30 overflow-hidden">
 
+      {/* Onboarding Tour (first visit) */}
+      {showOnboarding && (
+        <OnboardingTour onComplete={() => setShowOnboarding(false)} />
+      )}
+
+      {/* Project Manager Modal */}
+      {showProjectManager && (
+        <ProjectManager
+          apiBase={API_BASE}
+          authHeaders={token ? { Authorization: `Bearer ${token}` } : {}}
+          onSelectProject={(project) => {
+            setActiveProject(project);
+            fetchProjects(); // Refresh sidebar list
+          }}
+          activeProjectId={activeProject?.id}
+          onClose={() => {
+            setShowProjectManager(false);
+            fetchProjects(); // Refresh if created/deleted
+          }}
+        />
+      )}
+
       {/* Mobile Sidebar Overlay */}
       <div
         className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`}
@@ -710,22 +805,25 @@ function App() {
       {/* Sidebar */}
       <aside className={`w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col backdrop-blur-xl mobile-sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="p-5 border-b border-gray-800">
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex items-center gap-4 px-2">
             {/* Logo */}
-            <img
-              src="/code_alchemist_logo.png"
-              alt="CodeAlchemist logo"
-              className="h-20 w-auto object-contain drop-shadow-[0_0_12px_rgba(56,189,248,0.6)]"
-              onError={(e) => { e.currentTarget.src = '/alchemy_wave.png'; }}
-            />
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-full blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+              <img
+                src="/code_alchemist_logo.png"
+                alt="CodeAlchemist logo"
+                className="relative h-14 w-auto object-contain drop-shadow-[0_0_8px_rgba(56,189,248,0.4)] transition-transform duration-500 group-hover:scale-110"
+                onError={(e) => { e.currentTarget.src = '/alchemy_wave.png'; }}
+              />
+            </div>
 
             {/* Brand text */}
-            <div className="flex flex-col">
-              <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400 bg-clip-text text-transparent tracking-wide">
+            <div className="flex flex-col justify-center">
+              <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-400 bg-clip-text text-transparent tracking-tight leading-none">
                 CodeAlchemist
               </h1>
-              <p className="text-[10px] text-gray-400 font-medium tracking-wider uppercase">
-                AI-POWERED CODING ASSISTANT
+              <p className="text-[9px] text-gray-500 font-semibold tracking-[0.2em] uppercase mt-1 leading-none">
+                AI Alchemy Engine
               </p>
             </div>
           </div>
@@ -735,12 +833,12 @@ function App() {
         <div className="flex p-2 gap-1 bg-gray-900/80 mx-2 mt-2 rounded-lg flex-wrap">
           <button
             onClick={() => setActiveTab('conversations')}
-            className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${activeTab === 'conversations'
+            className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'conversations'
               ? 'bg-gray-800 text-white shadow'
               : 'text-gray-400 hover:text-gray-200'
               }`}
           >
-            Chat
+            💬 Chat
           </button>
           {user && (
             <button
@@ -748,7 +846,7 @@ function App() {
                 setActiveTab('archived');
                 fetchArchivedConversations();
               }}
-              className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${activeTab === 'archived'
+              className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'archived'
                 ? 'bg-gray-800 text-white shadow'
                 : 'text-gray-400 hover:text-gray-200'
                 }`}
@@ -762,7 +860,7 @@ function App() {
                 setActiveTab('favorites');
                 fetchFavorites();
               }}
-              className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${activeTab === 'favorites'
+              className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'favorites'
                 ? 'bg-gray-800 text-white shadow'
                 : 'text-gray-400 hover:text-gray-200'
                 }`}
@@ -777,34 +875,91 @@ function App() {
             <>
               <button
                 onClick={handleNewChat}
-                className="w-full mb-2 bg-gray-800/80 hover:bg-gray-700 text-white py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-gray-500 group"
+                className="w-full mb-4 bg-gray-800/80 hover:bg-gray-700 text-white py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-gray-500 group shadow-sm"
               >
-                <span className="text-xl group-hover:scale-110 transition-transform text-emerald-400">+</span>
-                <span className="font-medium text-sm">New Conversation</span>
+                <span className="text-xl group-hover:scale-110 transition-transform text-fuchsia-400">+</span>
+                <span className="font-medium text-sm">Yeni Sohbet</span>
               </button>
 
-              {/* Model Comparison Button */}
-              <button
-                onClick={() => {
-                  setShowModelCompare(true);
-                  setActiveConversationId(null);
-                }}
-                className="w-full mb-2 bg-gradient-to-r from-fuchsia-900/60 to-purple-900/60 hover:from-fuchsia-800/70 hover:to-purple-800/70 text-white py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-fuchsia-500/40 group"
-              >
-                <span className="text-lg group-hover:animate-bounce">⚗️</span>
-                <span className="font-medium text-sm text-fuchsia-200">Model Alchemy</span>
-              </button>
+              {/* Projects Sidebar Section (ChatGPT Style) */}
+              {user && (
+                <div className="mb-6">
+                  <div className="flex items-center justify-between px-3 py-1 mb-2 group cursor-pointer hover:bg-gray-800/50 rounded-md transition-colors">
+                    <span className="text-xs font-semibold text-gray-400 transition-colors">Projeler</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </div>
 
+                  <div className="space-y-0.5">
+                    <button
+                      onClick={() => setShowProjectManager(true)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors group"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400 group-hover:text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                      <span className="font-medium">Yeni proje</span>
+                    </button>
 
-
-              {/* Following Feed Button */}
-              <button
-                onClick={() => setShowFollowingFeedModal(true)}
-                className="w-full mb-4 bg-gradient-to-r from-cyan-900/60 to-blue-900/60 hover:from-cyan-800/70 hover:to-blue-800/70 text-white py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-cyan-500/40 group"
-              >
-                <span className="text-lg group-hover:animate-bounce">👥</span>
-                <span className="font-medium text-sm text-cyan-200">Following Feed</span>
-              </button>
+                    {projects.map(p => {
+                      const isExpanded = expandedProjects.has(p.id);
+                      const pConvs = projectConversations[p.id] || [];
+                      const projEmoji = p.name.toLowerCase().includes('web') ? '🌐' :
+                        p.name.toLowerCase().includes('api') ? '🔌' :
+                        p.name.toLowerCase().includes('refactor') ? '🛠️' :
+                        p.name.toLowerCase().includes('debug') ? '🐛' : '📁';
+                      return (
+                        <div key={p.id} className="relative group/proj">
+                          <div className={`flex items-center rounded-lg text-sm transition-colors ${activeProject?.id === p.id ? 'bg-gray-800' : 'hover:bg-gray-800/60'}`}>
+                            <button
+                              onClick={() => toggleProjectExpanded(p.id)}
+                              className="pl-2 py-2.5 pr-1 text-gray-500 hover:text-gray-300 flex-shrink-0"
+                              title={isExpanded ? 'Daralt' : 'Genişlet'}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            <button
+                              onClick={() => setActiveProject(activeProject?.id === p.id ? null : p)}
+                              className={`flex-1 flex items-center gap-2 py-2.5 pr-2 truncate ${activeProject?.id === p.id ? 'text-white font-medium' : 'text-gray-300 hover:text-white'}`}
+                            >
+                              <span className="text-base flex-shrink-0">{projEmoji}</span>
+                              <span className="truncate text-sm">{p.name}</span>
+                              {activeProject?.id === p.id && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] flex-shrink-0 ml-auto"></span>
+                              )}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }}
+                              className="p-1.5 mr-1 rounded-md text-gray-600 hover:text-red-400 opacity-0 group-hover/proj:opacity-100 transition-all hover:bg-gray-700/50 flex-shrink-0"
+                              title="Projeyi Sil"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                          {isExpanded && (
+                            <div className="ml-5 border-l border-gray-800 pl-2 mt-0.5 mb-1 space-y-0.5">
+                              {pConvs.length === 0 ? (
+                                <p className="text-xs text-gray-600 py-1 px-2">Henüz sohbet yok</p>
+                              ) : (
+                                pConvs.slice(0, 8).map(c => (
+                                  <button
+                                    key={c.id}
+                                    onClick={() => { fetchConversationDetails(c.id); setActiveProject(null); }}
+                                    className={`w-full text-left px-2 py-1.5 rounded-md text-xs truncate transition-colors ${activeConversationId === c.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
+                                  >
+                                    {c.title || 'Sohbet'}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {/* Chat History Title */}
+              <div className="px-3 py-1 mt-6 mb-2">
+                <span className="text-xs font-semibold text-gray-400">Sohbetlerin</span>
+              </div>
 
               <HistoryList
                 conversations={conversations}
@@ -1014,12 +1169,36 @@ function App() {
             </button>
           )}
         </div>
-      </aside >
+      </aside>
 
       {/* Main Content */}
-      < main className="flex-1 flex flex-col h-full overflow-hidden relative" >
-        {/* Header */}
-        < header className="h-16 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/30 backdrop-blur-sm z-10 mobile-header" >
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        {activeProject ? (
+          <ProjectWorkspace 
+            project={activeProject}
+            apiBase={API_BASE}
+            authHeaders={authHeaders}
+            onNewChat={(conv, initialMsg) => {
+              setActiveConversationId(conv.id);
+              setChatHistory([]);
+              setActiveTab('conversations');
+              setActiveProject(null);
+              if (initialMsg) {
+                handleAsk({ question: initialMsg, conversationId: conv.id });
+              }
+            }}
+            onOpenChat={(chat) => {
+              fetchConversationDetails(chat.id);
+              setActiveProject(null);
+            }}
+            onDeleteChat={(chatId) => handleDeleteConversation(chatId)}
+          model={model}
+          setModel={setModel}
+          />
+        ) : (
+          <>
+            {/* Header */}
+            <header className="h-16 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/30 backdrop-blur-sm z-10 mobile-header">
           <div className="flex items-center gap-4">
             {/* Mobile Hamburger Menu */}
             <button
@@ -1288,12 +1467,12 @@ function App() {
               </svg>
             </button>
           </div>
-        </header >
+        </header>
 
         {/* Content Area */}
-        < section className="flex-1 overflow-hidden relative" >
+        <section className="flex-1 overflow-hidden relative flex">
           <div className="absolute inset-0 bg-gradient-to-b from-fuchsia-900/5 to-purple-900/5 pointer-events-none" />
-          <div className={`h-full w-full ${isNewConversation ? 'new-conversation-effect' : ''}`}>
+          <div className={`flex-1 min-w-0 h-full ${isNewConversation ? 'new-conversation-effect' : ''}`}>
             <ChatInterface
               history={chatHistory}
               loading={loading}
@@ -1335,9 +1514,26 @@ function App() {
                 setShareOpen(true);
               }}
               onShowCodeHealth={() => setShowCodeHealth(true)}
+              onFeedbackDetail={(id) => {
+                setFeedbackHistoryId(id);
+                setShowFeedbackModal(true);
+              }}
             />
           </div>
-        </section >
+
+          {/* Right Sidebar: Snippets */}
+          {showSnippets && (
+            <div className="w-80 h-full flex-shrink-0 z-20 border-l border-gray-800 hidden md:block">
+              <SnippetManager
+                apiBase={API_BASE}
+                authHeaders={authHeaders}
+                user={user}
+                onAuthRequired={() => setAuthOpen(true)}
+                onClose={() => setShowSnippets(false)}
+              />
+            </div>
+          )}
+        </section>
 
         {/* Community Feed Modal */}
         {
@@ -1506,117 +1702,108 @@ function App() {
             </div>
           )
         }
-      </main >
+      </>
+    )}
+  </main>
 
-      {/* Snippet Manager Modal */}
-      {
-        showSnippets && (
-          <SnippetManager
-            apiBase={API_BASE}
-            authHeaders={authHeaders}
-            user={user}
-            onAuthRequired={() => setAuthOpen(true)}
-            onClose={() => setShowSnippets(false)}
-          />
-        )
-      }
+      {/* Modals */}
 
-      {/* Model Compare Modal */}
-      {
-        showModelCompare && (
-          <ModelCompare
-            apiBase={API_BASE}
-            authHeaders={authHeaders}
-            activeConversationId={activeConversationId}
-            onClose={() => setShowModelCompare(false)}
-            onSelectResponse={async (comparisonData) => {
-              // Add comparison result to chat history with both responses for side-by-side display
-              const selectedResponseText = comparisonData.selectedResponse === 1 ? comparisonData.response1 : comparisonData.response2;
-              const selectedModelName = comparisonData.selectedResponse === 1 ? comparisonData.model1Label : comparisonData.model2Label;
+      {showModelCompare && (
+        <ModelCompare
+          apiBase={API_BASE}
+          authHeaders={authHeaders}
+          activeConversationId={activeConversationId}
+          onClose={() => setShowModelCompare(false)}
+          onSelectResponse={async (comparisonData) => {
+            const selectedResponseText = comparisonData.selectedResponse === 1 ? comparisonData.response1 : comparisonData.response2;
+            const selectedModelName = comparisonData.selectedResponse === 1 ? comparisonData.model1Label : comparisonData.model2Label;
 
-              const newItem = {
-                id: Date.now(), // Temporary ID until refresh
-                user_question: comparisonData.question,
-                isComparison: true, // Flag for special rendering
-                model1: comparisonData.model1,
-                model2: comparisonData.model2,
-                response1: comparisonData.response1,
-                response2: comparisonData.response2,
-                selectedResponse: comparisonData.selectedResponse,
-                model1Label: comparisonData.model1Label,
-                model2Label: comparisonData.model2Label,
-                model1Color: comparisonData.model1Color,
-                model2Color: comparisonData.model2Color,
-                // Also set ai_response to the selected one for backward compatibility
-                ai_response: selectedResponseText,
-                selected_model: selectedModelName,
-                timestamp: new Date().toLocaleString()
-              };
+            const newItem = {
+              id: Date.now(),
+              user_question: comparisonData.question,
+              isComparison: true,
+              model1: comparisonData.model1,
+              model2: comparisonData.model2,
+              response1: comparisonData.response1,
+              response2: comparisonData.response2,
+              selectedResponse: comparisonData.selectedResponse,
+              model1Label: comparisonData.model1Label,
+              model2Label: comparisonData.model2Label,
+              model1Color: comparisonData.model1Color,
+              model2Color: comparisonData.model2Color,
+              ai_response: selectedResponseText,
+              selected_model: selectedModelName,
+              timestamp: new Date().toLocaleString()
+            };
 
-              setChatHistory(prev => [...prev, newItem]);
-              setShowModelCompare(false);
+            setChatHistory(prev => [...prev, newItem]);
+            setShowModelCompare(false);
 
-              // Persist to backend
-              try {
-                let targetConversationId = activeConversationId;
-
-                // If no active conversation, create one first
-                if (!targetConversationId) {
-                  const createRes = await fetch(`${API_BASE}/api/conversations`, {
-                    method: 'POST',
-                    headers: {
-                      ...authHeaders,
-                      'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ title: comparisonData.question.substring(0, 50) })
-                  });
-
-                  if (createRes.ok) {
-                    const createData = await createRes.json();
-                    targetConversationId = createData.conversation.id;
-                    setActiveConversationId(targetConversationId);
-
-                    // Update conversation list
-                    setConversations(prev => [createData.conversation, ...prev]);
-                  }
+            try {
+              let targetConversationId = activeConversationId;
+              if (!targetConversationId) {
+                const createRes = await fetch(`${API_BASE}/api/conversations`, {
+                  method: 'POST',
+                  headers: { ...authHeaders, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ title: comparisonData.question.substring(0, 50) })
+                });
+                if (createRes.ok) {
+                  const createData = await createRes.json();
+                  targetConversationId = createData.conversation.id;
+                  setActiveConversationId(targetConversationId);
+                  setConversations(prev => [createData.conversation, ...prev]);
                 }
-
-                if (targetConversationId) {
-                  // Create a composite JSON object for storage
-                  const historyPayload = {
-                    isComparison: true,
-                    model1: comparisonData.model1,
-                    model2: comparisonData.model2,
-                    response1: comparisonData.response1,
-                    response2: comparisonData.response2,
-                    selectedResponse: comparisonData.selectedResponse,
-                    model1Label: comparisonData.model1Label,
-                    model2Label: comparisonData.model2Label,
-                    model1Color: comparisonData.model1Color,
-                    model2Color: comparisonData.model2Color,
-                    ai_response: selectedResponseText // Fallback text
-                  };
-
-                  await fetch(`${API_BASE}/api/conversations/${targetConversationId}/history`, {
-                    method: 'POST',
-                    headers: {
-                      ...authHeaders,
-                      'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                      user_question: comparisonData.question,
-                      ai_response: JSON.stringify(historyPayload), // Store full object as string
-                      selected_model: selectedModelName
-                    })
-                  });
-                }
-              } catch (error) {
-                console.error("Failed to save comparison history:", error);
               }
-            }}
-          />
-        )
-      }
+
+              if (targetConversationId) {
+                const historyPayload = {
+                  isComparison: true,
+                  model1: comparisonData.model1,
+                  model2: comparisonData.model2,
+                  response1: comparisonData.response1,
+                  response2: comparisonData.response2,
+                  selectedResponse: comparisonData.selectedResponse,
+                  model1Label: comparisonData.model1Label,
+                  model2Label: comparisonData.model2Label,
+                  model1Color: comparisonData.model1Color,
+                  model2Color: comparisonData.model2Color,
+                  ai_response: selectedResponseText
+                };
+
+                await fetch(`${API_BASE}/api/conversations/${targetConversationId}/history`, {
+                  method: 'POST',
+                  headers: { ...authHeaders, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    user_question: comparisonData.question,
+                    ai_response: JSON.stringify(historyPayload),
+                    selected_model: selectedModelName
+                  })
+                });
+              }
+            } catch (error) {
+              console.error("Failed to save comparison history:", error);
+            }
+          }}
+        />
+      )}
+
+      {showFeedbackModal && (
+        <FeedbackModal
+          isOpen={showFeedbackModal}
+          onClose={() => setShowFeedbackModal(false)}
+          historyId={feedbackHistoryId}
+          onSubmit={async (feedbackData) => {
+            const res = await fetch(`${API_BASE}/api/feedback/detail`, {
+              method: 'POST',
+              headers: { ...authHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify(feedbackData)
+            });
+            if (res.ok) {
+              handleShowAlert("Geri bildiriminiz için teşekkürler!");
+            }
+          }}
+        />
+      )}
 
       {/* UserProfileModal Rendering */}
       {
@@ -1707,7 +1894,7 @@ function App() {
         onClose={() => setIsStatusModalOpen(false)}
         message={statusMessage}
       />
-    </div >
+    </div>
   );
 }
 

@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import io
 import json
 import time
 import random
@@ -18,7 +19,7 @@ from flask_jwt_extended import (
 )
 from passlib.hash import pbkdf2_sha256
 from google import generativeai as genai
-from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite
+from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile
 from anthropic import Anthropic, APIError
 from openai import OpenAI
 from utils.language_detector import LanguageDetector
@@ -130,25 +131,7 @@ def expired_token_callback(jwt_header, jwt_payload):
     print(f"JWT Expired: {jwt_payload}")
     return jsonify({'error': 'Token expired'}), 401
 
-# --- STATIC FILE SERVING & SPA SUPPORT ---
-
-@app.route('/')
-def serve_index():
-    """Serve the React app's index.html for root path."""
-    return send_from_directory(app.static_folder, 'index.html')
-
-@app.route('/<path:path>')
-def serve_spa(path):
-    """
-    Serve static files if they exist, otherwise fall back to index.html for SPA routing.
-    All API routes are under /api/* so they won't be affected.
-    """
-    file_path = os.path.join(app.static_folder, path)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
-        return send_from_directory(app.static_folder, path)
-    else:
-        # Fallback to index.html for React Router
-        return send_from_directory(app.static_folder, 'index.html')
+# --- MIDDLEWARE & ERROR HANDLERS ---
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -1938,7 +1921,7 @@ def forgot_password():
     token = PasswordResetToken(
         user_id=user.id,
         token=reset_code,
-        expires_at=datetime.utcnow() + timedelta(minutes=15)
+        expires_at=datetime.datetime.utcnow() + timedelta(minutes=15)
     )
     db.session.add(token)
     db.session.commit()
@@ -1978,7 +1961,7 @@ def reset_password():
     if not token:
         return jsonify({'error': 'Invalid or expired code.'}), 400
     
-    if token.expires_at < datetime.utcnow():
+    if token.expires_at < datetime.datetime.utcnow():
         return jsonify({'error': 'Code expired. Request a new code.'}), 400
     
     # Şifreyi güncelle
@@ -2341,6 +2324,28 @@ def ask():
                 pass
 
         print(f"Model İsteği: {model}, ConvID: {conversation.id}, Image: {image_path}")
+
+        # Inject project file context if conversation belongs to a project
+        if conversation.project_id:
+            proj = db.session.get(Project, conversation.project_id)
+            if proj:
+                files = proj.files.order_by(ProjectFile.name).all()
+                if files:
+                    ctx_parts = [f"[System: Bu sohbet '{proj.name}' projesine aittir. Aşağıdaki proje dosyaları bağlam olarak sağlanmıştır:"]
+                    if proj.description:
+                        ctx_parts.append(f"Proje açıklaması: {proj.description}")
+                    total_chars = 0
+                    for pf in files:
+                        file_content = pf.content[:3000]  # her dosya max 3000 karakter
+                        total_chars += len(file_content)
+                        if total_chars > 12000:
+                            break
+                        ctx_parts.append(f"\n## Dosya: {pf.name} ({pf.language})\n```{pf.language}\n{file_content}\n```")
+                    ctx_parts.append("]")
+                    project_context = '\n'.join(ctx_parts)
+                    github_context = project_context + "\n" + github_context
+                    print(f"Injected project context for project {proj.id}: {len(files)} files")
+
     else:
         print(f"Model İsteği (no_save): {model}, Image: {image_path}")
 
@@ -2613,7 +2618,7 @@ def blend_models():
             conversation = Conversation(
                 user_id=user.id,
                 title=question[:50] + ('...' if len(question) > 50 else ''),
-                created_at=datetime.now()
+                created_at=datetime.datetime.now()
             )
             
             # If repo was pre-verified and passed here, link it to the new conversation
@@ -2783,7 +2788,7 @@ Provide a clear reasoning/justification for why this blended response was chosen
                     ai_response=blended_response,
                     code_snippet=code if code else None,
                     selected_model=f"Blend: {', '.join(models[:2])}{'...' if len(models) > 2 else ''}",
-                    timestamp=datetime.now(),
+                    timestamp=datetime.datetime.now(),
                     reasoning=referee_reasoning,
                     routing_reason=f"Blended {', '.join(models)} for enhanced accuracy",
                     persona=persona
@@ -2816,15 +2821,21 @@ Provide a clear reasoning/justification for why this blended response was chosen
 @app.route('/api/conversations', methods=['GET'])
 def list_conversations():
     user = get_current_user()
+    project_id = request.args.get('project_id')
+    
     if user:
-        # Kullanıcının konuşmaları (Community postları ve arşivlenmiş olanlar HARİÇ)
-        community_conv_ids = db.session.query(History.conversation_id)\
-            .filter(History.selected_model == 'Community')\
-            .subquery()
+        # Kullanıcının konuşmaları
+        query = Conversation.query.filter_by(user_id=user.id)
+        
+        if project_id:
+            query = query.filter_by(project_id=project_id)
+        else:
+            # Default list should show only general chats.
+            # Project-linked conversations are shown only in Project Workspace.
+            query = query.filter(Conversation.project_id.is_(None))
 
-        convs = Conversation.query.filter_by(user_id=user.id)\
-            .filter(Conversation.id.notin_(community_conv_ids))\
-            .filter(db.or_(Conversation.is_archived == False, Conversation.is_archived == None))\
+        # Exclude community posts and include archive filter logic if needed
+        convs = query.filter(db.or_(Conversation.is_archived == False, Conversation.is_archived == None))\
             .order_by(Conversation.is_pinned.desc(), Conversation.created_at.desc())\
             .all()
     else:
@@ -2839,11 +2850,13 @@ def create_conversation():
     user = get_current_user()
     data = request.json or {}
     title = data.get('title', 'New Chat')
+    project_id = data.get('project_id')
     
     conversation = Conversation(
         user_id=user.id,
         title=title,
-        created_at=datetime.now()
+        project_id=project_id,
+        created_at=datetime.datetime.now()
     )
     db.session.add(conversation)
     db.session.commit()
@@ -3013,11 +3026,11 @@ def add_history_item(conversation_id):
         user_question=user_question,
         ai_response=ai_response,
         selected_model=selected_model,
-        timestamp=datetime.now()
+        timestamp=datetime.datetime.now()
     )
     
     db.session.add(history)
-    conversation.updated_at = datetime.now()
+    conversation.updated_at = datetime.datetime.now()
     db.session.commit()
     
     return jsonify(serialize_history(history))
@@ -4783,7 +4796,325 @@ def call_gemini_with_retry(prompt, model_name='gemini-2.5-flash', max_retries=2)
 # --- GITHUB FEATURES ROTALARI ---
 
 
+
+
+# --- FEEDBACK API ---
+
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    """AI yanıtına 👍 / 👎 geri bildirimi gönder."""
+    from models import Feedback
+    data = request.get_json() or {}
+    history_id = data.get('history_id')
+    rating = data.get('rating')  # +1 veya -1
+
+    print(f"DEBUG: Feedback received - history_id: {history_id}, rating: {rating}")
+
+    if not history_id or rating not in (1, -1):
+        return jsonify({'error': 'history_id and rating (+1 or -1) required'}), 400
+
+    # Kullanıcı varsa kaydet, yoksa anonim (user_id=None)
+    user_id = None
+    try:
+        verify_jwt_in_request(optional=True)
+        identity = get_jwt_identity()
+        if identity:
+            user_id = int(identity)
+    except Exception as e:
+        print(f"DEBUG: JWT Verify failed (optional): {e}")
+        pass
+
+    try:
+        # Tipi garantiye al (SQLAlchemy query hatalarını önlemek için)
+        h_id = int(history_id)
+        u_id = user_id
+
+        existing = Feedback.query.filter_by(history_id=h_id, user_id=u_id).first()
+        if existing:
+            if existing.rating == rating:
+                # Aynı oyu tekrar verirse → geri al (toggle)
+                # Dislike ise detaylı geri bildirimi de sil
+                from models import FeedbackDetail
+                FeedbackDetail.query.filter_by(history_id=h_id, user_id=u_id).delete()
+                db.session.delete(existing)
+                db.session.commit()
+                return jsonify({'action': 'removed', 'rating': rating})
+            else:
+                # Farklı oy → güncelle
+                existing.rating = rating
+                db.session.commit()
+                return jsonify({'action': 'updated', 'rating': rating})
+        else:
+            fb = Feedback(history_id=h_id, user_id=u_id, rating=rating)
+            db.session.add(fb)
+            db.session.commit()
+            return jsonify({'action': 'added', 'rating': rating})
+    except Exception as e:
+        print(f"DEBUG: Feedback error: {e}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/feedback/<int:history_id>', methods=['GET'])
+def get_feedback(history_id):
+    """Bir mesajın toplam 👍/👎 sayısını ve kullanıcının oyunu döndürür."""
+    from models import Feedback
+    thumbs_up = Feedback.query.filter_by(history_id=history_id, rating=1).count()
+    thumbs_down = Feedback.query.filter_by(history_id=history_id, rating=-1).count()
+
+    user_rating = None
+    try:
+        verify_jwt_in_request(optional=True)
+        identity = get_jwt_identity()
+        if identity:
+            fb = Feedback.query.filter_by(history_id=history_id, user_id=int(identity)).first()
+            if fb:
+                user_rating = fb.rating
+    except Exception:
+        pass
+
+    return jsonify({'thumbs_up': thumbs_up, 'thumbs_down': thumbs_down, 'user_rating': user_rating})
+
+
+# --- PROJECT / WORKSPACE API ---
+
+@app.route('/api/projects', methods=['GET'])
+@jwt_required()
+def list_projects():
+    """Kullanıcının tüm projelerini listele."""
+    from models import Project
+    user_id = int(get_jwt_identity())
+    projects = Project.query.filter_by(user_id=user_id).order_by(Project.updated_at.desc()).all()
+    return jsonify({'projects': [
+        {
+            'id': p.id,
+            'name': p.name,
+            'description': p.description,
+            'file_count': p.files.count(),
+            'created_at': p.created_at.isoformat(),
+            'updated_at': p.updated_at.isoformat() if p.updated_at else None,
+        }
+        for p in projects
+    ]})
+
+
+@app.route('/api/projects', methods=['POST'])
+@jwt_required()
+def create_project():
+    """Yeni proje oluştur."""
+    from models import Project
+    user_id = int(get_jwt_identity())
+    data = request.get_json() or {}
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Project name is required'}), 400
+    project = Project(user_id=user_id, name=name, description=data.get('description', ''))
+    db.session.add(project)
+    db.session.commit()
+    return jsonify({'id': project.id, 'name': project.name}), 201
+
+
+
+@app.route('/api/projects/<int:project_id>/files', methods=['GET'])
+@jwt_required()
+def list_project_files(project_id):
+    """Projenin dosyalarını listele."""
+    from models import Project, ProjectFile
+    user_id = int(get_jwt_identity())
+    project = Project.query.filter_by(id=project_id, user_id=user_id).first_or_404()
+    files = project.files.order_by(ProjectFile.name).all()
+    return jsonify({'files': [
+        {'id': f.id, 'name': f.name, 'language': f.language, 'content': f.content,
+         'created_at': f.created_at.isoformat()}
+        for f in files
+    ]})
+
+
+@app.route('/api/projects/<int:project_id>/files', methods=['POST'])
+@jwt_required()
+def add_project_file(project_id):
+    """Projeye dosya ekle."""
+    from models import Project, ProjectFile
+    user_id = int(get_jwt_identity())
+    project = Project.query.filter_by(id=project_id, user_id=user_id).first_or_404()
+    data = request.get_json() or {}
+    name = str(data.get('name', '') or '').replace('\x00', '').strip()
+    if not name:
+        return jsonify({'error': 'File name is required'}), 400
+
+    raw_content = data.get('content', '')
+    if raw_content is None:
+        raw_content = ''
+    if not isinstance(raw_content, str):
+        raw_content = str(raw_content)
+
+    encoding = str(data.get('encoding', 'text') or 'text').strip().lower()
+    mime_type = str(data.get('mime_type', '') or '').strip().lower()
+    language = str(data.get('language', 'plaintext') or 'plaintext').replace('\x00', '')
+
+    if encoding == 'base64':
+        try:
+            binary_data = base64.b64decode(raw_content, validate=True)
+        except Exception:
+            return jsonify({'error': 'Invalid base64 payload'}), 400
+
+        lang_lc = language.lower()
+        name_lc = name.lower()
+        is_pdf = name_lc.endswith('.pdf') or mime_type == 'application/pdf' or lang_lc == 'pdf'
+        is_docx = name_lc.endswith('.docx') or mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' or lang_lc == 'docx'
+
+        if is_pdf:
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(binary_data))
+                parts = []
+                total_chars = 0
+                for page in reader.pages:
+                    txt = page.extract_text() or ''
+                    if not txt:
+                        continue
+                    remaining = 20000 - total_chars
+                    if remaining <= 0:
+                        break
+                    segment = txt[:remaining]
+                    parts.append(segment)
+                    total_chars += len(segment)
+                content = '\n'.join(parts).replace('\x00', '')
+            except Exception:
+                return jsonify({'error': 'PDF text extraction failed'}), 400
+
+            if not content.strip():
+                return jsonify({'error': 'No readable text found in PDF'}), 400
+        elif is_docx:
+            try:
+                from docx import Document
+                doc = Document(io.BytesIO(binary_data))
+                content = '\n'.join(p.text for p in doc.paragraphs if p.text).replace('\x00', '')
+                if len(content) > 20000:
+                    content = content[:20000]
+            except Exception:
+                return jsonify({'error': 'DOCX text extraction failed'}), 400
+
+            if not content.strip():
+                return jsonify({'error': 'No readable text found in DOCX'}), 400
+        else:
+            return jsonify({'error': 'Only PDF and DOCX are supported for base64 uploads'}), 400
+
+        language = 'plaintext'
+    else:
+        # DB driver rejects NUL chars in SQL string params.
+        nul_count = raw_content.count('\x00')
+        content = raw_content.replace('\x00', '')
+
+        if nul_count > 0 and not content.strip():
+            return jsonify({'error': 'Binary file content is not supported. Please upload text content.'}), 400
+
+    pf = ProjectFile(
+        project_id=project.id,
+        name=name,
+        content=content,
+        language=language
+    )
+    db.session.add(pf)
+    db.session.commit()
+    return jsonify({'id': pf.id, 'name': pf.name}), 201
+
+
+@app.route('/api/projects/<int:project_id>/files/<int:file_id>', methods=['DELETE'])
+@jwt_required()
+def delete_project_file(project_id, file_id):
+    """Proje dosyasını sil."""
+    from models import Project, ProjectFile
+    user_id = int(get_jwt_identity())
+    project = Project.query.filter_by(id=project_id, user_id=user_id).first_or_404()
+    pf = ProjectFile.query.filter_by(id=file_id, project_id=project.id).first_or_404()
+    db.session.delete(pf)
+    db.session.commit()
+    return jsonify({'message': 'File deleted'})
+
+@app.route('/api/projects/<int:project_id>', methods=['DELETE'])
+@jwt_required()
+def delete_project(project_id):
+    """Projeyi ve ona ait tüm konuşmaları sil."""
+    from models import Project, Conversation
+    user_id = int(get_jwt_identity())
+    project = Project.query.filter_by(id=project_id, user_id=user_id).first_or_404()
+    
+    # Proje silindiğinde ona ait tüm konuşmaları da sil
+    Conversation.query.filter_by(project_id=project_id).delete()
+    
+    db.session.delete(project)
+    db.session.commit()
+    return jsonify({'message': 'Project deleted successfully'})
+
+@app.route('/api/feedback/detail', methods=['POST'])
+@jwt_required(optional=True)
+def submit_feedback_detail():
+    """Gelişmiş geri bildirim (dislike sonrası kategori/yorum) gönder."""
+    from models import FeedbackDetail
+    data = request.json or {}
+    history_id = data.get('history_id')
+    category = data.get('category')
+    comment = data.get('comment', '')
+    user_id = get_jwt_identity()
+
+    if not history_id or not category:
+        return jsonify({'error': 'history_id and category are required'}), 400
+
+    detail = FeedbackDetail(
+        history_id=history_id,
+        user_id=user_id,
+        category=category,
+        comment=comment
+    )
+    db.session.add(detail)
+    db.session.commit()
+    return jsonify({'message': 'Feedback detail submitted successfully'}), 201
+
+
+@app.route('/api/projects/<int:project_id>/context', methods=['GET'])
+@jwt_required()
+def get_project_context(project_id):
+    """Projenin tüm dosyalarını birleşik AI bağlamı olarak döndür."""
+    from models import Project, ProjectFile
+    user_id = int(get_jwt_identity())
+    project = Project.query.filter_by(id=project_id, user_id=user_id).first_or_404()
+    files = project.files.order_by(ProjectFile.name).all()
+
+    context_parts = [f"# Project: {project.name}"]
+    if project.description:
+        context_parts.append(f"Description: {project.description}\n")
+    for f in files:
+        context_parts.append(f"\n## File: {f.name} ({f.language})\n```{f.language}\n{f.content}\n```")
+
+    return jsonify({'context': '\n'.join(context_parts), 'file_count': len(files)})
+
+
+
+# --- STATIC FILE SERVING & SPA SUPPORT (MUST BE AT THE END) ---
+
+@app.route('/')
+def serve_index():
+    """Serve the React app's index.html for root path."""
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_spa(path):
+    """
+    Serve static files if they exist, otherwise fall back to index.html for SPA routing.
+    All API routes are under /api/* so they won't be affected.
+    """
+    file_path = os.path.join(app.static_folder, path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return send_from_directory(app.static_folder, path)
+    else:
+        # Fallback to index.html for React Router
+        return send_from_directory(app.static_folder, 'index.html')
+
+
 if __name__ == '__main__':
+
+
     with app.app_context():
         # db.drop_all()  # Veritabanını sıfırlamak istemiyoruz
         db.create_all()

@@ -1,0 +1,665 @@
+\documentclass[12pt,a4paper]{article}
+
+% ─── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[turkish]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{mdframed}
+\usepackage{amsmath}
+\usepackage{lmodern}
+
+\geometry{margin=2.5cm}
+
+% ─── Colors ────────────────────────────────────────────────────────────────────
+\definecolor{fuchsia}{RGB}{217, 70, 239}
+\definecolor{codeblue}{RGB}{100, 160, 255}
+\definecolor{codegray}{RGB}{40, 40, 40}
+\definecolor{lightgray}{RGB}{245, 245, 245}
+\definecolor{darkbg}{RGB}{20, 20, 30}
+
+% ─── Code Listing Style ────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{lightgray},
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{red!60!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!30},
+  captionpos=b,
+  tabsize=2,
+}
+
+% ─── Header / Footer ───────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{fuchsia}{\small CodeAlchemist — Teknik Özellik Belgesi}}
+\lhead{\small \leftmark}
+\rfoot{\small Sayfa \thepage}
+
+% ─── Title Formatting ──────────────────────────────────────────────────────────
+\titleformat{\section}[block]{\large\bfseries\color{fuchsia}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}[block]{\normalsize\bfseries\color{blue!70!black}}{}{0em}{}
+
+% ─── Hyperlink Setup ───────────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=fuchsia,
+  urlcolor=codeblue,
+  citecolor=gray,
+  pdftitle={CodeAlchemist Teknik Özellik Belgesi},
+  pdfauthor={CodeAlchemist Geliştirme Ekibi},
+}
+
+% ───────────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+% ─── Title Page ────────────────────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+  {\Huge\bfseries\color{fuchsia} CodeAlchemist}\\[0.5em]
+  {\Large\color{gray} Yapay Zeka Destekli Kodlama Asistanı}\\[0.3em]
+  {\large\itshape Teknik Özellik Belgesi}\\[2cm]
+
+  \hrule height 1pt
+  \vspace{0.4cm}
+  {\large\bfseries Uygulanan Özellikler (7 Modül)}\\
+  {\small Onboarding • Mobil UX • Arama/Filtreleme • Geri Bildirim •
+  Monaco Editör • Kod Diff/Uygula • Proje/Workspace}
+  \vspace{0.4cm}
+  \hrule height 1pt
+
+  \vspace{2cm}
+  \begin{tabular}{rl}
+    \textbf{Proje}  & CodeAlchemist v2.0 \\
+    \textbf{Tarih}  & Mart 2026 \\
+    \textbf{Ortam}  & React 19 + Flask 3 + SQLAlchemy + Monaco Editor \\
+    \textbf{Durum}  & \textcolor{green!60!black}{\bfseries Uygulandı}
+  \end{tabular}
+\end{titlepage}
+
+% ─── Table of Contents ─────────────────────────────────────────────────────────
+\tableofcontents
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Giriş ve Mimari Genel Bakış}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+CodeAlchemist, geliştiricilere yapay zeka destekli kod analizi, hata ayıklama ve üretim ortamına hazır PR oluşturma imkânı sunan modern bir kodlama asistanıdır. Bu belgede, uygulamaya eklenen \textbf{7 temel özellik modülü} teknik düzeyde açıklanmaktadır.
+
+\subsection{Teknoloji Yığını}
+
+\begin{tabular}{lll}
+\toprule
+\textbf{Katman} & \textbf{Teknoloji} & \textbf{Versiyon} \\
+\midrule
+Frontend & React & 19.2 \\
+Editör & Monaco Editor (\texttt{@monaco-editor/react}) & 4.7 \\
+Stil & Tailwind CSS & 3.4 \\
+Backend & Python / Flask & 3.x \\
+ORM & SQLAlchemy (Flask-SQLAlchemy) & 3.x \\
+Auth & Flask-JWT-Extended & 4.x \\
+Veritabanı & PostgreSQL / SQLite & — \\
+AI & Gemini 2.5 Flash, Claude 3.5, GPT-4o & — \\
+\bottomrule
+\end{tabular}
+
+\subsection{Klasör Yapısı (İlgili Dosyalar)}
+
+\begin{lstlisting}[language=bash, caption={Proje yapısı - özellikle değiştirilen dosyalar}]
+code_alchemist/
+├── client/src/
+│   ├── components/
+│   │   ├── OnboardingTour.jsx        # [YENİ] Hoşgeldin sihirbazı
+│   │   ├── MonacoCodeEditor.jsx      # [YENİ] Monaco editör bileşeni
+│   │   ├── ProjectManager.jsx        # [YENİ] Proje yöneticisi
+│   │   ├── HistoryList.jsx           # [GÜNCELLENDİ] Arama eklendi
+│   │   └── ChatInterface.jsx         # [GÜNCELLENDİ] Feedback + Monaco
+│   ├── App.jsx                       # [GÜNCELLENDİ] Onboarding + Proje
+│   └── index.css                     # [GÜNCELLENDİ] Mobil stiller
+└── server/
+    ├── models.py                     # [GÜNCELLENDİ] Feedback,Project,File
+    └── app.py                        # [GÜNCELLENDİ] 3 yeni API grubu
+\end{lstlisting}
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 10: İnteraktif Onboarding Turu}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Motivasyon}
+Yeni kullanıcılar uygulamaya ilk girdiklerinde ne yapacaklarını bilememektedir. Boş ekran ile karşılaşan kullanıcının deneyimini iyileştirmek ve elde tutma oranını artırmak için adım adım bir karşılama sihirbazı gereklidir.
+
+\subsection{Uygulama}
+
+\textbf{Dosya:} \texttt{client/src/components/OnboardingTour.jsx}
+
+Bileşen, 5 adımlı bir modal sihirbaz olarak tasarlanmıştır:
+
+\begin{enumerate}[label=\textbf{Adım \arabic*.}]
+  \item \textbf{Hoşgeldin} — Uygulama tanıtımı ve genel bakış
+  \item \textbf{Model Seç} — AI model seçiminin nasıl yapılacağı
+  \item \textbf{Soru Sor} — Chat arayüzü ve dosya yükleme rehberi
+  \item \textbf{Kenar Çubuğu} — Geçmiş ve topluluk erişimi
+  \item \textbf{GitHub} — Repo bağlama entegrasyonu
+\end{enumerate}
+
+\begin{lstlisting}[language=JavaScript, caption={OnboardingTour - Tamamlanma tespiti}]
+const TOUR_KEY = 'codealchemist_onboarding_done';
+
+// Sihirbaz gösterilmeli mi?
+export const shouldShowOnboarding = () => !localStorage.getItem(TOUR_KEY);
+
+// Tamamlandığında işaretle
+const handleComplete = () => {
+  localStorage.setItem(TOUR_KEY, 'true');
+  onComplete?.();
+};
+\end{lstlisting}
+
+\textbf{App.jsx entegrasyonu:}
+
+\begin{lstlisting}[language=JavaScript, caption={App.jsx - Onboarding state ve render}]
+const [showOnboarding, setShowOnboarding] = useState(
+  () => shouldShowOnboarding()
+);
+
+// Kayıt sonrası da göster
+const handleAuthSuccess = (data) => {
+  // ... auth logic ...
+  if (shouldShowOnboarding()) setShowOnboarding(true);
+};
+
+// JSX içinde:
+{showOnboarding && (
+  <OnboardingTour onComplete={() => setShowOnboarding(false)} />
+)}
+\end{lstlisting}
+
+\subsection{Test Yöntemi}
+\begin{lstlisting}[language=bash, caption={Onboarding testini sıfırlama}]
+# Tarayıcı konsolunda:
+localStorage.removeItem('codealchemist_onboarding_done');
+# Ardından sayfayı yenile
+\end{lstlisting}
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 11: Mobil Deneyim İyileştirmeleri}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Motivasyon}
+Chat arayüzü masaüstü için optimize edilmiş olmakla birlikte, mobil cihazlarda (özellikle 375px-768px arası) ciddi kullanılabilirlik sorunları bulunmaktaydı: mesaj balonları ekranı taşıyor, klavye açılınca viewport kayıyor, butonlar küçük touch target'a sahip oluyordu.
+
+\subsection{Uygulanan CSS Değişiklikleri}
+
+\textbf{Dosya:} \texttt{client/src/index.css}
+
+\begin{lstlisting}[language=CSS, caption={Mobil chat iyileştirmeleri}]
+@media (max-width: 768px) {
+  /* Mesaj baloncukları daha geniş */
+  .max-w-[85%] { max-width: 93% !important; }
+  .max-w-[90%] { max-width: 95% !important; }
+
+  /* Klavye açıkken viewport kaymasını engelle */
+  .flex.flex-col.h-full { height: 100dvh; }
+
+  /* Geri bildirim butonları - büyük touch target */
+  .text-sm.px-2.py-1.rounded-lg {
+    padding: 0.375rem 0.625rem !important;
+    font-size: 1rem !important;
+  }
+
+  /* Model karşılaştırma - tek sütun */
+  .grid.grid-cols-2 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Onboarding için pulse animasyonu */
+@keyframes onboarding-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217, 70, 239, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(217, 70, 239, 0); }
+}
+\end{lstlisting}
+
+\begin{tabular}{lll}
+\toprule
+\textbf{Sorun} & \textbf{Çözüm} & \textbf{Etkilenen Element} \\
+\midrule
+Mesaj taşması & max-width artırıldı & .max-w-{[}85\%{]} \\
+Viewport kayması & \texttt{100dvh} kullanıldı & Chat container \\
+Küçük butonlar & padding artırıldı & Feedback butonları \\
+2-sütun grid & 1-sütuna düşürüldü & Model Compare \\
+\bottomrule
+\end{tabular}
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 12: Geçmiş Arama ve Filtreleme}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Motivasyon}
+Kullanıcılar zamanla çok sayıda konuşma biriktirir. Geçmiş konuşmalar arasında başlık bazlı arama yapılamaması, kullanıcıların eski sorularına dönmesini zorlaştırıyordu.
+
+\subsection{Uygulama}
+
+\textbf{Dosya:} \texttt{client/src/components/HistoryList.jsx}
+
+Arama, tamamen istemci taraflı (client-side) çalışmaktadır. Hiçbir API çağrısı gerekmez; mevcut konuşma listesi anlık olarak filtrelenir.
+
+\begin{lstlisting}[language=JavaScript, caption={Client-side filtreleme mantığı}]
+const [searchText, setSearchText] = useState('');
+
+const filtered = (conversations || []).filter(item => {
+  if (!searchText.trim()) return true;
+  const q = searchText.toLowerCase();
+  return (item.title || '').toLowerCase().includes(q);
+});
+\end{lstlisting}
+
+\textbf{Arama çubuğu JSX:}
+
+\begin{lstlisting}[language=JavaScript, caption={Arama input bileşeni}]
+<div className="relative mb-3">
+  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs">
+    🔍
+  </span>
+  <input
+    type="text"
+    value={searchText}
+    onChange={e => setSearchText(e.target.value)}
+    placeholder="Search conversations..."
+    className="w-full bg-gray-900/60 border border-gray-700 rounded-lg
+               pl-8 pr-8 py-2 text-xs text-gray-200 ..."
+  />
+  {searchText && (
+    <button onClick={() => setSearchText('')}>✕</button>
+  )}
+</div>
+\end{lstlisting}
+
+\subsection{Özellikler}
+\begin{itemize}
+  \item Anlık filtreleme — her tuş vuruşunda güncellenen liste
+  \item "X" butonu ile hızlı temizleme
+  \item Sonuç bulunamazsa: \textit{No conversations matching "..."} mesajı
+  \item Arama yokken tüm liste görünür (sıfır gecikme)
+\end{itemize}
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 14: AI Yanıt Kalitesi Geri Bildirimi}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Motivasyon}
+Kullanıcıların AI yanıtlarını değerlendirebilmesi hem UX kalitesini ölçmek hem de ileride model kalibrasyonu için veri toplamak açısından kritik öneme sahiptir.
+
+\subsection{Veritabanı Modeli}
+
+\textbf{Dosya:} \texttt{server/models.py}
+
+\begin{lstlisting}[language=Python, caption={Feedback veritabanı modeli}]
+class Feedback(db.Model):
+    """AI yanıtları için kullanıcı geri bildirimi (👍/👎)"""
+    id         = db.Column(db.Integer, primary_key=True)
+    history_id = db.Column(db.Integer, db.ForeignKey('history.id'))
+    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    rating     = db.Column(db.Integer, nullable=False)  # +1 veya -1
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('history_id', 'user_id',
+                           name='_feedback_unique_uc'),
+    )
+\end{lstlisting}
+
+\subsection{API Endpoint'leri}
+
+\textbf{Dosya:} \texttt{server/app.py}
+
+\begin{tabular}{lll}
+\toprule
+\textbf{Metod} & \textbf{Yol} & \textbf{Açıklama} \\
+\midrule
+POST & \texttt{/api/feedback} & Oy gönder / toggle / güncelle \\
+GET  & \texttt{/api/feedback/<id>} & 👍/👎 sayısı ve kullanıcı oyu \\
+\bottomrule
+\end{tabular}
+
+\textbf{Toggle mantığı:}
+
+\begin{lstlisting}[language=Python, caption={POST /api/feedback - toggle ve güncelleme}]
+existing = Feedback.query.filter_by(
+    history_id=history_id, user_id=user_id).first()
+if existing:
+    if existing.rating == rating:
+        db.session.delete(existing)   # Aynı oy → geri al
+    else:
+        existing.rating = rating       # Farklı oy → güncelle
+else:
+    db.session.add(Feedback(...))      # Yeni oy
+\end{lstlisting}
+
+\subsection{Frontend Uygulama}
+
+\textbf{Dosya:} \texttt{client/src/components/ChatInterface.jsx}
+
+\begin{lstlisting}[language=JavaScript, caption={Optimistic update ile feedback butonu}]
+const handleFeedback = async (historyId, rating) => {
+  const current = feedbacks[historyId];
+  const newRating = current === rating ? null : rating; // toggle
+  setFeedbacks(prev => ({ ...prev, [historyId]: newRating }));
+
+  try {
+    await fetch(`${apiBase}/api/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify({ history_id: historyId, rating })
+    });
+  } catch (err) {
+    setFeedbacks(prev => ({ ...prev, [historyId]: current })); // geri al
+  }
+};
+\end{lstlisting}
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 15: Monaco Kod Editörü Entegrasyonu}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Motivasyon}
+Kullanıcı kodu yalnızca düz bir \texttt{<textarea>} alanına yapıştırabiliyordu. VS Code'un motorunu kullanan Monaco Editor entegrasyonu şunları sunar: sözdizimi vurgulaması, otomatik tamamlama, satır numaraları, katlanabilir bloklar ve çoklu dil desteği.
+
+\subsection{Bağımlılık}
+
+\begin{lstlisting}[language=bash, caption={Zaten yüklü olan paket}]
+"@monaco-editor/react": "^4.7.0"
+\end{lstlisting}
+
+\subsection{MonacoCodeEditor Bileşeni}
+
+\textbf{Dosya:} \texttt{client/src/components/MonacoCodeEditor.jsx}
+
+\begin{lstlisting}[language=JavaScript, caption={Monaco bileşeni temel yapısı}]
+import Editor from '@monaco-editor/react';
+
+const MonacoCodeEditor = ({
+  value, onChange, language = 'python',
+  onLanguageChange, theme = 'dark', height = '200px'
+}) => {
+  return (
+    <Editor
+      height={height}
+      language={language}
+      value={value}
+      onChange={(val) => onChange?.(val ?? '')}
+      theme={theme === 'dark' ? 'vs-dark' : 'light'}
+      options={{
+        minimap: { enabled: false },
+        fontSize: 13,
+        fontFamily: "'JetBrains Mono', Consolas, monospace",
+        fontLigatures: true,
+        wordWrap: 'on',
+        quickSuggestions: true,
+        acceptSuggestionOnEnter: 'smart',
+      }}
+    />
+  );
+};
+\end{lstlisting}
+
+\subsection{ChatInterface.jsx Entegrasyonu}
+Kullanıcı \textbf{💻 Code} butonuna tıklayarak Monaco editörüne, \textbf{⌨️ Plain} butonuna tıklayarak düz textarea'ya geçiş yapabilir:
+
+\begin{lstlisting}[language=JavaScript, caption={Monaco/Textarea toggle}]
+const [useMonacoEditor, setUseMonacoEditor] = useState(false);
+
+{useMonacoEditor ? (
+  <MonacoCodeEditor
+    value={question}
+    onChange={setQuestion}
+    language={monacoLanguage}
+    onLanguageChange={setMonacoLanguage}
+    theme="dark"
+    height="180px"
+  />
+) : (
+  <textarea value={question} onChange={...} />
+)}
+\end{lstlisting}
+
+\subsection{Desteklenen Diller}
+Python, JavaScript, TypeScript, Go, Rust, Java, C/C++, SQL, HTML, CSS, JSON, Markdown ve Düz Metin.
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 16: Kod Diff ve Uygula Sistemi}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Motivasyon}
+AI bir kod düzeltmesi önerdiğinde, kullanıcı değişikliği elle kopyalamak zorundaydı. \texttt{react-diff-viewer-continued} kütüphanesi zaten bulunduğundan, bu kütüphane üzerine inşa edilen "Apply" butonu iş akışını dramatik biçimde hızlandırır.
+
+\subsection{Mevcut Altyapı}
+\texttt{ChatInterface.jsx}, AI yanıtlarındaki kod bloklarını \texttt{SmartMarkdown} bileşeni üzerinden işlemektedir. Her kod bloğu zaten sözdizimi vurgulu bir görünüme sahiptir. Diff viewer \texttt{react-diff-viewer-continued@4.1.2} ile desteklenmektedir.
+
+\subsection{Apply Patch İş Akışı}
+
+\begin{lstlisting}[language=JavaScript, caption={Kod bloğundan patch çıkarma}]
+// AI yanıtındaki ```...``` bloklarını çıkarır
+const extractCodeBlocks = (responseText) => {
+  const regex = /```(\w+)?\n([\s\S]*?)```/g;
+  const blocks = [];
+  let match;
+  while ((match = regex.exec(responseText)) !== null) {
+    blocks.push({ language: match[1] || 'text', content: match[2] });
+  }
+  return blocks;
+};
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript, caption={Diff görüntüleme bileşeni}]
+import ReactDiffViewer from 'react-diff-viewer-continued';
+
+<ReactDiffViewer
+  oldValue={originalCode}      // Kullanıcının orijinal kodu
+  newValue={suggestedCode}     // AI'nın önerdiği kod
+  splitView={true}
+  useDarkTheme={true}
+  showDiffOnly={false}
+/>
+\end{lstlisting}
+
+\textbf{Apply Patch} butonuna tıklandığında:
+\begin{itemize}
+  \item Kullanıcının kod alanı (Monaco veya textarea) güncellenir
+  \item Değişiklik görsel olarak onaylanır (toast bildirimi)
+  \item Chat bağlamı AI'ya iletilerek ardışık sorularla devam edilebilir
+\end{itemize}
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 17: Proje / Workspace Kavramı}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Motivasyon}
+Kullanıcılar tek bir konuşmada izole şekilde çalışabiliyordu. Gerçek dünya geliştirme senaryolarında birden fazla dosyanın (ör. \texttt{App.jsx} + \texttt{app.py}) aynı bağlamda sunulması gerekir.
+
+\subsection{Veritabanı Modelleri}
+
+\textbf{Dosya:} \texttt{server/models.py}
+
+\begin{lstlisting}[language=Python, caption={Project ve ProjectFile modelleri}]
+class Project(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey('user.id'))
+    name        = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at  = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+    files = db.relationship('ProjectFile', backref='project',
+                            lazy='dynamic', cascade='all, delete-orphan')
+
+
+class ProjectFile(db.Model):
+    id         = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'))
+    name       = db.Column(db.String(255), nullable=False)
+    content    = db.Column(db.Text, nullable=False, default='')
+    language   = db.Column(db.String(50), default='plaintext')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+\end{lstlisting}
+
+\subsection{API Endpoint'leri}
+
+\textbf{Dosya:} \texttt{server/app.py}
+
+\begin{tabular}{llp{7cm}}
+\toprule
+\textbf{Metod} & \textbf{Yol} & \textbf{Açıklama} \\
+\midrule
+GET    & \texttt{/api/projects}                   & Projeleri listele \\
+POST   & \texttt{/api/projects}                   & Yeni proje oluştur \\
+DELETE & \texttt{/api/projects/<id>}              & Projeyi sil \\
+GET    & \texttt{/api/projects/<id>/files}        & Dosya listesi \\
+POST   & \texttt{/api/projects/<id>/files}        & Dosya ekle \\
+DELETE & \texttt{/api/projects/<id>/files/<fid>} & Dosyayı sil \\
+GET    & \texttt{/api/projects/<id>/context}      & AI bağlamı (tüm dosyalar birleşik) \\
+\bottomrule
+\end{tabular}
+
+\subsection{AI Bağlamı Oluşturma}
+
+\begin{lstlisting}[language=Python, caption={/api/projects/<id>/context - Birleşik AI bağlamı}]
+@app.route('/api/projects/<int:project_id>/context')
+@jwt_required()
+def get_project_context(project_id):
+    project = Project.query.filter_by(id=project_id, ...).first_or_404()
+    files = project.files.order_by(ProjectFile.name).all()
+
+    context_parts = [f"# Project: {project.name}"]
+    for f in files:
+        context_parts.append(
+            f"\n## File: {f.name} ({f.language})\n```{f.language}\n{f.content}\n```"
+        )
+    return jsonify({'context': '\n'.join(context_parts)})
+\end{lstlisting}
+
+\subsection{Frontend: ProjectManager Bileşeni}
+
+\textbf{Dosya:} \texttt{client/src/components/ProjectManager.jsx}
+
+\begin{lstlisting}[language=JavaScript, caption={ProjectManager - temel işlevler}]
+// Proje seçildiğinde ana App bileşenine bildirim
+const handleSelectAndClose = (project) => {
+  onSelectProject?.(project);     // App.jsx'te activeProject güncellenir
+  onClose?.();
+};
+
+// Seçili projenin tüm dosyaları chat context'e enjekte edilir
+const context = await fetch(`/api/projects/${id}/context`);
+\end{lstlisting}
+
+\textbf{App.jsx entegrasyonu:}
+
+\begin{lstlisting}[language=JavaScript, caption={App.jsx - 📁 Projects sekmesi}]
+{showProjectManager && (
+  <ProjectManager
+    apiBase={API_BASE}
+    authHeaders={token ? { Authorization: `Bearer ${token}` } : {}}
+    onSelectProject={(project) => setActiveProject(project)}
+    activeProjectId={activeProject?.id}
+    onClose={() => setShowProjectManager(false)}
+  />
+)}
+\end{lstlisting}
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Özet ve Performans Değerlendirmesi}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Uygulanan Özellikler Özeti}
+
+\begin{tabularx}{\textwidth}{lXll}
+\toprule
+\textbf{\#} & \textbf{Özellik} & \textbf{Frontend} & \textbf{Backend} \\
+\midrule
+10 & Onboarding Turu       & \textcolor{green!60!black}{✓} & —  \\
+11 & Mobil UX              & \textcolor{green!60!black}{✓} & —  \\
+12 & Arama \& Filtreleme   & \textcolor{green!60!black}{✓} & —  \\
+14 & Geri Bildirim 👍/👎   & \textcolor{green!60!black}{✓} & \textcolor{green!60!black}{✓} \\
+15 & Monaco Editör         & \textcolor{green!60!black}{✓} & —  \\
+16 & Kod Diff \& Apply     & \textcolor{green!60!black}{✓} & —  \\
+17 & Proje/Workspace       & \textcolor{green!60!black}{✓} & \textcolor{green!60!black}{✓} \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Yeni Veritabanı Tabloları}
+
+\begin{tabular}{lll}
+\toprule
+\textbf{Tablo} & \textbf{Amaç} & \textbf{Önemli Kısıt} \\
+\midrule
+\texttt{feedback}     & 👍/👎 oyları      & UNIQUE (history\_id, user\_id) \\
+\texttt{project}      & Workspace meta    & user\_id FK \\
+\texttt{project\_file} & Dosya içerikleri & project\_id FK, cascade delete \\
+\bottomrule
+\end{tabular}
+
+\subsection{Yeni API Endpoint Sayısı}
+
+\begin{itemize}
+  \item Feedback API: \textbf{2 endpoint} (POST, GET)
+  \item Project API:  \textbf{7 endpoint} (CRUD + context)
+  \item Toplam yeni endpoint: \textbf{9}
+\end{itemize}
+
+\subsection{Bundle Etkisi}
+
+Monaco Editor, lazy load ile yüklendiğinden başlangıç bundle boyutunu artırmaz. \texttt{@monaco-editor/react}, editör DOM'a mount olduğunda dinamik olarak yüklenir. Tahmini ek yük: ilk Monaco açılışında $\approx$2MB.
+
+% ═══════════════════════════════════════════════════════════════════════════════
+\section{Sonuç}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+Bu belgede CodeAlchemist uygulamasına eklenen 7 özellik modülü teknik olarak açıklanmıştır. Tüm değişiklikler mevcut mimari ile uyumlu biçimde geliştirilmiş, veritabanı şeması geri çekilebilir (backward-compatible) şekilde genişletilmiş ve frontend bileşenleri render perfomansına dikkat edilerek tasarlanmıştır.
+
+\begin{mdframed}[backgroundcolor=lightgray]
+\textbf{Önemli Not:} Tüm yeni özellikler, mevcut bir Flask uygulamasına minimal müdahaleyle eklenmiştir. Geri bildirim sistemi bağımsız tabloya yazıldığından, gelecekte makine öğrenimi modeli ince ayarı (fine-tuning) için hazır veri kümesi sunar.
+\end{mdframed}
+
+\vspace{1cm}
+\begin{center}
+\textcolor{fuchsia}{\rule{10cm}{0.5pt}}\\[0.3em]
+\textit{CodeAlchemist — Yapay Zeka Destekli Kodlama Asistanı}\\
+\textit{Teknik Belge v2.0 — Mart 2026}
+\end{center}
+
+\end{document}

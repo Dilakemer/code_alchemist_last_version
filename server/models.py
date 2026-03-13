@@ -18,6 +18,7 @@ class User(db.Model):
 class Conversation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=True)  # Linked project
     title = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_pinned = db.Column(db.Boolean, default=False)
@@ -164,3 +165,58 @@ class Favorite(db.Model):
     # İlişkiler
     user = db.relationship('User', backref=db.backref('favorites', lazy='dynamic'))
     history = db.relationship('History', backref=db.backref('favorites', lazy='dynamic'))
+
+
+class Feedback(db.Model):
+    """AI yanıtları için kullanıcı geri bildirimi (👍/👎)"""
+    id = db.Column(db.Integer, primary_key=True)
+    history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Anonim de oy verebilir
+    rating = db.Column(db.Integer, nullable=False)  # +1 = beğeni, -1 = beğenmeme
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Aynı kullanıcı/session aynı mesaja birden fazla oy veremez
+    __table_args__ = (db.UniqueConstraint('history_id', 'user_id', name='_feedback_unique_uc'),)
+
+    # İlişkiler
+    history = db.relationship('History', backref=db.backref('feedbacks', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('feedbacks', lazy='dynamic'))
+
+class FeedbackDetail(db.Model):
+    """Gelişmiş geri bildirim detayları (nedenleri ve yorumlar)"""
+    id = db.Column(db.Integer, primary_key=True)
+    history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    category = db.Column(db.String(100), nullable=False)  # e.g., 'Wrong or incomplete'
+    comment = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    history = db.relationship('History', backref=db.backref('feedback_details', lazy='dynamic'))
+    user = db.relationship('User', backref=db.backref('feedback_details', lazy='dynamic'))
+
+
+class Project(db.Model):
+    """Çok dosyalı proje/workspace bağlamı"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # İlişkiler
+    user = db.relationship('User', backref=db.backref('projects', lazy='dynamic'))
+    files = db.relationship('ProjectFile', backref='project', lazy='dynamic',
+                            cascade='all, delete-orphan')
+
+
+class ProjectFile(db.Model):
+    """Bir projeye ait dosya (çok dosyalı bağlam için)"""
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=False)
+    name = db.Column(db.String(255), nullable=False)       # e.g. 'src/App.jsx'
+    content = db.Column(db.Text, nullable=False, default='')
+    language = db.Column(db.String(50), default='plaintext')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
