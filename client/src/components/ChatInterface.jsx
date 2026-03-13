@@ -169,6 +169,23 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
   );
 });
 
+const getUniqueContextHits = (hits = [], limit = 5) => {
+  const bestByFile = new Map();
+
+  for (const hit of hits) {
+    const file = hit?.file || 'unknown';
+    const score = Number(hit?.score || 0);
+    const existing = bestByFile.get(file);
+    if (!existing || score > Number(existing?.score || 0)) {
+      bestByFile.set(file, hit);
+    }
+  }
+
+  return Array.from(bestByFile.values())
+    .sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0))
+    .slice(0, limit);
+};
+
 const ChatInterface = ({
   history,
   loading,
@@ -190,6 +207,7 @@ const ChatInterface = ({
   onShare,
   activeConversationId,
   onShowCodeHealth,
+  activeProject,
   onFeedbackDetail
 }) => {
   const bottomRef = useRef(null);
@@ -205,9 +223,6 @@ const ChatInterface = ({
   // Monaco code editor state
   const [useMonacoEditor, setUseMonacoEditor] = useState(false);
   const [monacoLanguage, setMonacoLanguage] = useState('python');
-  // Active project context (injected into prompts)
-  const [activeProject, setActiveProject] = useState(null);
-
   // GitHub Repo Link State
   const [showGithubModal, setShowGithubModal] = useState(false);
   const [githubRepoInput, setGithubRepoInput] = useState('');
@@ -890,6 +905,56 @@ const ChatInterface = ({
                     />
                   </div>
 
+                  {/* Semantic Context Visibility (Project chats only) */}
+                  {(activeProject || turn.semantic_context_loading || turn.semantic_context) && (
+                    <div className="mt-3 rounded-xl border border-cyan-500/25 bg-cyan-950/15 overflow-hidden">
+                      <div className="px-3 py-2 text-[11px] text-cyan-300 font-semibold tracking-wide uppercase flex items-center justify-between">
+                        <span>Context Hits</span>
+                        {turn.semantic_context?.query_model && (
+                          <span className="text-[10px] text-cyan-200/80 normal-case">
+                            {turn.semantic_context.query_model}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="px-3 pb-3 text-xs text-cyan-100/90 space-y-2">
+                        {turn.semantic_context_loading && (
+                          <div className="flex items-center gap-2 text-cyan-300/90">
+                            <div className="w-3 h-3 border-2 border-cyan-300/30 border-t-cyan-300 rounded-full animate-spin" />
+                            <span>Finding the most relevant project chunks...</span>
+                          </div>
+                        )}
+
+                        {!turn.semantic_context_loading && turn.semantic_context?.hits?.length > 0 && (() => {
+                          const uniqueHits = getUniqueContextHits(turn.semantic_context.hits, 5);
+                          return (
+                            <>
+                              {turn.semantic_context.total_chunks != null && (
+                                <p className="text-cyan-200/80 text-[11px]">
+                                  Top {uniqueHits.length} unique files / {turn.semantic_context.total_chunks} chunks indexed
+                                </p>
+                              )}
+                              <div className="space-y-1.5">
+                                {uniqueHits.map((hit, hitIdx) => (
+                                  <div key={`${turn.id}-hit-${hitIdx}`} className="flex items-center justify-between gap-2 bg-black/20 border border-cyan-500/20 rounded-md px-2 py-1.5">
+                                    <span className="truncate text-cyan-100" title={hit.file}>{hit.file}</span>
+                                    <span className="text-cyan-300 font-mono text-[11px]">
+                                      #{hit.chunk_index ?? '-'} | {Number(hit.score || 0).toFixed(3)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          );
+                        })()}
+
+                        {!turn.semantic_context_loading && turn.semantic_context?.hits?.length === 0 && turn.semantic_context?.message && (
+                          <p className="text-cyan-200/70 text-[11px]">{turn.semantic_context.message}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Reasoning / Explainable AI Layer */}
                   {(turn.reasoning || turn.routing_reason) && (
                     <div className="mt-4 bg-cyan-950/20 border border-cyan-500/30 rounded-xl overflow-hidden transition-all duration-300">
@@ -1165,19 +1230,20 @@ const ChatInterface = ({
             </div>
           )}
 
-          <div className="flex items-center gap-2 mb-2 w-fit">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/20 border border-blue-500/30 rounded-lg text-xs text-blue-300">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-900/40 border border-gray-700 rounded-lg text-xs text-gray-300">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-gray-400">
                 <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
               </svg>
-              <span>Linked to: <strong>{linkedRepo}</strong></span>
+              <span className="text-gray-400">Linked:</span>
+              <strong className="max-w-[220px] truncate text-gray-200" title={linkedRepo}>{linkedRepo}</strong>
               <button
                 onClick={() => {
                   setLinkedRepo(null);
                   if (onUpdate) onUpdate({ linkedRepo: null, linkedBranch: null });
                   showToast("Repository link removed.", "success");
                 }}
-                className="ml-2 hover:text-white transition-colors"
+                className="ml-1 text-gray-500 hover:text-gray-200 transition-colors"
                 title="Remove Link"
               >
                 ✕
@@ -1186,17 +1252,17 @@ const ChatInterface = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={handleShowGraphClick}
-                className="px-3 py-1.5 bg-pink-900/20 hover:bg-pink-900/40 border border-pink-500/30 rounded-lg text-xs text-pink-300 transition-colors flex items-center gap-1 shadow-sm"
+                className="px-2.5 py-1.5 bg-gray-900/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 transition-colors flex items-center gap-1"
                 title="View Context Architecture Graph"
               >
-                <span>🌌</span> Graph View
+                <span aria-hidden>🌌</span> Graph
               </button>
               <button
                 onClick={handleShowCodeHealthClick}
-                className="px-3 py-1.5 bg-cyan-900/20 hover:bg-cyan-900/40 border border-cyan-500/30 rounded-lg text-xs text-cyan-300 transition-colors flex items-center gap-1 shadow-sm shadow-cyan-500/10"
+                className="px-2.5 py-1.5 bg-gray-900/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 transition-colors flex items-center gap-1"
                 title="View Code Health Dashboard"
               >
-                <span>🌡️</span> Health
+                <span aria-hidden>🌡️</span> Health
               </button>
               {history.length > 0 && (
                 <button

@@ -508,6 +508,17 @@ function App() {
     const effectiveConversationId = opts.conversationId !== undefined ? opts.conversationId : activeConversationId;
     if (!effectiveQuestion.trim() && !image) return;
 
+    // Project can come from selected workspace OR an already-open project conversation.
+    const convProjectId = effectiveConversationId
+      ? conversations.find(c => c.id === effectiveConversationId)?.project_id
+      : null;
+    const mappedProjectId = !convProjectId && effectiveConversationId
+      ? Number(Object.keys(projectConversations).find((pid) =>
+        (projectConversations[pid] || []).some(c => c.id === effectiveConversationId)
+      )) || null
+      : null;
+    const semanticProjectId = activeProject?.id || convProjectId || mappedProjectId || null;
+
     // 1. Optimistic UI Update
     const tempId = Date.now();
     const newHistoryItem = {
@@ -518,10 +529,59 @@ function App() {
       timestamp: new Date().toISOString(),
       image_url: image ? URL.createObjectURL(image) : null,
       code_snippet: code,
-      selected_model: isMultiModel ? 'Multi-Model Blend' : model
+      selected_model: isMultiModel ? 'Multi-Model Blend' : model,
+      semantic_context: null,
+      semantic_context_loading: false
     };
 
     setChatHistory(prev => [...prev, newHistoryItem]);
+
+    // Fetch semantic hits in parallel for project chats to make context selection transparent in UI.
+    if (semanticProjectId && token && effectiveQuestion.trim()) {
+      setChatHistory(prev => prev.map(item =>
+        item.id === tempId ? { ...item, semantic_context_loading: true } : item
+      ));
+
+      fetch(`${API_BASE}/api/projects/${semanticProjectId}/semantic_search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ query: effectiveQuestion, top_k: 5 })
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data?.error || `Status ${res.status}`);
+
+          const hits = Array.isArray(data?.hits) ? data.hits : [];
+          return {
+            enabled: true,
+            query_model: data?.query_model || null,
+            total_chunks: data?.total_chunks ?? null,
+            hits,
+            message: data?.message || null
+          };
+        })
+        .then((semanticContext) => {
+          setChatHistory(prev => prev.map(item =>
+            item.id === tempId ? { ...item, semantic_context: semanticContext, semantic_context_loading: false } : item
+          ));
+        })
+        .catch((err) => {
+          console.warn('Semantic preview fetch failed:', err);
+          setChatHistory(prev => prev.map(item =>
+            item.id === tempId
+              ? {
+                ...item,
+                semantic_context_loading: false,
+                semantic_context: {
+                  enabled: false,
+                  hits: [],
+                  message: 'Context hits could not be fetched for this turn.'
+                }
+              }
+              : item
+          ));
+        });
+    }
 
     // Reset inputs immediately
     const currentQuestion = effectiveQuestion;
@@ -1455,6 +1515,24 @@ function App() {
             </button>
 
             <button
+              onClick={() => setShowModelCompare(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-fuchsia-900/60 to-purple-900/60 hover:from-fuchsia-800/70 hover:to-purple-800/70 text-fuchsia-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border border-fuchsia-500/40"
+              title="Model Alchemy"
+            >
+              <span>⚗️</span>
+              <span>Model Alchemy</span>
+            </button>
+
+            <button
+              onClick={() => setShowFollowingFeedModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-cyan-900/60 to-blue-900/60 hover:from-cyan-800/70 hover:to-blue-800/70 text-cyan-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border border-cyan-500/40"
+              title="Following Feed"
+            >
+              <span>👥</span>
+              <span>Following Feed</span>
+            </button>
+
+            <button
               onClick={() => {
                 setShowCommunityFeed(true);
                 fetchCommunityItems();
@@ -1514,6 +1592,7 @@ function App() {
                 setShareOpen(true);
               }}
               onShowCodeHealth={() => setShowCodeHealth(true)}
+              activeProject={activeProject}
               onFeedbackDetail={(id) => {
                 setFeedbackHistoryId(id);
                 setShowFeedbackModal(true);

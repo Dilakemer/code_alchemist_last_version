@@ -6,6 +6,7 @@ import json
 import time
 import random
 import datetime
+import math
 import smtplib
 import resend
 from email.mime.text import MIMEText
@@ -30,6 +31,238 @@ from utils.github_parser import GitHubParser
 # Cache for AI responses to reduce quota usage
 health_narrative_cache = {}
 CACHE_TTL = 3600  # 1 saat cache
+
+# Project embedding cache (RAG-lite for project chat)
+project_embedding_cache = {}
+PROJECT_EMBED_CACHE_TTL = 1800  # 30 minutes
+
+
+def _cosine_similarity(v1, v2):
+    """Compute cosine similarity without extra dependencies."""
+    if not v1 or not v2 or len(v1) != len(v2):
+        return -1.0
+    dot = 0.0
+    n1 = 0.0
+    n2 = 0.0
+    for a, b in zip(v1, v2):
+        dot += a * b
+        n1 += a * a
+        n2 += b * b
+    if n1 <= 0.0 or n2 <= 0.0:
+        return -1.0
+    return dot / (math.sqrt(n1) * math.sqrt(n2))
+
+
+def _project_signature(project_files):
+    """Return a stable signature for cache invalidation when files change."""
+    sig_parts = []
+    for pf in project_files:
+        updated = pf.updated_at.isoformat() if pf.updated_at else ''
+        sig_parts.append(f"{pf.id}:{pf.name}:{updated}:{len(pf.content or '')}")
+    return '|'.join(sig_parts)
+
+
+def _chunk_text(text, chunk_size=1200, overlap=200):
+    """Split text into overlapping chunks."""
+    text = (text or '').strip()
+    if not text:
+        return []
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    start = 0
+    text_len = len(text)
+    while start < text_len:
+        end = min(text_len, start + chunk_size)
+        chunks.append(text[start:end])
+        if end >= text_len:
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
+
+
+def _extract_embedding_values(resp):
+    """Extract embedding vector from different SDK response shapes."""
+    try:
+        # dict style
+        if isinstance(resp, dict):
+            if isinstance(resp.get('embedding'), list):
+                return resp.get('embedding')
+            emb_list = resp.get('embeddings')
+            if isinstance(emb_list, list) and emb_list:
+                first = emb_list[0]
+                if isinstance(first, dict):
+                    if isinstance(first.get('values'), list):
+                        return first.get('values')
+                    if isinstance(first.get('embedding'), list):
+                        return first.get('embedding')
+
+        # object style
+        if hasattr(resp, 'embedding') and isinstance(resp.embedding, list):
+            return resp.embedding
+
+        if hasattr(resp, 'embeddings') and resp.embeddings:
+            first = resp.embeddings[0]
+            if hasattr(first, 'values') and isinstance(first.values, list):
+                return first.values
+            if hasattr(first, 'embedding') and isinstance(first.embedding, list):
+                return first.embedding
+    except Exception:
+        return None
+
+    return None
+
+
+def _embed_text_with_fallback(text, task_type='RETRIEVAL_DOCUMENT'):
+    """Embed text via Gemini with model fallback for compatibility."""
+    if not text or not GEMINI_API_KEY:
+        return None, None
+
+    candidates = []
+    env_model = os.getenv('EMBEDDING_MODEL_NAME', 'models/gemini-embedding-2-preview')
+    candidates.append(env_model)
+    candidates.extend([
+        'models/gemini-embedding-2-preview',
+        'gemini-embedding-2-preview',
+        'models/gemini-embedding-001',
+        'gemini-embedding-001',
+    ])
+
+    # Dedupe while preserving order
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            unique_candidates.append(c)
+
+    for model_name in unique_candidates:
+        try:
+            resp = genai.embed_content(
+                model=model_name,
+                content=text,
+                task_type=task_type,
+            )
+            values = _extract_embedding_values(resp)
+            if values:
+                return values, model_name
+        except Exception as e:
+            print(f"Embedding call failed for {model_name}: {e}")
+            continue
+
+    return None, None
+
+
+def _build_project_embedding_index(project):
+    """Build or reuse cached embedding index for project files."""
+    files = project.files.order_by(ProjectFile.name).all()
+    if not files:
+        return None
+
+    signature = _project_signature(files)
+    now = time.time()
+
+    cached = project_embedding_cache.get(project.id)
+    if cached and cached.get('signature') == signature and (now - cached.get('timestamp', 0) < PROJECT_EMBED_CACHE_TTL):
+        return cached
+
+    chunks = []
+    for pf in files:
+        content = (pf.content or '')[:12000]  # hard limit per file for cost control
+        for idx, chunk in enumerate(_chunk_text(content, chunk_size=1200, overlap=200)):
+            emb, model_used = _embed_text_with_fallback(chunk, task_type='RETRIEVAL_DOCUMENT')
+            if not emb:
+                continue
+            chunks.append({
+                'file': pf.name,
+                'language': pf.language or 'plaintext',
+                'text': chunk,
+                'embedding': emb,
+                'chunk_index': idx,
+                'model_used': model_used,
+            })
+
+    if not chunks:
+        return None
+
+    index_data = {
+        'signature': signature,
+        'timestamp': now,
+        'chunks': chunks,
+    }
+    project_embedding_cache[project.id] = index_data
+    return index_data
+
+
+def build_project_context_for_question(project, question, top_k=6):
+    """Return concise, relevance-ranked project context for a user question."""
+    semantic_result = get_project_semantic_hits(project, question, top_k=top_k)
+    if not semantic_result:
+        return None
+
+    query_model = semantic_result['query_model']
+    selected = semantic_result['hits']
+
+    ctx = [f"[System: Bu sohbet '{project.name}' projesine aittir."]
+    if project.description:
+        ctx.append(f"Proje açıklaması: {project.description}")
+    ctx.append(f"Soruya göre embedding tabanlı en alakalı dosya parçaları (query_model={query_model}):")
+
+    total_chars = 0
+    for item in selected:
+        score = item['score']
+        snippet = item['snippet']
+        total_chars += len(snippet)
+        if total_chars > 7000:
+            break
+        ctx.append(
+            f"\n## Dosya: {item['file']} ({item['language']}) | Benzerlik: {score:.3f}\n"
+            f"```{item['language']}\n{snippet}\n```"
+        )
+
+    ctx.append(']')
+    return '\n'.join(ctx)
+
+
+def get_project_semantic_hits(project, question, top_k=6):
+    """Return top semantic hits for a question within project files."""
+    index_data = _build_project_embedding_index(project)
+    if not index_data:
+        return None
+
+    query_emb, query_model = _embed_text_with_fallback(question or '', task_type='RETRIEVAL_QUERY')
+    if not query_emb:
+        return None
+
+    scored = []
+    for item in index_data['chunks']:
+        score = _cosine_similarity(query_emb, item['embedding'])
+        if score > 0:
+            scored.append((score, item))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    selected = scored[:top_k]
+
+    hits = []
+    for score, item in selected:
+        hits.append({
+            'score': round(float(score), 4),
+            'file': item['file'],
+            'language': item['language'],
+            'chunk_index': item['chunk_index'],
+            'snippet': item['text'][:1200],
+            'chunk_model': item.get('model_used'),
+        })
+
+    return {
+        'query_model': query_model,
+        'hits': hits,
+        'total_chunks': len(index_data['chunks']),
+    }
 
 # Load environment variables
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -2329,22 +2562,28 @@ def ask():
         if conversation.project_id:
             proj = db.session.get(Project, conversation.project_id)
             if proj:
-                files = proj.files.order_by(ProjectFile.name).all()
-                if files:
-                    ctx_parts = [f"[System: Bu sohbet '{proj.name}' projesine aittir. Aşağıdaki proje dosyaları bağlam olarak sağlanmıştır:"]
-                    if proj.description:
-                        ctx_parts.append(f"Proje açıklaması: {proj.description}")
-                    total_chars = 0
-                    for pf in files:
-                        file_content = pf.content[:3000]  # her dosya max 3000 karakter
-                        total_chars += len(file_content)
-                        if total_chars > 12000:
-                            break
-                        ctx_parts.append(f"\n## Dosya: {pf.name} ({pf.language})\n```{pf.language}\n{file_content}\n```")
-                    ctx_parts.append("]")
-                    project_context = '\n'.join(ctx_parts)
+                # Prefer relevance-ranked embedding context. Fallback to static context if embeddings fail.
+                project_context = build_project_context_for_question(proj, question)
+
+                if not project_context:
+                    files = proj.files.order_by(ProjectFile.name).all()
+                    if files:
+                        ctx_parts = [f"[System: Bu sohbet '{proj.name}' projesine aittir. Aşağıdaki proje dosyaları bağlam olarak sağlanmıştır:"]
+                        if proj.description:
+                            ctx_parts.append(f"Proje açıklaması: {proj.description}")
+                        total_chars = 0
+                        for pf in files:
+                            file_content = pf.content[:3000]  # her dosya max 3000 karakter
+                            total_chars += len(file_content)
+                            if total_chars > 12000:
+                                break
+                            ctx_parts.append(f"\n## Dosya: {pf.name} ({pf.language})\n```{pf.language}\n{file_content}\n```")
+                        ctx_parts.append("]")
+                        project_context = '\n'.join(ctx_parts)
+
+                if project_context:
                     github_context = project_context + "\n" + github_context
-                    print(f"Injected project context for project {proj.id}: {len(files)} files")
+                    print(f"Injected project context for project {proj.id} (embedding-aware)")
 
     else:
         print(f"Model İsteği (no_save): {model}, Image: {image_path}")
@@ -5088,6 +5327,49 @@ def get_project_context(project_id):
         context_parts.append(f"\n## File: {f.name} ({f.language})\n```{f.language}\n{f.content}\n```")
 
     return jsonify({'context': '\n'.join(context_parts), 'file_count': len(files)})
+
+
+@app.route('/api/projects/<int:project_id>/semantic_search', methods=['POST'])
+@jwt_required()
+def semantic_search_project_context(project_id):
+    """Return embedding-ranked project chunks for a query (debug/inspection)."""
+    from models import Project
+
+    user_id = int(get_jwt_identity())
+    project = Project.query.filter_by(id=project_id, user_id=user_id).first_or_404()
+
+    data = request.get_json(silent=True) or {}
+    query = (data.get('query') or data.get('question') or '').strip()
+    top_k = data.get('top_k', 6)
+
+    if not query:
+        return jsonify({'error': 'query is required'}), 400
+
+    try:
+        top_k = int(top_k)
+    except Exception:
+        top_k = 6
+    top_k = max(1, min(20, top_k))
+
+    result = get_project_semantic_hits(project, query, top_k=top_k)
+    if not result:
+        return jsonify({
+            'query': query,
+            'project_id': project.id,
+            'project_name': project.name,
+            'hits': [],
+            'message': 'No semantic hits found or embedding unavailable. Falling back to static context in /api/ask.'
+        })
+
+    return jsonify({
+        'query': query,
+        'project_id': project.id,
+        'project_name': project.name,
+        'query_model': result['query_model'],
+        'total_chunks': result['total_chunks'],
+        'top_k': top_k,
+        'hits': result['hits'],
+    })
 
 
 
