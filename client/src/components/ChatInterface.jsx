@@ -11,7 +11,7 @@ import useTypingEffect from '../hooks/useTypingEffect';
 import VoiceRecorder from './VoiceRecorder';
 
 
-const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId, onGenerateTests, generatingTestId }) => {
+const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId, onGenerateTests, generatingTestId, onApplyPatch }) => {
   // Smooth typing effect
   const displayedText = useTypingEffect(content, isStreaming);
 
@@ -79,7 +79,19 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
                     const oldPart = codeString.split('<<<OLD>>>')[1].split('<<<NEW>>>')[0].trim();
                     const newPart = codeString.split('<<<NEW>>>')[1].trim();
                     return (
-                      <div className="rounded-b-lg overflow-hidden border border-gray-700 bg-[#1e1e1e] text-xs">
+                      <div className="rounded-b-lg overflow-hidden border border-gray-700 bg-[#1e1e1e] text-xs relative group/diff">
+                        <div className="absolute top-2 right-2 z-10 opacity-0 group-hover/diff:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => onApplyPatch?.(newPart)}
+                            className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-3 py-1.5 rounded-md text-xs font-bold shadow-lg flex items-center gap-1.5 transition-all transform active:scale-95"
+                            title="Apply suggested code to main editor"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                            Apply Patch
+                          </button>
+                        </div>
                         <ReactDiffViewer
                           oldValue={oldPart}
                           newValue={newPart}
@@ -613,6 +625,7 @@ const ChatInterface = ({
     }
     // If parsing fails, show original without time part if possible
     const asString = String(value);
+    if (asString === 'undefined' || asString === 'null') return '';
     return asString.split(' ')[0];
   };
 
@@ -840,6 +853,10 @@ const ChatInterface = ({
                         messageId={`${turn.id}-r1`}
                         onGenerateTests={handleGenerateTests}
                         generatingTestId={generatingTestId}
+                        onApplyPatch={(newCode) => {
+                          setCode(newCode);
+                          showToast("Patch applied to code editor!", "success");
+                        }}
                       />
                     </div>
                   </div>
@@ -871,6 +888,10 @@ const ChatInterface = ({
                         messageId={`${turn.id}-r2`}
                         onGenerateTests={handleGenerateTests}
                         generatingTestId={generatingTestId}
+                        onApplyPatch={(newCode) => {
+                          setCode(newCode);
+                          showToast("Patch applied to code editor!", "success");
+                        }}
                       />
                     </div>
                   </div>
@@ -902,6 +923,10 @@ const ChatInterface = ({
                       messageId={turn.id}
                       onGenerateTests={handleGenerateTests}
                       generatingTestId={generatingTestId}
+                      onApplyPatch={(newCode) => {
+                        setCode(newCode);
+                        showToast("Patch applied to code editor!", "success");
+                      }}
                     />
                   </div>
 
