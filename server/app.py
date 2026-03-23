@@ -287,6 +287,8 @@ if not os.getenv('GEMINI_API_KEY'):
         pass  # Silent fail - will be handled by API key checks later
 
 
+# static_folder has to be absolute or relative to this file. 
+# In render-build.sh, we copy client/dist/* to server/static.
 app = Flask(__name__, static_folder='static', static_url_path='')
 basedir = os.path.abspath(os.path.dirname(__file__))
 # Veritabanı dosyasını instance klasöründe tutuyoruz (Flask standardı)
@@ -5402,37 +5404,19 @@ def semantic_search_project_context(project_id):
 
 
 
-# --- STATIC FILE SERVING & SPA SUPPORT (MUST BE AT THE END) ---
-
-@app.route('/')
-def serve_index():
-    """Serve the React app's index.html for root path."""
-    return send_from_directory(app.static_folder, 'index.html')
-
+@app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
-def serve_spa(path):
-    """
-    Serve static files if they exist, otherwise fall back to index.html for SPA routing.
-    All API routes are under /api/* so they won't be affected.
-    """
-    file_path = os.path.join(app.static_folder, path)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
+def serve(path):
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
         return send_from_directory(app.static_folder, path)
     else:
-        # Fallback to index.html for React Router
         return send_from_directory(app.static_folder, 'index.html')
 
-
 if __name__ == '__main__':
-
-
     with app.app_context():
-        # db.drop_all()  # Veritabanını sıfırlamak istemiyoruz
         db.create_all()
 
-    # Render'ın verdiği portu al, lokalde çalıştırırken 5000 kullan
+    # Render uses the PORT environment variable
     port = int(os.environ.get("PORT", 5000))
-    
-    # host='0.0.0.0' kısmı Render'ın uygulamaya erişebilmesi için kritik!
-    # Canlı ortamda debug=False olması güvenlik ve performans için daha iyidir.
+    # host='0.0.0.0' is REQUIRED for Render
     app.run(host='0.0.0.0', port=port, debug=False)
