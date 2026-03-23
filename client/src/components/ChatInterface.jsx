@@ -9,10 +9,11 @@ import GitHubGraph from './GitHubGraph';
 import MonacoCodeEditor from './MonacoCodeEditor';
 import useTypingEffect from '../hooks/useTypingEffect';
 import VoiceRecorder from './VoiceRecorder';
+import ConfirmationModal from './ConfirmationModal';
+import InteractiveMergeModal from './InteractiveMergeModal';
 
 
 const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId, onGenerateTests, generatingTestId, onApplyPatch }) => {
-  // Smooth typing effect
   const displayedText = useTypingEffect(content, isStreaming);
 
   return (
@@ -23,143 +24,130 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
           const codeString = String(children).replace(/\n$/, '');
           const codeBlockId = `${messageId}-${match ? match[1] : 'code'}-${codeString.slice(0, 20)}`;
 
-          return !inline && match ? (
-            <div className="relative group my-4">
-              <div className="flex items-center justify-between bg-gray-900 px-4 py-2 rounded-t-lg border-b border-gray-700">
-                <span className="text-xs text-gray-400 font-mono uppercase">{match[1]}</span>
-                <div className="flex items-center gap-2">
-                  {onGenerateTests && (
+          if (!inline && match) {
+            return (
+              <div className="relative group my-4">
+                <div className="flex items-center justify-between bg-gray-900 px-4 py-2 rounded-t-lg border-b border-gray-700">
+                  <span className="text-xs text-gray-400 font-mono uppercase">{match[1]}</span>
+                  <div className="flex items-center gap-2">
+                    {onGenerateTests && (
+                      <button
+                        onClick={() => onGenerateTests(codeString, match[1], codeBlockId)}
+                        disabled={generatingTestId === codeBlockId}
+                        className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700 disabled:opacity-50"
+                        title="Generate Unit Tests (AI)"
+                      >
+                        {generatingTestId === codeBlockId ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
+                            <span>Generating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>🧪</span>
+                            <span>Generate Tests</span>
+                          </>
+                        )}
+                      </button>
+                    )}
                     <button
-                      onClick={() => onGenerateTests(codeString, match[1], codeBlockId)}
-                      disabled={generatingTestId === codeBlockId}
-                      className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700 disabled:opacity-50"
-                      title="Generate Unit Tests (AI)"
+                      onClick={() => onApplyPatch?.(codeString)}
+                      className="flex items-center gap-1.5 text-xs text-fuchsia-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
+                      title="Apply to Editor"
                     >
-                      {generatingTestId === codeBlockId ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <span>Apply</span>
+                    </button>
+                    <button
+                      onClick={() => onCopyCode(codeString, codeBlockId)}
+                      className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
+                      title="Copy Code"
+                    >
+                      {copiedCodeId === codeBlockId ? (
                         <>
-                          <div className="w-3 h-3 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
-                          <span>Generating...</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-green-400">Copied!</span>
                         </>
                       ) : (
                         <>
-                          <span>🧪</span>
-                          <span>Generate Tests</span>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                          <span>Copy</span>
                         </>
                       )}
                     </button>
-                  )}
-                  <button
-                    onClick={() => onCopyCode(codeString, codeBlockId)}
-                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
-                    title="Copy Code"
-                  >
-                    {copiedCodeId === codeBlockId ? (
-                      <>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span className="text-green-400">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        <span>Copy</span>
-                      </>
-                    )}
-                  </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Robust Diff Check: Trigger if markers present, regardless of language tag */}
-              {(codeString.includes('<<<OLD>>>') && codeString.includes('<<<NEW>>>')) ? (
-                (() => {
-                  try {
-                    const oldPart = codeString.split('<<<OLD>>>')[1].split('<<<NEW>>>')[0].trim();
-                    const newPart = codeString.split('<<<NEW>>>')[1].trim();
-                    return (
-                      <div className="rounded-b-lg overflow-hidden border border-gray-700 bg-[#1e1e1e] text-xs relative group/diff">
-                        <div className="absolute top-2 right-2 z-10 opacity-0 group-hover/diff:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => onApplyPatch?.(newPart)}
-                            className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-3 py-1.5 rounded-md text-xs font-bold shadow-lg flex items-center gap-1.5 transition-all transform active:scale-95"
-                            title="Apply suggested code to main editor"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                            Apply Patch
-                          </button>
-                        </div>
-                        <ReactDiffViewer
-                          oldValue={oldPart}
-                          newValue={newPart}
-                          splitView={true}
-                          useDarkTheme={true}
-                          styles={{
-                            variables: {
-                              dark: {
-                                diffViewerBackground: '#1e1e1e',
-                                addedBackground: '#064e3b',
-                                addedColor: '#86efac',
-                                removedBackground: '#7f1d1d',
-                                removedColor: '#fca5a5',
-                                wordAddedBackground: '#166534',
-                                wordRemovedBackground: '#991b1b',
-                                addedGutterBackground: '#064e3b',
-                                removedGutterBackground: '#7f1d1d',
-                                gutterBackground: '#1e1e1e',
-                                gutterBackgroundDark: '#1e1e1e',
-                                gutterColor: '#6b7280',
-                                emptyLineBackground: '#1e1e1e',
+                {codeString.includes('<<<OLD>>>') && codeString.includes('<<<NEW>>>') ? (
+                  (() => {
+                    try {
+                      const oldPart = codeString.split('<<<OLD>>>')[1].split('<<<NEW>>>')[0].trim();
+                      const newPart = codeString.split('<<<NEW>>>')[1].trim();
+                      return (
+                        <div className="rounded-b-lg overflow-hidden border border-gray-700 bg-[#1e1e1e] text-xs relative group/diff">
+                          <div className="absolute top-2 right-2 z-10">
+                            <button
+                              onClick={() => onApplyPatch?.(newPart)}
+                              className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-3 py-1.5 rounded-md text-xs font-bold shadow-lg flex items-center gap-1.5 transition-all transform active:scale-95"
+                              title="Apply suggested code to main editor"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                              Apply Patch
+                            </button>
+                          </div>
+                          <ReactDiffViewer
+                            oldValue={oldPart}
+                            newValue={newPart}
+                            splitView={true}
+                            useDarkTheme={true}
+                            styles={{
+                              variables: {
+                                dark: {
+                                  diffViewerBackground: '#1e1e1e',
+                                  addedBackground: '#064e3b',
+                                  addedColor: '#86efac',
+                                  removedBackground: '#7f1d1d',
+                                  removedColor: '#fca5a5',
+                                  wordAddedBackground: '#166534',
+                                  wordRemovedBackground: '#991b1b',
+                                  addedGutterBackground: '#064e3b',
+                                  removedGutterBackground: '#7f1d1d',
+                                  gutterBackground: '#1e1e1e',
+                                  gutterBackgroundDark: '#1e1e1e',
+                                  gutterColor: '#6b7280',
+                                  emptyLineBackground: '#1e1e1e',
+                                }
                               }
-                            }
-                          }}
-                        />
-                      </div>
-                    );
-                  } catch (e) {
-                    console.error("Diff Parsing Error:", e);
-                    return (
-                      <SyntaxHighlighter
-                        style={syntaxTheme}
-                        language={match[1] || 'text'}
-                        PreTag="div"
-                        customStyle={{
-                          margin: 0,
-                          borderTopLeftRadius: 0,
-                          borderTopRightRadius: 0,
-                          borderBottomLeftRadius: '0.5rem',
-                          borderBottomRightRadius: '0.5rem'
-                        }}
-                        {...props}
-                      >
-                        {codeString}
-                      </SyntaxHighlighter>
-                    );
-                  }
-                })()
-              ) : (
-                <SyntaxHighlighter
-                  style={syntaxTheme}
-                  language={match[1]}
-                  PreTag="div"
-                  customStyle={{
-                    margin: 0,
-                    borderTopLeftRadius: 0,
-                    borderTopRightRadius: 0,
-                    borderBottomLeftRadius: '0.5rem',
-                    borderBottomRightRadius: '0.5rem'
-                  }}
-                  {...props}
-                >
-                  {codeString}
-                </SyntaxHighlighter>
-              )}
-            </div>
-          ) : (
-            <code className={`${className || ''} bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300`} {...props}>
+                            }}
+                          />
+                        </div>
+                      );
+                    } catch (e) {
+                      return (
+                        <SyntaxHighlighter style={syntaxTheme} language={match[1] || 'text'} PreTag="div" customStyle={{ margin: 0, borderBottomLeftRadius: '0.5rem', borderBottomRightRadius: '0.5rem' }}>
+                          {codeString}
+                        </SyntaxHighlighter>
+                      );
+                    }
+                  })()
+                ) : (
+                  <SyntaxHighlighter style={syntaxTheme} language={match[1]} PreTag="div" customStyle={{ margin: 0, borderBottomLeftRadius: '0.5rem', borderBottomRightRadius: '0.5rem', maxWidth: '100%', overflowX: 'auto' }}>
+                    {codeString}
+                  </SyntaxHighlighter>
+                )}
+              </div>
+            );
+          }
+          return (
+            <code className={`${className || ''} bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300 break-words whitespace-pre-wrap`} {...props} style={{ wordBreak: 'break-word' }}>
               {children}
             </code>
           );
@@ -181,6 +169,7 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
   );
 });
 
+
 const getUniqueContextHits = (hits = [], limit = 5) => {
   const bestByFile = new Map();
 
@@ -196,6 +185,56 @@ const getUniqueContextHits = (hits = [], limit = 5) => {
   return Array.from(bestByFile.values())
     .sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0))
     .slice(0, limit);
+};
+
+
+
+const ContextBar = ({ question, code, image, linkedRepo }) => {
+  const tokenCount = useMemo(() => {
+    // Estimating tokens: chars / 4 as a rough guide
+    const totalChars = (question?.length || 0) + (code?.length || 0);
+    return Math.ceil(totalChars / 4);
+  }, [question, code]);
+
+  const maxTokens = 4000; // Visual limit for the bar
+  const percentage = Math.min((tokenCount / maxTokens) * 100, 100);
+  
+  const getStatusColor = () => {
+    if (percentage < 30) return 'bg-emerald-500';
+    if (percentage < 70) return 'bg-amber-500';
+    return 'bg-rose-500';
+  };
+
+  const contexts = [
+    { id: 'q', active: question?.trim()?.length > 2, icon: '💬', label: 'Prompt' },
+    { id: 'c', active: code?.trim()?.length > 0, icon: '💻', label: 'Code' },
+    { id: 'i', active: image != null, icon: '🖼️', label: 'Image' },
+    { id: 'r', active: linkedRepo != null, icon: '🌐', label: 'Repo' },
+  ];
+
+  return (
+    <div className="flex items-center gap-2 px-2 py-1">
+      <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest mr-2 select-none">Context AI</span>
+      {/* Token progress mini bar */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden border border-white/5">
+          <div
+            className={`h-full transition-all duration-500 rounded-full ${getStatusColor()}`}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+        <span className="text-[10px] text-gray-500 font-mono whitespace-nowrap">~{tokenCount}t</span>
+      </div>
+      {/* Context badges */}
+      <div className="flex items-center gap-1 flex-wrap">
+        {contexts.map(ctx => ctx.active && (
+          <span key={ctx.id} className="inline-flex items-center gap-0.5 text-[10px] font-medium bg-gray-800/80 text-gray-400 px-1.5 py-0.5 rounded-full border border-gray-700/60">
+            {ctx.icon}<span className="hidden sm:inline">{ctx.label}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 const ChatInterface = ({
@@ -230,6 +269,8 @@ const ChatInterface = ({
   const [copiedId, setCopiedId] = useState(null);
   const [copiedCodeId, setCopiedCodeId] = useState(null);
   const [favorites, setFavorites] = useState(new Set());
+  const [patchHistory, setPatchHistory] = useState([]); // Undo stack
+  const [patchCount, setPatchCount] = useState(0);
   // Feedback state: { [historyId]: +1 | -1 | null }
   const [feedbacks, setFeedbacks] = useState({});
   // Monaco code editor state
@@ -271,10 +312,53 @@ const ChatInterface = ({
     onCancel: null
   });
 
-  const showToast = (message, type = 'success', url = null) => {
-    setToast({ show: true, message, type, url });
-    if (!url) { // Keep URL toasts open longer to allow clicking
-      setTimeout(() => setToast({ show: false, message: '', type: 'success', url: null }), 4000);
+  // Interactive Merge Modal State
+  const [mergeModal, setMergeModal] = useState({
+    isOpen: false,
+    newCode: ''
+  });
+
+  const undoPatch = () => {
+    if (patchHistory.length === 0) return;
+    const lastCode = patchHistory[patchHistory.length - 1];
+    setCode(lastCode);
+    setPatchHistory(prev => prev.slice(0, -1));
+    setPatchCount(prev => Math.max(0, prev - 1));
+    showToast("Patch undone! Code restored.", "success");
+  };
+
+  const executeApplyPatch = (newCode, mode = 'replace') => {
+    setPatchHistory(prev => [...prev, code]);
+    
+    if (mode === 'append') {
+      setCode(prev => (prev ? prev + '\n\n' + newCode : newCode));
+      showToast("Patch appended to existing code!", "success", null, undoPatch);
+    } else {
+      setCode(newCode);
+      showToast("Patch applied to code editor!", "success", null, undoPatch);
+    }
+    
+    setPatchCount(prev => prev + 1);
+    setPatchModal({ show: false, newCode: '', type: 'replace' });
+  };
+
+  const handleApplyPatchRequest = (newCode) => {
+    if (code?.trim()) {
+      // If there is existing code, open Interactive Visual Diff
+      setMergeModal({ isOpen: true, newCode });
+    } else {
+      executeApplyPatch(newCode);
+    }
+  };
+
+
+  const showToast = (message, type = 'success', url = null, action = null) => {
+    setToast({ show: true, message, type, url, action });
+    if (!url && !action) {
+      setTimeout(() => setToast(prev => ({ ...prev, show: false })), 4000);
+    } else if (!url && action) {
+      // Action toasts auto-dismiss after longer period
+      setTimeout(() => setToast(prev => ({ ...prev, show: false })), 6000);
     }
   };
 
@@ -843,7 +927,7 @@ const ChatInterface = ({
                       <span>🧪</span>
                       <span>{turn.model1Label}</span>
                     </p>
-                    <div className="prose prose-invert prose-sm max-w-none text-sm max-h-[300px] overflow-y-auto custom-scrollbar">
+                    <div className="prose prose-invert prose-sm max-w-full w-full break-words text-sm max-h-[300px] overflow-y-auto overflow-x-hidden custom-scrollbar">
                       <SmartMarkdown
                         content={turn.response1}
                         isStreaming={loading && index === history.length - 1}
@@ -878,7 +962,7 @@ const ChatInterface = ({
                       <span>🧪</span>
                       <span>{turn.model2Label}</span>
                     </p>
-                    <div className="prose prose-invert prose-sm max-w-none text-sm max-h-[300px] overflow-y-auto custom-scrollbar">
+                    <div className="prose prose-invert prose-sm max-w-full w-full break-words text-sm max-h-[300px] overflow-y-auto overflow-x-hidden custom-scrollbar">
                       <SmartMarkdown
                         content={turn.response2}
                         isStreaming={loading && index === history.length - 1}
@@ -912,8 +996,21 @@ const ChatInterface = ({
                     </span>
                     <span className="text-gray-500">•</span>
                     <span className="text-gray-400">{formatDateOnly(turn.timestamp)}</span>
+                    {turn.responseTime && (
+                      <>
+                        <span className="text-gray-500">•</span>
+                        <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono shadow-sm ${
+                          turn.responseTime < 1 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                          turn.responseTime < 3 ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                          'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        }`}>
+                          <span className={`${turn.responseTime < 1 ? 'animate-pulse' : ''}`}>⏱️</span>
+                          {turn.responseTime}s
+                        </span>
+                      </>
+                    )}
                   </p>
-                  <div className="prose prose-invert prose-sm max-w-none">
+                  <div className="prose prose-invert prose-sm max-w-full w-full break-words overflow-x-auto">
                     <SmartMarkdown
                       content={turn.ai_response}
                       isStreaming={loading && index === history.length - 1}
@@ -923,10 +1020,7 @@ const ChatInterface = ({
                       messageId={turn.id}
                       onGenerateTests={handleGenerateTests}
                       generatingTestId={generatingTestId}
-                      onApplyPatch={(newCode) => {
-                        setCode(newCode);
-                        showToast("Patch applied to code editor!", "success");
-                      }}
+                      onApplyPatch={handleApplyPatchRequest}
                     />
                   </div>
 
@@ -1255,53 +1349,46 @@ const ChatInterface = ({
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-2 mb-2">
-            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-900/40 border border-gray-700 rounded-lg text-xs text-gray-300">
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-gray-400">
-                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-              </svg>
-              <span className="text-gray-400">Linked:</span>
-              <strong className="max-w-[220px] truncate text-gray-200" title={linkedRepo}>{linkedRepo}</strong>
-              <button
-                onClick={() => {
-                  setLinkedRepo(null);
-                  if (onUpdate) onUpdate({ linkedRepo: null, linkedBranch: null });
-                  showToast("Repository link removed.", "success");
-                }}
-                className="ml-1 text-gray-500 hover:text-gray-200 transition-colors"
-                title="Remove Link"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleShowGraphClick}
-                className="px-2.5 py-1.5 bg-gray-900/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 transition-colors flex items-center gap-1"
-                title="View Context Architecture Graph"
-              >
-                <span aria-hidden>🌌</span> Graph
-              </button>
-              <button
-                onClick={handleShowCodeHealthClick}
-                className="px-2.5 py-1.5 bg-gray-900/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 transition-colors flex items-center gap-1"
-                title="View Code Health Dashboard"
-              >
-                <span aria-hidden>🌡️</span> Health
-              </button>
-              {history.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-900/40 border border-gray-700 rounded-lg text-xs text-gray-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-gray-400">
+                  <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                </svg>
+                <span className="text-gray-400">Linked:</span>
+                <strong className="max-w-[220px] truncate text-gray-200" title={linkedRepo}>{linkedRepo}</strong>
                 <button
-                  onClick={onShare}
-                  className="px-3 py-1.5 bg-purple-900/20 hover:bg-purple-900/40 border border-purple-500/30 rounded-lg text-xs text-purple-300 transition-colors flex items-center gap-1 shadow-sm"
-                  title="Share this conversation to the community"
+                  onClick={() => {
+                    setLinkedRepo(null);
+                    if (onUpdate) onUpdate({ linkedRepo: null, linkedBranch: null });
+                    showToast("Repository link removed.", "success");
+                  }}
+                  className="ml-1 text-gray-400 hover:text-white transition-colors"
+                  title="Remove Link"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                  </svg>
-                  <span>Share to Community</span>
+                  ✕
                 </button>
-              )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleShowGraphClick}
+                  className="px-2.5 py-1.5 bg-gray-900/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 transition-colors flex items-center gap-1"
+                  title="View Context Architecture Graph"
+                >
+                  <span aria-hidden>🌌</span> Graph
+                </button>
+                <button
+                  onClick={handleShowCodeHealthClick}
+                  className="px-2.5 py-1.5 bg-gray-900/40 hover:bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 transition-colors flex items-center gap-1"
+                  title="View Code Health Dashboard"
+                >
+                  <span aria-hidden>🌡️</span> Health
+                </button>
+              </div>
             </div>
+            
+            {/* COMPACT CONTEXT BAR MOVED HERE */}
+            <ContextBar question={question} code={code} image={image} linkedRepo={linkedRepo} />
           </div>
           <div className="w-full bg-gray-800/80 rounded-2xl border border-gray-700/50 focus-within:border-fuchsia-500/50 focus-within:ring-1 focus-within:ring-fuchsia-500/50 shadow-inner flex flex-col transition-all backdrop-blur-sm relative">
             {useMonacoEditor ? (
@@ -1715,6 +1802,17 @@ const ChatInterface = ({
                 View PR ↗
               </a>
             )}
+            {toast.action && (
+              <button
+                onClick={() => {
+                  toast.action();
+                  setToast({ ...toast, show: false });
+                }}
+                className="text-xs bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-3 py-1.5 rounded-full transition-colors whitespace-nowrap font-bold shadow-lg"
+              >
+                Undo
+              </button>
+            )}
           </div>
           <button
             onClick={() => setToast({ ...toast, show: false })}
@@ -1726,6 +1824,17 @@ const ChatInterface = ({
           </button>
         </div>
       )}
+      {/* Interactive Merge Modal */}
+      <InteractiveMergeModal
+        isOpen={mergeModal.isOpen}
+        onClose={() => setMergeModal({ isOpen: false, newCode: '' })}
+        originalCode={code}
+        newCode={mergeModal.newCode}
+        onApply={(mergedCode) => executeApplyPatch(mergedCode, 'replace')}
+      />
+
+      {/* Security Audit Modal */}
+      {auditModal.show && renderAuditModal()}
     </div>
   );
 };

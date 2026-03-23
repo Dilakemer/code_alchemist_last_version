@@ -3577,6 +3577,35 @@ def get_popular():
     return jsonify({'popular':[serialize_history(h) for h in items]})
 
 
+@app.route('/api/stats/model-usage', methods=['GET'])
+@jwt_required(optional=True)
+def get_model_usage():
+    """Returns model usage statistics and estimated costs"""
+    try:
+        # Group by selected_model and count
+        results = db.session.query(
+            History.selected_model,
+            db.func.count(History.id)
+        ).group_by(History.selected_model).all()
+
+        usage_data = []
+        for model_name, count in results:
+            if not model_name: 
+                model_name = "Unknown"
+            usage_data.append({
+                'model': model_name,
+                'count': count
+            })
+
+        return jsonify({
+            'success': True,
+            'stats': usage_data
+        })
+    except Exception as e:
+        print(f"Stats Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 from models import db, User, Conversation, History, Answer, PostLike, AnswerLike, NotificationRead, NotificationHidden
 
 # ... (existing imports)

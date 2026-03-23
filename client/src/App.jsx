@@ -19,6 +19,8 @@ import FeedbackModal from './components/FeedbackModal';
 import OnboardingTour, { shouldShowOnboarding } from './components/OnboardingTour';
 import ProjectManager from './components/ProjectManager';
 import ProjectWorkspace from './components/ProjectWorkspace';
+import LandingPage from './components/LandingPage';
+import ModelCostDashboard from './components/ModelCostDashboard';
 import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
 
 
@@ -98,6 +100,11 @@ function App() {
 
   // Multi-Model State
   const [isMultiModel, setIsMultiModel] = useState(false);
+  const [showCostDashboard, setShowCostDashboard] = useState(false);
+  const [showLandingPage, setShowLandingPage] = useState(() => {
+    // Show landing page for unauthenticated users every session
+    return !localStorage.getItem('codebrain_user');
+  });
   const [multiModels, setMultiModels] = useState(['gemini-2.5-flash', 'gpt-4o']);
 
   // Notification Dropdown State
@@ -583,6 +590,9 @@ function App() {
         });
     }
 
+    const startTime = Date.now();
+    let firstChunkTime = null;
+
     // Reset inputs immediately
     const currentQuestion = effectiveQuestion;
     const currentCode = code;
@@ -662,6 +672,7 @@ function App() {
 
               // Standard Stream & Blend Stream
               if (data.chunk) {
+                if (!firstChunkTime) firstChunkTime = Date.now();
                 aiResponseAccumulator += data.chunk;
                 setChatHistory(prev => prev.map(item =>
                   item.id === tempId ? { ...item, ai_response: aiResponseAccumulator } : item
@@ -698,6 +709,11 @@ function App() {
                 // For blend mode, use blended_response if available (though it was streamed via chunks too)
                 const finalResponse = data.blended_response || aiResponseAccumulator;
 
+                // Calculate durations
+                const endTime = Date.now();
+                const totalDuration = ((endTime - startTime) / 1000).toFixed(2);
+                const ttf = (firstChunkTime ? ((firstChunkTime - startTime) / 1000).toFixed(2) : null);
+
                 // Update with real DB ID and metadata
                 setChatHistory(prev => prev.map(item =>
                   item.id === tempId ? {
@@ -707,7 +723,9 @@ function App() {
                     summary: data.summary,
                     ai_response: finalResponse,
                     routing_reason: data.routing_reason,
-                    persona: data.persona
+                    persona: data.persona,
+                    responseTime: totalDuration,
+                    timeToFirstToken: ttf
                   } : item
                 ));
 
@@ -1533,6 +1551,15 @@ function App() {
             </button>
 
             <button
+              onClick={() => setShowCostDashboard(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-amber-900/60 to-orange-900/60 hover:from-amber-800/70 hover:to-orange-800/70 text-amber-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border border-amber-500/40"
+              title="Cost Dashboard"
+            >
+              <span>📊</span>
+              <span>Cost Dashboard</span>
+            </button>
+
+            <button
               onClick={() => {
                 setShowCommunityFeed(true);
                 fetchCommunityItems();
@@ -1973,6 +2000,25 @@ function App() {
         onClose={() => setIsStatusModalOpen(false)}
         message={statusMessage}
       />
+
+      {showCostDashboard && (
+        <ModelCostDashboard 
+          onClose={() => setShowCostDashboard(false)} 
+          apiBase={API_BASE}
+          authHeaders={token ? { Authorization: `Bearer ${token}` } : {}}
+        />
+      )}
+
+      {showLandingPage && !user && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-[#0a0a0b]">
+          <LandingPage 
+            onGetStarted={() => setShowLandingPage(false)}
+            onLogin={() => {
+              setAuthOpen(true);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
