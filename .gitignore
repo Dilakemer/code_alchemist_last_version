@@ -8,6 +8,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv-win/
 venv/
 env/
 ENV/
@@ -59,3 +60,4 @@ server/static/assets/
 test_graph.py
 manual_test_routing.py
 
+resend
