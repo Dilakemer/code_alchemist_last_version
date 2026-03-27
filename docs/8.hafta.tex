@@ -1,0 +1,459 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{fontspec}
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{setspace}
+
+\geometry{a4paper, left=24mm, right=24mm, top=28mm, bottom=28mm}
+\onehalfspacing
+
+\definecolor{keywordblue}{rgb}{0.0,0.2,0.7}
+\titleformat{\section}{\large\bfseries\color{keywordblue}}{\thesection}{1em}{}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\title{CodeAlchemist -- 8. Hafta Kod Bazli Teknik Dokuman}
+\author{CodeAlchemist Team}
+\date{Mart 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Kapsam}
+Bu dokuman, 8. haftada hayata alinan 4 ozelligin kod seviyesindeki implementasyonunu aciklar:
+
+\begin{enumerate}[leftmargin=*]
+  \item Baglam optimizasyon asistani
+  \item Patch guvenlik seviyesi
+  \item Paylasimda canli isbirligi (yorum + onay/revizyon dongusu)
+  \item Free/Premium plan ayrimi (istek/token kotasi)
+\end{enumerate}
+
+Hedef, urun gereksinimlerini dogrudan fonksiyonlar, endpointler ve UI davranisi ile eslestirmektir.
+
+\section{Hafta 7'den Hafta 8'e Donusum (Once / Simdi)}
+Bu bolum, 8. haftadaki gelistirmelerin neden degerli oldugunu gostermek icin
+"once nasildi, simdi nasil calisiyor" perspektifini verir.
+
+\begin{longtable}{@{} P{3.6cm} P{4.8cm} P{5.8cm} @{} }
+\toprule
+Alan & Once (Hafta 6-7) & Simdi (Hafta 8) \\
+\midrule
+Baglam yonetimi & Context bar bilgi veriyordu, kullanici elle duzenliyordu & Prompt oncesi optimize onerisi ve auto optimize akisi var \\
+Patch uygulama & Patch dogrudan uygulanabiliyordu & Risk skoru ile safe/review/block karari devreye girdi \\
+Paylasim & Link ile paylasim ve goruntuleme odakliydi & Review status + yorum + onay/revizyon + eszamanli iterasyon eklendi \\
+Planlama / maliyet & Tuketim gorunurlugu sinirliydi & Free/Premium plan, gunluk istek ve aylik token kotasi aktif \\
+\bottomrule
+\end{longtable}
+
+\section{Mimari Ozet}
+\subsection{Frontend}
+\begin{itemize}[leftmargin=*]
+  \item Ana orkestrasyon: \texttt{client/src/App.jsx}
+  \item Chat ve patch akisi: \texttt{client/src/components/ChatInterface.jsx}
+\end{itemize}
+
+\subsection{Backend}
+\begin{itemize}[leftmargin=*]
+  \item API ve is kurallari: \texttt{server/app.py}
+  \item Veri modelleri: \texttt{server/models.py}
+\end{itemize}
+
+\section{Ozellik 1: Baglam Optimizasyon Asistani}
+\subsection{Urun Gereksinimi}
+Prompt gondermeden once, kaliteyi koruyarak gereksiz token yukunu azaltacak oneriler sunulmasi.
+Auto mode acik oldugunda sistemin bunu akis icinde otomatik uygulayabilmesi.
+
+\subsection{Kod Entegrasyonu}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/components/ChatInterface.jsx:194}
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{optimizePromptWithReport(prompt)}
+    \item Prompt icin before/after token tahmini ve iyilestirme raporu uretir.
+  \end{itemize}
+
+  \item \texttt{client/src/components/ChatInterface.jsx:876}
+  \begin{itemize}[leftmargin=*]
+    \item Gonderim oncesi optimize raporunu devreye alir.
+  \end{itemize}
+
+  \item \texttt{client/src/components/ChatInterface.jsx:1527}
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{Auto Optimize: ON/OFF} UI kontrolu.
+  \end{itemize}
+\end{itemize}
+
+\subsection{Davranis}
+\begin{enumerate}[leftmargin=*]
+  \item Kullanici prompt yazar.
+  \item Auto optimize aciksa rapor olusturulur.
+  \item Kullanici optimize metni uygular, optimize haliyle gonderir veya orijinal metinle devam eder.
+\end{enumerate}
+
+\subsection{Kisa Senaryo (Once / Simdi)}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Once:} Kullanici 2-3 farkli kod parcasi ve uzun aciklama ile prompt gonderiyor,
+  token yukunu ancak cevap gec gelince fark ediyordu.
+  \item \textbf{Simdi:} Gondermeden hemen once sistem tekrarli kisimlari sikistirip
+  tahmini token kazancini gosteriyor; kullanici optimize veya orijinal metinle devam etmeyi seciyor.
+\end{itemize}
+
+\subsection{Tekrar Disi Optimizasyon Onerileri ve Ornek Hatali Promptlar}
+Asagidaki maddeler, sadece tekrar tespiti disinda kalan baglam optimizasyon alanlaridir.
+Her madde icin bir adet ``hatali prompt'' ornegi verilmis, sistemin onermesi beklenen iyilestirme de belirtilmistir.
+
+\begin{longtable}{@{} P{0.6cm} P{4.0cm} P{5.2cm} P{3.6cm} @{} }
+\toprule
+No & Optimizasyon fikri & Ornek hatali prompt & Beklenen onerme \ 
+\midrule
+1 & Gereksiz baglam budama &
+``Bugun kahve ictim, toplanti yaptim, sonra markete gittim, bu arada kodu da duzelt.'' &
+Teknik hedefi tut, hikaye/gurultuyu kaldir \ 
+
+2 & Amac netlestirme &
+``Bunu hizlandir, guvenli yap, UI tasarla, deploy et, test yaz.'' &
+Tek ana hedef sec ve onceliklendir \ 
+
+3 & Cikti formati standardizasyonu &
+``Nasil uygun gorursen oyle cevapla.'' &
+Tablo/madde/kod blogu gibi net format belirt \ 
+
+4 & Kisit ekleme &
+``Bu problemi cozer misin?'' &
+Dil, uzunluk, kapsam, karmaşıklik siniri ekle \ 
+
+5 & Rol ve hedef kitle uyumu &
+``Bu kodu anlat.'' &
+Kime anlattigini belirt (junior/senior/PM) \ 
+
+6 & Kod sinyali guclendirme &
+``Asagidakini iyilestir: def f(x): return x*x'' &
+Dil ve istenen cikti tipini netlestir (diff/fonksiyon) \ 
+
+7 & Test odakli tamamlama &
+``Bu fonksiyonu duzelt.'' &
+Edge-case ve basit test maddeleri ekle \ 
+
+8 & Risk ve guvenlik filtresi &
+``Auth token akisini komple degistir, direkt patch ver.'' &
+Risk analizi + rollback plani ile ilerle \ 
+
+9 & Token maliyeti azaltma &
+``1200 satir logu komple analiz et.'' &
+Yalniz ilgili log kesitlerini iste \ 
+
+10 & Cok adimli gorev ayrisimi &
+``Bu urunu bastan sona optimize et.'' &
+Analiz/cozum/test adimlarina bol \ 
+
+11 & Belirsizlik tespiti &
+``Calismiyor, duzelt.'' &
+Hata mesaji, tekrar adimi, ortam bilgisi iste \ 
+
+12 & Dil kalitesi sadeleme &
+``Ayni seyi tekrar ediyorum, iyi olsun, daha iyi olsun.'' &
+Tekrari azalt, net ve kisa hedef cumlesi uret \ 
+\bottomrule
+\end{longtable}
+
+\subsection{UI Tarafinda Beklenen Davranis (Ozellik-1 icin)}
+Bu 12 durumdan biri algilandiginda, optimize karti asagidaki aksiyonlardan en az birini sunmalidir:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{Apply Optimized Text}
+  \item \texttt{Send Optimized}
+  \item \texttt{Send Original}
+\end{itemize}
+
+\section{Ozellik 2: Patch Guvenlik Seviyesi}
+\subsection{Urun Gereksinimi}
+Patch uygulamadan once risk skorlamasi yapilarak 3 modda karar verilmesi:
+\texttt{guvenli uygula}, \texttt{incele}, \texttt{blokla}.
+
+\subsection{Kod Entegrasyonu}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/components/ChatInterface.jsx:241}
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{evaluatePatchRisk(currentCode, incomingCode)}
+    \item Risk skoru ve gerekce listesi hesaplar.
+  \end{itemize}
+
+  \item \texttt{client/src/components/ChatInterface.jsx:436}
+  \begin{itemize}[leftmargin=*]
+    \item Patch uygulama adimi risk degerlendirmesinden gecirilir.
+  \end{itemize}
+
+  \item \texttt{client/src/components/ChatInterface.jsx:2015}
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{Patch Safety Check} modal gorunumu.
+  \end{itemize}
+\end{itemize}
+
+\subsection{Risk Faktorleri}
+\begin{itemize}[leftmargin=*]
+  \item Degisim buyuklugu
+  \item Silinen satir orani
+  \item Kritik anahtar kelimeler (or. auth/token/secret/billing)
+  \item Test etkisi sinyali
+\end{itemize}
+
+\subsection{Davranis}
+\begin{itemize}[leftmargin=*]
+  \item Dusuk risk: guvenli uygulama
+  \item Orta risk: inceleme modalinden kontrollu devam
+  \item Yuksek risk: otomatik bloklama
+\end{itemize}
+
+\subsection{Kisa Senaryo (Once / Simdi)}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Once:} Buyuk bir patch tek tikla uygulanabiliyor,
+  kritik dosya etkisi sonradan fark ediliyordu.
+  \item \textbf{Simdi:} Uygulama oncesi risk skoru cikiyor; sistem
+  guvenli ise uygula, orta riskte incelet, yuksek riskte blokla kararini veriyor.
+\end{itemize}
+
+\section{Ozellik 3: Paylasimda Canli Isbirligi Modu}
+\subsection{Urun Gereksinimi}
+Sadece paylasim linki yerine takim ici inceleme dongusu:
+yorum yazma, durum degistirme, onay veya revizyon talebi.
+
+Bu haftadaki fark: ekip uyeleri ayni paylasim oturumu uzerinde
+yorumlasirken, patch/revizyon kararlarini da ayni akis icinde yurutebiliyor.
+Yani "once sadece link" varken, simdi "link + yorum + durum + revizyon" birlikte calisiyor.
+
+\subsection{Veri Modeli}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{server/models.py:72} \texttt{CollaborationReview}
+  \item \texttt{server/models.py:85} \texttt{CollaborationComment}
+\end{itemize}
+
+\subsection{API Entegrasyonu}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{server/app.py:6195} \texttt{GET /api/collaboration/session/<token>/review}
+  \item \texttt{server/app.py:6221} \texttt{POST /api/collaboration/session/<token>/review/comment}
+  \item \texttt{server/app.py:6256} \texttt{POST /api/collaboration/session/<token>/review/status}
+\end{itemize}
+
+\subsection{Frontend Entegrasyonu}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/App.jsx:254} \texttt{fetchCollabReview}
+  \item \texttt{client/src/App.jsx:269} \texttt{submitCollabReviewComment}
+  \item \texttt{client/src/App.jsx:293} \texttt{updateCollabReviewStatus}
+  \item \texttt{client/src/App.jsx:2560-2572} durum butonlari
+\end{itemize}
+
+\subsection{Durum Makinesi}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{open}
+  \item \texttt{revision\_requested}
+  \item \texttt{approved}
+\end{itemize}
+
+\section{Ozellik 4: Free/Premium Plan Ayrimi}
+\subsection{Urun Gereksinimi}
+Kullanicilarin plan bazli istek ve token limitleriyle yonetilmesi,
+limit asiminda premiuma gecis mesaji verilmesi.
+
+\subsection{Once / Simdi}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Once:} Kullanicilarin maliyet kontrolu dogrudan urun akisi icinde net degildi.
+  \item \textbf{Simdi:} Her istek oncesi plan-kota kontrolu yapiliyor; limitte sistem
+  kontrollu olarak istegi reddedip premiuma gecis mesaji donuyor.
+\end{itemize}
+
+\subsection{Plan Modeli ve Limitler}
+\texttt{PLAN\_LIMITS} sabiti ile iki plan tanimli:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Free}
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{daily\_requests = 30}
+    \item \texttt{monthly\_tokens = 120000}
+  \end{itemize}
+  \item \textbf{Premium}
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{daily\_requests = 250}
+    \item \texttt{monthly\_tokens = 1200000}
+  \end{itemize}
+\end{itemize}
+
+Bu model, hem kisa vadeli suistimali (gunluk istek) hem de uzun vadeli maliyeti
+(aylik token) ayni anda kontrol eder.
+
+\subsection{Kota Muhasebesi Nasil Calisiyor?}
+\begin{enumerate}[leftmargin=*]
+  \item Sistem kullanicinin \texttt{preferences} alanindan plan bilgisini okur.
+  \item Gunluk saya\c{c} (tarih bazli) ve aylik token sayaci (ay bazli) init/reset edilir.
+  \item Istek gelince tahmini token hesaplanir:
+  \begin{itemize}[leftmargin=*]
+    \item yaklasik: toplam karakter / 4
+  \end{itemize}
+  \item \texttt{consume\_plan\_quota(...)} fonksiyonu ile
+  projected degerler limitlerle karsilastirilir.
+  \item Limit asilmazsa saya\c{c}lar commit edilir ve istek devam eder.
+  \item Limit asilirse 429 donulur, sebep kodu ve kalan limit bilgisi payload'a eklenir.
+\end{enumerate}
+
+\subsection{Ask ve Blend Icin Farkli Maliyet Yaklasimi}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{/api/ask}: \texttt{request\_weight=1}
+  \item \texttt{/api/blend}: model sayisi kadar daha maliyetli kabul edilir
+  (token tahmini model sayisi ile carpilir, agirlik en az 2 olacak sekilde artar)
+\end{itemize}
+
+Bu sayede blend gibi coklu-model akislarinda kota tuketimi gercege daha yakin
+yansitilir.
+
+\subsection{API Sozlesmesi (Frontend Için Anlasilir Ozet)}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{GET /api/billing/usage}
+  \begin{itemize}[leftmargin=*]
+    \item plan, limitler, kullanilan ve kalan degerleri doner.
+  \end{itemize}
+  \item \texttt{POST /api/billing/plan}
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{plan=free|premium} alir, plani gunceller, yeni usage ozetini doner.
+  \end{itemize}
+  \item Kota asiminda (ask/blend):
+  \begin{itemize}[leftmargin=*]
+    \item HTTP \texttt{429}
+    \item \texttt{reason}: \texttt{daily\_requests\_exceeded} veya \texttt{monthly\_tokens\_exceeded}
+    \item \texttt{upgrade\_required}: free planda \texttt{true}
+  \end{itemize}
+\end{itemize}
+
+\subsection{Kullanici Deneyimi Tarafi}
+\begin{itemize}[leftmargin=*]
+  \item Tool drawer'da plan karti ve Free/Premium gecis butonlari bulunur.
+  \item Kullanici plani degistirdiginde UI anlik olarak usage verisini yeniler.
+  \item Limit asiminda kullaniciya teknik hata yerine yonlendirici mesaj verilir:
+  "Daha fazlasi icin Premium'a gec" akisi.
+\end{itemize}
+
+\subsection{Kisa Senaryo (Once / Simdi)}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Once:} Her kullanici ayni akisla devam ediyor,
+  yogun kullanimda maliyet kontrolu urun tarafinda net gorunmuyordu.
+  \item \textbf{Simdi:} Free kullanici limitte 429 + yonlendirme mesaji aliyor,
+  Premium kullanici daha yuksek limitlerle kesintisiz devam edebiliyor.
+\end{itemize}
+
+\subsection{Backend Kota Katmani}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{server/app.py:1741} \texttt{consume\_plan\_quota(user, estimated\_tokens, request\_weight)}
+  \item \texttt{server/app.py:1797} \texttt{GET /api/billing/usage}
+  \item \texttt{server/app.py:1814} \texttt{POST /api/billing/plan}
+  \item \texttt{server/app.py:3008} \texttt{/api/ask} kota kontrolu
+  \item \texttt{server/app.py:3396} \texttt{/api/blend} kota kontrolu
+\end{itemize}
+
+\subsection{Frontend Plan Arayuzu}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/App.jsx:216} \texttt{fetchUsageLimits}
+  \item \texttt{client/src/App.jsx:231} \texttt{switchSubscriptionPlan}
+  \item \texttt{client/src/App.jsx:2630-2636} Free/Premium gecis butonlari
+\end{itemize}
+
+\subsection{Davranis}
+\begin{enumerate}[leftmargin=*]
+  \item Kullanici her istek oncesi mevcut kota durumuna gore degerlendirilir.
+  \item Limit asiminda istek reddedilir ve premiuma gecis mesaji donulur.
+  \item Kullanici arac panelinden plan ve kullanim bilgisini gorebilir.
+\end{enumerate}
+
+\section{Kod Seviyesi Izlenebilirlik Matrisi}
+\begin{longtable}{@{} P{3.5cm} P{4.9cm} P{6.2cm} @{} }
+\toprule
+Ozellik & Kod Noktasi & Sorumluluk \\
+\midrule
+Baglam optimizasyonu & \texttt{ChatInterface.jsx:194} & Prompt sikistirma ve rapor uretimi \\
+Baglam optimizasyonu & \texttt{ChatInterface.jsx:1527} & Auto mode UI kontrolu \\
+Patch risk skoru & \texttt{ChatInterface.jsx:241} & Risk analizi ve skor hesaplama \\
+Patch guvenlik modal & \texttt{ChatInterface.jsx:2015} & Safe/Review/Block karar arayuzu \\
+Canli review verisi & \texttt{models.py:72,85} & Review ve comment tablolari \\
+Canli review API & \texttt{app.py:6195,6221,6256} & Getir/yorumla/durum degistir endpointleri \\
+Plan kota kontrolu & \texttt{app.py:1741,3008,3396} & Ask/blend oncesi kota enforcement \\
+Plan API + UI & \texttt{app.py:1797,1814} ve \texttt{App.jsx:216,231} & Kullanimi cekme ve plan degistirme \\
+\bottomrule
+\end{longtable}
+
+\section{Test ve Dogrulama Sonuclari}
+\subsection{Backend Smoke Test (Gercek API Cagrisi)}
+Asagidaki kontroller, calisan backend uzerinden HTTP cagrilari ile dogrulanmistir.
+
+\begin{longtable}{@{} P{4.4cm} P{3.0cm} P{6.8cm} @{} }
+\toprule
+Test Adimi & Sonuc & Kanit / Beklenen Davranis \\
+\midrule
+Kullanici kaydi ve JWT alma & PASS & \texttt{register\_ok=true} \\
+Plan kullanim bilgisi & PASS & Baslangic plani \texttt{free} \\
+Plan degistirme (free->premium->free) & PASS & \texttt{after\_premium=premium}, \texttt{after\_free=free} \\
+Kota asimi (buyuk prompt) & PASS & HTTP \texttt{429}; \texttt{reason=monthly\_tokens\_exceeded}; \texttt{upgrade\_required=true} \\
+Collaboration share token uretimi & PASS & \texttt{share\_token\_exists=true} \\
+Review baslangic durumu & PASS & \texttt{review\_initial=open} \\
+Review yorum ekleme & PASS & \texttt{comment\_author=smoke-guest} \\
+Review durum guncelleme & PASS & \texttt{status\_after\_update=approved} \\
+Review final kontrol & PASS & \texttt{review\_final=approved}, \texttt{comment\_count=1} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Frontend Manuel Test Plani (Kullanici Tarafi)}
+Asagidaki adimlar UI davranisini birebir dogrulamak icin hazirlanmistir.
+
+\textbf{Test-1: Baglam Optimizasyon Asistani}
+\begin{enumerate}[leftmargin=*]
+  \item Chat ekraninda \texttt{Auto Optimize} secenegini \texttt{ON} yapin.
+  \item Tekrarli satirlar iceren uzun bir prompt yazin.
+  \item Beklenen: optimize onerisi karti acilir, token azalimi raporlanir.
+  \item Beklenen: \texttt{Apply Optimized Text}, \texttt{Send Optimized}, \texttt{Send Original} butonlari gorunur.
+\end{enumerate}
+
+\textbf{Test-2: Patch Guvenlik Seviyesi}
+\begin{enumerate}[leftmargin=*]
+  \item Kod degisikligi onerisi uretecek bir patch akisi tetikleyin.
+  \item Beklenen: \texttt{Patch Safety Check} modal acilir.
+  \item Beklenen: risk gerekceleri listelenir ve sonuca gore safe/review/block davranisi calisir.
+\end{enumerate}
+
+\textbf{Test-3: Canli Isbirligi Review Dongusu}
+\begin{enumerate}[leftmargin=*]
+  \item Bir konusma icin paylasim linki uretin.
+  \item Paylasim ekranindan yorum ekleyin.
+  \item Durumu sirayla \texttt{open -> revision\_requested -> approved} olarak degistirin.
+  \item Beklenen: durum ve yorum listesi panelde guncel gorunur.
+\end{enumerate}
+
+\textbf{Test-4: Free/Premium Plan ve Kota}
+\begin{enumerate}[leftmargin=*]
+  \item Tool drawer uzerinden plani \texttt{free} ve \texttt{premium} arasinda degistirin.
+  \item Beklenen: kullanim kartinda plan bilgisi anlik guncellenir.
+  \item Free planda yuksek tokenli istek deneyin.
+  \item Beklenen: limit asiminda premiuma yonlendiren hata mesaji gorunur.
+\end{enumerate}
+
+\section{MVP Sinirlari ve Sonraki Adimlar}
+\begin{itemize}[leftmargin=*]
+  \item Plan gecisi su an uygulama ici MVP toggledir; odeme altyapisi baglantisi sonraki fazdadir.
+  \item Patch risk skoru heuristic tabanlidir; ileride AST ve test graph ile guclendirilebilir.
+  \item Isbirligi paneli polling ile yenilenir; websocket/SSE ile daha dusuk gecikmeli hale getirilebilir.
+\end{itemize}
+
+\section{Sonuc}
+8. hafta kapsami, 6. ve 7. haftada acilan alanlari eyleme donusturen bir ust katman olarak uygulanmistir:
+
+\begin{itemize}[leftmargin=*]
+  \item Context gorunurlugunden optimize edilebilir prompt akisina,
+  \item Patch uygulamadan once guvenlik karar mekanizmasina,
+  \item Tekil paylasimdan takim ici review dongusune,
+  \item Sinirsiz kullanimdan plan/kota kontrollu urun modeline gecis saglanmistir.
+\end{itemize}
+
+\end{document}

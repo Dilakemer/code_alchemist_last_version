@@ -3126,6 +3126,8 @@ def ask():
     # --- Akıllı Model Routing (Smart Routing) ---
     original_model = model
     routing_reason = None
+    detected_lang = 'unknown'
+    detected_intent = 'general'
     
     # Ses dosyası kontrolü - Sadece Gemini ses desteği sağlıyor
     audio_extensions = ['.mp3', '.wav', '.webm', '.m4a', '.ogg', '.aac', '.flac']
@@ -3206,6 +3208,7 @@ def ask():
     elif model == 'auto':
         intent = detect_intent(question, code)
         detected_lang = language_detector.detect(question, code)
+        detected_intent = intent
         
         # Upgrade intent if linked to GitHub
         has_github = conversation and conversation.linked_repo
@@ -3230,12 +3233,25 @@ def ask():
         # Debug print
         print(f"DEBUG: Smart Routing -> Intent: {intent}, Lang: {detected_lang} -> {model}")
 
+    if not routing_reason:
+        routing_reason = f"🧭 **Responding Model**: `{model}` (manual selection)"
+
     answer = ""
 
     # --- Model Yönlendirme Mantığı ---
     def generate_stream():
         nonlocal answer # Outer scope answer variable updating
         full_answer = ""
+
+        # Send routing metadata as an early event so UI can show model/language even if stream ends early.
+        early_meta = {
+            'meta': True,
+            'routing_reason': routing_reason,
+            'selected_model': model,
+            'detected_language': detected_lang,
+            'detected_intent': detected_intent
+        }
+        yield f"data: {json.dumps(early_meta)}\n\n"
         
         generator = None
         
@@ -3277,63 +3293,72 @@ def ask():
 
         # Bitiş işlemleri (Veritabanı kayıt)
         with app.app_context():
+            # Keep these available even if DB save fails; client can still close stream cleanly.
+            final_data = {
+                'done': True,
+                'routing_reason': routing_reason,
+                'selected_model': model,
+                    'detected_language': detected_lang,
+                    'detected_intent': detected_intent,
+                'persona': prefs.get('persona', 'General User') if user else 'General User'
+            }
+
             # Only save to database if not a no_save request
             if not no_save and conversation:
-                # Session'a conversation'ı tekrar bağla/getir
-                current_conv = db.session.get(Conversation, conversation.id)
-                if not current_conv:
-                    # Should not happen normally
-                    current_conv = Conversation(id=conversation.id, user_id=user_id, title=question[:50])
-                    db.session.add(current_conv)
+                try:
+                    # Session'a conversation'ı tekrar bağla/getir
+                    current_conv = db.session.get(Conversation, conversation.id)
+                    if not current_conv:
+                        # Should not happen normally
+                        current_conv = Conversation(id=conversation.id, user_id=user_id, title=question[:50])
+                        db.session.add(current_conv)
 
-                # Özetleme
-                summary = summarize_answer(full_answer)
-                
-                # Başlık güncelleme (ilk mesajsa) - kısa ve öz başlık üret
-                if not history_context:
-                    current_conv.title = generate_conversation_title(question, full_answer)
-                    db.session.add(current_conv)
+                    # Özetleme
+                    summary = summarize_answer(full_answer)
 
-                history = History(
-                    conversation_id=current_conv.id,
-                    user_question=question,
-                    code_snippet=code,
-                    ai_response=full_answer,
-                    selected_model=model,
-                    summary=summary,
-                    image_path=image_path,
-                    routing_reason=routing_reason,
-                    persona=prefs.get('persona', 'General User') if user else 'General User'
-                )
-                db.session.add(history)
-                db.session.commit()
+                    # Başlık güncelleme (ilk mesajsa) - kısa ve öz başlık üret
+                    if not history_context:
+                        current_conv.title = generate_conversation_title(question, full_answer)
+                        db.session.add(current_conv)
 
-                # 4. AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
-                if user:
-                    update_user_taste(user, model, full_answer, question)
+                    history = History(
+                        conversation_id=current_conv.id,
+                        user_question=question,
+                        code_snippet=code,
+                        ai_response=full_answer,
+                        selected_model=model,
+                        summary=summary,
+                        image_path=image_path,
+                        routing_reason=routing_reason,
+                        persona=prefs.get('persona', 'General User') if user else 'General User'
+                    )
+                    db.session.add(history)
+                    db.session.commit()
 
-                # Final event with metadata
-                final_data = {
-                    'done': True,
-                    'history_id': history.id,
-                    'conversation_id': current_conv.id,
-                    'summary': summary,
-                    'routing_reason': routing_reason,
-                    'selected_model': model,
-                    'persona': history.persona
-                }
-                
-                # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa)
-                if user and current_conv:
-                    xp_result = award_xp(user.id, 10, "Asking a Question", source='ask_question')
-                    if xp_result:
-                        final_data['xp_awarded'] = xp_result
-                        
-                yield f"data: {json.dumps(final_data)}\n\n"
-            else:
-                # No-save mode: just signal completion without DB info
-                final_data = {'done': True}
-                yield f"data: {json.dumps(final_data)}\n\n"
+                    # 4. AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
+                    if user:
+                        update_user_taste(user, model, full_answer, question)
+
+                    final_data.update({
+                        'history_id': history.id,
+                        'conversation_id': current_conv.id,
+                        'summary': summary,
+                        'persona': history.persona
+                    })
+
+                    # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa)
+                    if user and current_conv:
+                        xp_result = award_xp(user.id, 10, "Asking a Question", source='ask_question')
+                        if xp_result:
+                            final_data['xp_awarded'] = xp_result
+                except Exception as save_err:
+                    db.session.rollback()
+                    print(f"WARN: Final save failed in /api/ask stream: {save_err}")
+                    sys.stdout.flush()
+                    # Keep stream contract stable so frontend does not append generic error.
+                    final_data['warning'] = 'response_saved_with_warning'
+
+            yield f"data: {json.dumps(final_data)}\n\n"
 
     return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
 

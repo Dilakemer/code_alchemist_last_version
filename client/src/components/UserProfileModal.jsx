@@ -534,7 +534,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                                                 headers: { 'Content-Type': 'application/json', ...authHeaders },
                                                                 body: JSON.stringify({ password: deletePassword })
                                                             });
-                                                            if (res.ok) { if (onLogout) onLogout(); onClose(); }
+                                                            if (res.ok) { if (onLogout) await onLogout(); onClose(); }
                                                             else { const d = await res.json(); setMessage({ type: 'error', text: d.error || 'Could not delete.' }); }
                                                         } catch { setMessage({ type: 'error', text: 'Connection error.' }); }
                                                     }}

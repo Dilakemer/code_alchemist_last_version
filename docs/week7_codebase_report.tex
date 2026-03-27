@@ -1,0 +1,501 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{fontspec}
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{longtable}
+\usepackage{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{setspace}
+\usepackage{graphicx}
+
+\geometry{a4paper, left=24mm, right=24mm, top=30mm, bottom=28mm}
+\setlength{\headheight}{14pt}
+\onehalfspacing
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{CodeAlchemist | Week 7 Codebase Report}
+\rhead{Dila KEMER}
+\cfoot{\thepage}
+
+\definecolor{keywordblue}{rgb}{0.0,0.2,0.7}
+\definecolor{commentgreen}{rgb}{0.1,0.5,0.1}
+\definecolor{stringpurple}{rgb}{0.5,0.0,0.5}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{boxbg}{rgb}{1.0,0.95,0.90}
+\definecolor{boxbd}{rgb}{0.75,0.45,0.20}
+\definecolor{goodbg}{rgb}{0.92,1.0,0.92}
+\definecolor{goodbd}{rgb}{0.20,0.55,0.20}
+
+\titleformat{\section}{\large\bfseries\color{keywordblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{\thesubsubsection}{1em}{}
+
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\lstdefinestyle{mystyle}{
+  backgroundcolor=\color{backcolour},
+  commentstyle=\color{commentgreen},
+  keywordstyle=\color{keywordblue}\bfseries,
+  stringstyle=\color{stringpurple},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numbersep=5pt,
+  showstringspaces=false,
+  tabsize=2
+}
+\lstset{style=mystyle}
+
+\newtcolorbox{infobox}[1][] {
+  colback=boxbg,
+  colframe=boxbd,
+  title={#1},
+  fonttitle=\bfseries,
+  breakable
+}
+
+\newtcolorbox{goodbox}[1][] {
+  colback=goodbg,
+  colframe=goodbd,
+  title={#1},
+  fonttitle=\bfseries,
+  breakable
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=keywordblue,
+  urlcolor=keywordblue,
+  pdftitle={CodeAlchemist Week 7 Codebase Report},
+  pdfauthor={Dila KEMER}
+}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{1.8cm}
+
+  {\Huge\bfseries\color{keywordblue} CodeAlchemist}\\[0.8em]
+  {\LARGE\bfseries Week 7 Detailed Codebase Documentation}\\[1.1em]
+  {\large Engagement systems, analytics readability, sharing workflows, and theme integrity}
+
+  \vspace{2.2cm}
+
+  \begin{tabular}{rl}
+    \textbf{Prepared by:} & Dila KEMER \\
+    \textbf{Department:} & Computer Engineering \\
+    \textbf{Course:} & IME \\
+    \textbf{Period:} & Spring 2026 \\
+    \textbf{Date:} & March 2026
+  \end{tabular}
+
+  \vspace{2cm}
+  \rule{0.85\textwidth}{0.5pt}\\[0.6em]
+  \href{https://code-alchemist-last-version.onrender.com/}{https://code-alchemist-last-version.onrender.com/}
+
+  \vfill
+  {\small Internal Engineering Report -- Week 7 Product Consistency Sprint}
+\end{titlepage}
+
+\pagenumbering{roman}
+\tableofcontents
+\newpage
+
+\section*{Executive Summary}
+\addcontentsline{toc}{section}{Executive Summary}
+
+Week 7 addressed correctness and trust at the product interaction layer. Multiple user reports indicated mismatches between displayed state and persisted state: XP-level inconsistencies, difficult-to-read weekly charts, insufficient collaboration sharing options, and theme ownership behavior that leaked across auth boundaries. The sprint objective was to align what users see with what backend records guarantee.
+
+Key outcomes include XP-derived level normalization, weekly visualization rebuild, multi-channel collaboration sharing, and strict logout-theme synchronization mechanisms. The work touched both frontend rendering and backend contract reliability, making Week 7 a fullstack consistency sprint rather than a visual-only enhancement.
+
+\begin{goodbox}[Week 7 Impact Statement]
+The product moved from "feature-rich but occasionally inconsistent" to "feature-rich and state-trustworthy" by explicitly hardening level, report, share, and theme flows.
+\end{goodbox}
+
+\newpage
+\pagenumbering{arabic}
+
+\section{Scope and Goals}
+
+\subsection{Feature Scope}
+Week 7 implementations were grouped under four tracks:
+\begin{enumerate}[leftmargin=*]
+  \item Gamification correctness and identity readability.
+  \item Weekly analytics chart reliability and mode clarity.
+  \item Collaboration share workflow expansion.
+  \item Theme store ownership integrity across logout/login boundaries.
+\end{enumerate}
+
+\subsection{Primary Quality Objectives}
+\begin{itemize}[leftmargin=*]
+  \item Eliminate visible contradictions in level/progress reporting.
+  \item Ensure weekly chart is interpretable on first glance.
+  \item Reduce share friction by supporting user-native channels.
+  \item Prevent premium theme state leakage after logout.
+\end{itemize}
+
+\section{Architecture Footprint}
+
+\subsection{Frontend Units}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/App.jsx}
+  \item \texttt{client/src/components/GamificationPanel.jsx}
+  \item \texttt{client/src/components/WeeklyReport.jsx}
+  \item \texttt{client/src/components/ThemeStore.jsx}
+  \item \texttt{client/src/components/ProfileSection.jsx}
+  \item \texttt{client/src/components/UserProfileModal.jsx}
+\end{itemize}
+
+\subsection{Backend Units}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{server/app.py} (gamification profile and theme endpoints)
+  \item \texttt{server/models.py} (user XP, level, coins, theme preferences)
+\end{itemize}
+
+\subsection{Cross-Layer Touchpoints}
+\begin{itemize}[leftmargin=*]
+  \item Auth token propagation to protected endpoints.
+  \item Theme activation synchronization between backend and document theme attribute.
+  \item Weekly analytics payload mapping from API to chart components.
+\end{itemize}
+
+\section{Feature H7.1 -- Gamification Consistency and XP-Derived Leveling}
+
+\subsection{Observed Issue}
+Users reported scenarios where the UI displayed a high level with near-zero level progress. Root cause analysis showed mixed sources: persisted \texttt{level} values and direct \texttt{xp} values were not always synchronized.
+
+\subsection{Design Decision}
+Treat XP as source of truth and derive level/progress in deterministic ways. Backend profile endpoint also normalizes level from XP to prevent stale state persistence.
+
+\subsection{Core Formula}
+$$
+\text{level} = \left\lfloor\sqrt{\frac{xp}{100}}\right\rfloor + 1
+$$
+
+\subsection{Frontend Normalization Pattern}
+\begin{lstlisting}[language=JavaScript, caption=Derived leveling approach]
+const effectiveLevel = inferLevelFromXP(profile?.xp || 0);
+const levelMinXP = 100 * ((effectiveLevel - 1) ** 2);
+const nextLevelXP = 100 * (effectiveLevel ** 2);
+const inLevelXP = Math.max(0, (profile?.xp || 0) - levelMinXP);
+const levelSpan = Math.max(1, nextLevelXP - levelMinXP);
+const progressPercent = Math.min(100, (inLevelXP / levelSpan) * 100);
+\end{lstlisting}
+
+\subsection{Identity Readability}
+Identity chips were improved to show:
+\begin{itemize}[leftmargin=*]
+  \item normalized handle,
+  \item rank title mapped from level,
+  \item clear XP placement.
+\end{itemize}
+
+\subsection{Backend Alignment}
+Profile endpoint behavior now updates stored level when mismatch with XP-derived level is detected, ensuring eventual consistency in subsequent reads.
+
+\section{Feature H7.2 -- Weekly Report Rebuild}
+
+\subsection{Observed Issue}
+Initial chart implementation suffered from readability problems: weak bar visibility, cluttered line mode markers, and unstable layout under low/high value variance.
+
+\subsection{Rebuild Strategy}
+\begin{itemize}[leftmargin=*]
+  \item Separate mode state: \texttt{bar} vs \texttt{line}.
+  \item Normalize all daily counts to numeric values early.
+  \item Use explicit max baseline to avoid divide-by-zero and scaling collapse.
+  \item Move to cleaner SVG line rendering without visual noise.
+\end{itemize}
+
+\begin{lstlisting}[language=JavaScript, caption=Data preparation and baseline]
+const dailyBars = raw.map(point => ({
+  key: point.key,
+  label: point.label,
+  count: Number(point.count) || 0
+}));
+const maxDayCount = Math.max(...dailyBars.map(d => d.count), 1);
+\end{lstlisting}
+
+\subsection{Bar Mode Rules}
+\begin{itemize}[leftmargin=*]
+  \item Fixed-height containers for each day bar.
+  \item Minimum non-zero bar visibility threshold.
+  \item Day labels and value labels always preserved.
+\end{itemize}
+
+\subsection{Line Mode Rules}
+\begin{itemize}[leftmargin=*]
+  \item Polyline path computed from normalized percentages.
+  \item Marker clutter reduced to improve trend readability.
+  \item Min/Max framing retained for quick interpretation.
+\end{itemize}
+
+\subsection{Outcome}
+Daily trend interpretation became deterministic across sparse and spiky datasets.
+
+\section{Feature H7.3 -- Collaboration Share Expansion}
+
+\subsection{Observed Limitation}
+Single-channel share flow (copy only) did not fit diverse user habits.
+
+\subsection{Implemented Channels}
+\begin{itemize}[leftmargin=*]
+  \item Copy link
+  \item Open link in new tab
+  \item WhatsApp share link
+  \item Email share link
+\end{itemize}
+
+\subsection{Encoding Safety}
+All outbound share payloads use \texttt{encodeURIComponent} to prevent URL breakage in whitespace/symbol-heavy messages.
+
+\subsection{UX Flow}
+\begin{enumerate}[leftmargin=*]
+  \item Generate collaboration link.
+  \item Open share options modal.
+  \item Trigger selected channel action.
+  \item Show feedback signal (alert/status toast).
+\end{enumerate}
+
+\section{Feature H7.4 -- Theme Store Ownership Integrity}
+
+\subsection{Observed Issue}
+After logout, UI could still indicate a premium theme as active/applied due to lingering frontend state or stale backend active-theme settings.
+
+\subsection{Hardening Actions}
+\begin{itemize}[leftmargin=*]
+  \item Clear token and user data on logout.
+  \item Remove local theme key from localStorage.
+  \item Force default theme into React state.
+  \item Force default theme into DOM \texttt{data-theme} attribute.
+  \item Attempt backend \texttt{set\_active} default call before final logout cleanup.
+  \item Block apply/unlock operations when token is absent.
+\end{itemize}
+
+\begin{lstlisting}[language=JavaScript, caption=Logout-theme synchronization model]
+const handleLogout = async () => {
+  const defaultTheme = prefersLight ? 'light' : 'dark';
+
+  if (token) {
+    await fetch(`${API_BASE}/api/themes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: 'set_active', theme: defaultTheme })
+    }).catch(() => {});
+  }
+
+  localStorage.removeItem('codebrain_token');
+  localStorage.removeItem('codebrain_user');
+  localStorage.removeItem('codebrain_theme');
+  setTheme(defaultTheme);
+  document.documentElement.setAttribute('data-theme', defaultTheme);
+};
+\end{lstlisting}
+
+\subsection{Auth Boundary Guarantees}
+\begin{itemize}[leftmargin=*]
+  \item No authenticated token means no premium mutating actions.
+  \item Visual state resets immediately in current runtime.
+  \item Persisted active theme converges to default upon logout.
+\end{itemize}
+
+\section{Feature H7.5 -- Auxiliary UI Refinements}
+
+\subsection{Button Legibility Enhancements}
+Magical Tools trigger received icon and spacing adjustments for clearer affordance under compact viewport widths.
+
+\subsection{Microcopy and Labeling}
+Progress labels, rank text, and chart mode labels were made more explicit to reduce user interpretation error.
+
+\section{API Contract and Data Consistency Notes}
+
+\subsection{Gamification Profile Endpoint}
+\textbf{Contract expectation:}
+\begin{itemize}[leftmargin=*]
+  \item Returns XP, level, rank title, and progress-related boundaries.
+  \item Level should be internally consistent with XP.
+\end{itemize}
+
+\textbf{Example shape:}
+\begin{lstlisting}[language=JavaScript]
+{
+  "user_id": 12,
+  "xp": 70,
+  "level": 1,
+  "rank_title": "Novice",
+  "current_level_min_xp": 0,
+  "next_level_xp": 100,
+  "xp_to_next_level": 30,
+  "progress_percent": 70.0
+}
+\end{lstlisting}
+
+\subsection{Theme Endpoint}
+\textbf{Action: set\_active}
+\begin{lstlisting}[language=JavaScript]
+POST /api/themes
+{
+  "action": "set_active",
+  "theme": "dark"
+}
+\end{lstlisting}
+
+\textbf{Action: unlock}
+\begin{lstlisting}[language=JavaScript]
+POST /api/themes
+{
+  "action": "unlock",
+  "theme": "synthwave",
+  "cost": 75
+}
+\end{lstlisting}
+
+\section{State Machine Perspective}
+
+\subsection{Theme State Lifecycle}
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.7cm} P{3.0cm} P{6.7cm} @{}}
+    \toprule
+    State & Event & Transition \\
+    \midrule
+    Authenticated + Premium Active & logout & Active theme reset to default; token/user/theme keys cleared \\
+    Guest + ThemeStore Open & apply theme click & Block action with auth warning \\
+    Authenticated + Enough Coins & unlock click & Theme added to unlocked list; coins decremented \\
+    Authenticated + Inconsistent local theme & mount/useEffect & Sync from backend or fallback default \\
+    \bottomrule
+  \end{tabular}
+  \caption{Theme ownership state transitions}
+\end{table}
+
+\subsection{Weekly Chart State Lifecycle}
+\begin{itemize}[leftmargin=*]
+  \item Input payload arrives.
+  \item Numeric normalization runs.
+  \item \texttt{maxDayCount} baseline computed.
+  \item Selected mode branch renders chart.
+\end{itemize}
+
+\section{Validation Matrix}
+
+\subsection{Functional Tests}
+\begin{longtable}{@{} P{1.2cm} P{4.3cm} P{4.8cm} P{2.4cm} @{}}
+\toprule
+ID & Scenario & Expected Result & Status \\
+\midrule
+W7-T1 & XP/level display on gamification panel & Level, rank, progress agree with XP & Pass \\
+W7-T2 & Weekly report in bar mode & Visible bars and readable day labels & Pass \\
+W7-T3 & Weekly report in line mode & Clean trend line without clutter & Pass \\
+W7-T4 & Share option: copy & Clipboard receives valid URL & Pass \\
+W7-T5 & Share option: WhatsApp & URL opens with encoded payload & Pass \\
+W7-T6 & Share option: email & Mailto contains encoded subject/body & Pass \\
+W7-T7 & Logout after premium theme active & Theme resets immediately to default & Pass \\
+W7-T8 & Guest apply/unlock attempt & Action blocked due to missing token & Pass \\
+\bottomrule
+\end{longtable}
+
+\subsection{Regression Checks}
+\begin{itemize}[leftmargin=*]
+  \item Existing auth flows still complete successfully.
+  \item Theme store renders without errors for authenticated users.
+  \item Collaboration link generation remains backward compatible.
+\end{itemize}
+
+\section{Performance and UX Considerations}
+
+\subsection{Chart Rendering Cost}
+Chart logic remains linear with respect to number of daily points. With fixed seven-day windows, rendering cost is effectively constant in practice.
+
+\subsection{Logout Robustness}
+Logout now contains asynchronous pre-cleanup behavior (backend theme reset attempt). Failures are tolerated and frontend cleanup always continues in \texttt{finally}-style logic to avoid blocked logout.
+
+\section{Security and Integrity}
+
+\subsection{Auth-Dependent Actions}
+Theme mutation actions validate token presence before API calls. This prevents guest users from triggering premium ownership pathways.
+
+\subsection{Data Trust Model}
+XP remains source of truth; derived values (level/progress/rank) are recomputed to avoid stale render artifacts.
+
+\section{Engineering Retrospective}
+
+\subsection{What Worked}
+\begin{itemize}[leftmargin=*]
+  \item Problem reports were translated into precise state-consistency fixes.
+  \item Frontend and backend were updated together, reducing split-brain behavior.
+  \item Visual improvements were tied to deterministic data normalization.
+\end{itemize}
+
+\subsection{What Was Challenging}
+\begin{itemize}[leftmargin=*]
+  \item Multiple state stores (React state, localStorage, backend DB) required explicit synchronization ordering.
+  \item Chart readability required several iterations and user feedback loops.
+\end{itemize}
+
+\subsection{Next Improvement Targets}
+\begin{itemize}[leftmargin=*]
+  \item Consolidate theme ownership checks behind a single backend source-of-truth payload.
+  \item Add instrumented analytics for share channel usage.
+  \item Add e2e tests covering logout/theme/guest mutation boundaries.
+\end{itemize}
+
+\section{Appendix A -- Extended Snippets}
+
+\subsection{Defensive Theme Action Guards}
+\begin{lstlisting}[language=JavaScript]
+const handleApplyTheme = async (themeId) => {
+  if (!token) {
+    showMessage('You must be logged in to change themes', 'error');
+    return;
+  }
+  // ... proceed with request
+};
+
+const handleUnlockTheme = async (theme) => {
+  if (!token) {
+    showMessage('You must be logged in to unlock themes', 'error');
+    return;
+  }
+  // ... proceed with request
+};
+\end{lstlisting}
+
+\subsection{Chart Mode Toggle Skeleton}
+\begin{lstlisting}[language=JavaScript]
+const [chartMode, setChartMode] = useState('bar');
+
+<button onClick={() => setChartMode('bar')}>Bar</button>
+<button onClick={() => setChartMode('line')}>Line</button>
+\end{lstlisting}
+
+\section{Appendix B -- Long-form Technical Commentary}
+
+Week 7 should be viewed as a trust-repair sprint. The visible product quality issue was not a lack of features; it was occasional disagreement between persistent state and rendered state. Users do not reason about state containers; they reason about whether the UI tells the truth. Therefore, the sprint solved truthfulness problems first.
+
+Gamification corrections demonstrate this principle directly. If level displays disagree with XP, users distrust progression. By deriving and normalizing level from XP, the system makes progression deterministic and inspectable. Weekly chart changes follow the same principle: visibility and interpretation come before decorative complexity. The revised chart architecture removed overlaid noise and favored structure that survives sparse data.
+
+Theme ownership hardening is equally important. Visual identity is emotionally salient for users. Seeing a premium theme remain applied after logout communicates ownership leakage, even if actual backend access is protected. The sprint therefore enforced both backend and frontend resets. This dual reset strategy is crucial in client-heavy architectures where runtime and persistence can diverge.
+
+From an engineering process standpoint, Week 7 confirms the value of short feedback loops. Reported UI anomalies were converted into state diagrams, then fixed with ordered synchronization steps. This approach is repeatable and should be applied to future product consistency issues.
+
+\section{Conclusion}
+
+Week 7 produced a measurable increase in product state integrity. The major contribution is consistent truth across gamification, analytics, collaboration, and theming surfaces. These improvements strengthen user trust, reduce confusion-driven support load, and create a cleaner baseline for upcoming social and personalization features.
+
+\begin{infobox}[Final Note]
+This report is intentionally long-form and codebase-oriented to support audits, onboarding, QA planning, and future refactor design decisions.
+\end{infobox}
+
+\end{document}

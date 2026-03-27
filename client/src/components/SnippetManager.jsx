@@ -83,8 +83,28 @@ const SnippetManager = ({ apiBase, authHeaders, user, onAuthRequired, onClose })
 
     if (!user) {
         return (
-            <div className="p-6 text-center text-gray-400">
-                Login to view snippets.
+            <div className="h-full flex flex-col bg-gray-900 border-l border-gray-800 w-full animate-in slide-in-from-right duration-300">
+                <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-gray-900/50 sticky top-0 z-10">
+                    <h2 className="text-md font-bold text-white flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-fuchsia-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                        Snippets
+                    </h2>
+                    <button
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-white p-1"
+                        title="Close Sidebar"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div className="p-6 text-center text-gray-400">
+                    <i className="fas fa-lock mb-3 text-2xl block text-gray-600"></i>
+                    Login to view snippets.
+                </div>
             </div>
         );
     }

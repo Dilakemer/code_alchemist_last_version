@@ -57,7 +57,7 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout }) => {
 
             if (res.ok) {
                 // Başarılı, çıkış yap
-                if (onLogout) onLogout();
+                if (onLogout) await onLogout();
             } else {
                 setMessage({ type: 'error', text: data.error || 'Failed to delete account.' });
                 setLoading(false);

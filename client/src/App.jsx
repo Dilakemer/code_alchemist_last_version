@@ -742,6 +742,48 @@ function App() {
     }
   };
 
+  const estimateAutoRoutingMetadata = (questionText = '', codeText = '') => {
+    const combined = `${questionText || ''}\n${codeText || ''}`.toLowerCase();
+
+    const pyPattern = /\b(def\s+\w+\(|import\s+\w+|from\s+\w+\s+import|elif\b|__name__\s*==\s*['"]__main__['"]|python)\b/;
+    const jsTsPattern = /\b(function\s+\w+\(|const\s+\w+\s*=|let\s+\w+\s*=|=>|console\.log\(|typescript|javascript|react)\b/;
+    const javaPattern = /\b(public\s+class|private\s+\w+|System\.out\.println\(|implements\b|extends\b)\b/;
+    const sqlPattern = /\b(select\s+.+\s+from|insert\s+into|update\s+\w+\s+set|delete\s+from|where\b|join\b)\b/;
+    const bashPattern = /\b(echo|grep|awk|sed|chmod|bash|shell)\b/;
+
+    let detectedLanguage = 'general';
+    if (pyPattern.test(combined)) detectedLanguage = 'python';
+    else if (jsTsPattern.test(combined)) detectedLanguage = 'javascript';
+    else if (javaPattern.test(combined)) detectedLanguage = 'java';
+    else if (sqlPattern.test(combined)) detectedLanguage = 'sql';
+    else if (bashPattern.test(combined)) detectedLanguage = 'bash';
+
+    const detectedIntent = /\b(error|traceback|hata|debug|fix|duzelt|düzelt)\b/.test(combined)
+      ? 'debug'
+      : /\b(explain|neden|nasil|nasıl|anlat)\b/.test(combined)
+        ? 'explain'
+        : /\b(architecture|mimari|design|tasarla|refactor)\b/.test(combined)
+          ? 'architecture'
+          : detectedLanguage !== 'general'
+            ? 'code'
+            : 'general';
+
+    let selectedModel = 'gemini-2.5-flash-lite';
+    if (detectedLanguage === 'python' || detectedLanguage === 'java' || detectedLanguage === 'sql') {
+      selectedModel = 'gpt-4o';
+    } else if (detectedLanguage === 'javascript') {
+      selectedModel = detectedIntent === 'architecture' ? 'claude-opus-4-5' : 'gpt-4o';
+    } else if (detectedLanguage === 'bash') {
+      selectedModel = 'gemini-2.5-flash-lite';
+    }
+
+    const routingReason =
+      `🔍 **Detected Language**: \`${detectedLanguage}\` | 🤖 **Responding Model**: \`${selectedModel}\`\n\n` +
+      `_Fallback route produced on client because stream metadata was unavailable._`;
+
+    return { detectedLanguage, detectedIntent, selectedModel, routingReason };
+  };
+
   async function handleAsk(opts = {}) {
     const effectiveQuestion = opts.question !== undefined ? opts.question : question;
     const effectiveConversationId = opts.conversationId !== undefined ? opts.conversationId : activeConversationId;
@@ -860,6 +902,9 @@ function App() {
     const currentModel = model;
     const currentModels = multiModels;
     const isBlendMode = isMultiModel;
+    const autoRoutingFallback = currentModel === 'auto'
+      ? estimateAutoRoutingMetadata(currentQuestion, currentCode)
+      : null;
 
     setQuestion('');
     setCode('');
@@ -921,6 +966,7 @@ function App() {
       const decoder = new TextDecoder();
       let aiResponseAccumulator = "";
       let buffer = "";
+      let receivedDoneEvent = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -948,6 +994,21 @@ function App() {
                 ));
               }
 
+              // Early routing metadata (can arrive before done)
+              if (data.routing_reason || data.selected_model || data.detected_language || data.detected_intent) {
+                setChatHistory(prev => prev.map(item =>
+                  item.id === tempId
+                    ? {
+                      ...item,
+                      routing_reason: data.routing_reason || item.routing_reason,
+                      selected_model: data.selected_model || item.selected_model,
+                      detected_language: data.detected_language || item.detected_language,
+                      detected_intent: data.detected_intent || item.detected_intent,
+                    }
+                    : item
+                ));
+              }
+
               // Blend Status Updates
               if (data.status && isBlendMode) {
                 if (data.status === 'fetching') {
@@ -969,6 +1030,7 @@ function App() {
 
 
               if (data.done) {
+                receivedDoneEvent = true;
                 if (data.conversation_id && effectiveConversationId !== data.conversation_id) {
                   setActiveConversationId(data.conversation_id);
                   setPreLinkedRepo(null); // Clear after linked to a real conv
@@ -992,6 +1054,8 @@ function App() {
                     summary: data.summary,
                     ai_response: finalResponse,
                     routing_reason: data.routing_reason,
+                    detected_language: data.detected_language || item.detected_language,
+                    detected_intent: data.detected_intent || item.detected_intent,
                     persona: data.persona,
                     responseTime: totalDuration,
                     timeToFirstToken: ttf
@@ -1005,6 +1069,31 @@ function App() {
             }
           }
         }
+      }
+
+      // Stream may end without an explicit done event; finalize timing/metadata defensively.
+      if (!receivedDoneEvent) {
+        const endTime = Date.now();
+        const totalDuration = ((endTime - startTime) / 1000).toFixed(2);
+        const ttf = (firstChunkTime ? ((firstChunkTime - startTime) / 1000).toFixed(2) : null);
+
+        setChatHistory(prev => prev.map(item =>
+          item.id === tempId
+            ? {
+              ...item,
+              ai_response: item.ai_response || '[Warning: stream ended before completion.]',
+              responseTime: item.responseTime || totalDuration,
+              timeToFirstToken: item.timeToFirstToken || ttf,
+              routing_reason:
+                item.routing_reason
+                || (autoRoutingFallback?.routingReason)
+                || `🧭 **Responding Model**: \`${currentModel}\` (manual selection)`,
+              selected_model: item.selected_model || autoRoutingFallback?.selectedModel || currentModel,
+              detected_language: item.detected_language || autoRoutingFallback?.detectedLanguage,
+              detected_intent: item.detected_intent || autoRoutingFallback?.detectedIntent,
+            }
+            : item
+        ));
       }
 
       // After streaming is complete, sync gamification silently
@@ -1027,8 +1116,34 @@ function App() {
 
     } catch (error) {
       console.error("Error:", error);
+      const endTime = Date.now();
+      const totalDuration = ((endTime - startTime) / 1000).toFixed(2);
+      const ttf = (firstChunkTime ? ((firstChunkTime - startTime) / 1000).toFixed(2) : null);
       setChatHistory(prev => prev.map(item =>
-        item.id === tempId ? { ...item, ai_response: item.ai_response + "\n\n[An error occurred. Please try again.]" } : item
+        item.id === tempId
+          ? {
+            ...item,
+            ai_response: item.ai_response
+              ? `${item.ai_response}\n\n[Warning: stream interrupted before final metadata.]`
+              : "[An error occurred. Please try again.]",
+            responseTime: item.responseTime || totalDuration,
+            timeToFirstToken: item.timeToFirstToken || ttf,
+            routing_reason:
+              item.routing_reason
+              || autoRoutingFallback?.routingReason
+              || `🧭 **Responding Model**: \`${currentModel}\` (manual selection)`,
+            selected_model:
+              item.selected_model
+              || autoRoutingFallback?.selectedModel
+              || currentModel,
+            detected_language:
+              item.detected_language
+              || autoRoutingFallback?.detectedLanguage,
+            detected_intent:
+              item.detected_intent
+              || autoRoutingFallback?.detectedIntent,
+          }
+          : item
       ));
     } finally {
       setLoading(false);

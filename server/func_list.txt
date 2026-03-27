@@ -1,0 +1,268 @@
+﻿
+def _cosine_similarity(
+v1, v2):
+def _project_signature(
+project_files):
+def _chunk_text(text, c
+hunk_size=1200, overlap
+=200):
+def _extract_embedding_
+values(resp):
+def _embed_text_with_fa
+llback(text, task_type=
+'RETRIEVAL_DOCUMENT'):
+def _build_project_embe
+dding_index(project):
+def build_project_conte
+xt_for_question(project
+, question, top_k=6):
+def get_project_semanti
+c_hits(project, questio
+n, top_k=6):
+def invalid_token_callb
+ack(error):
+def missing_token_callb
+ack(error):
+def expired_token_callb
+ack(jwt_header, jwt_pay
+load):
+def handle_exception(e)
+:
+def call_gemini_with_re
+try(prompt, model_name=
+'gemini-2.5-flash', max
+_retries=2):
+def get_repo_blueprint(
+):
+# def get_repo_health()
+:
+def transcribe_audio_wi
+th_gemini(audio_path):
+def generate_image_with
+_dalle(prompt):
+def generate_gemini_ans
+wer(question: str, code
+: str, history_context:
+ list = None, requested
+_model: str = None, ima
+ge_path: str = None, pr
+efs: dict = None, githu
+b_context: str = None, 
+depth: int = 0):
+        # 1. Hedef mode
+li ekle
+def generate_claude_ans
+wer(question: str, code
+: str, history_context:
+ list = None, requested
+_model: str = None, ima
+ge_path: str = None, pr
+efs: dict = None, githu
+b_context: str = None, 
+depth: int = 0):
+def generate_gpt_answer
+(question: str, code: s
+tr, history_context: li
+st = None, requested_mo
+del: str = None, image_
+path: str = None, prefs
+: dict = None, github_c
+ontext: str = None, dep
+th: int = 0):
+def generate_conversati
+on_title(question: str,
+ answer: str = None):
+def summarize_answer(an
+swer: str) -> str:
+def calculate_level(xp)
+:
+def check_and_award_bad
+ges(user):
+def update_streak(user)
+:
+def award_xp(user_id, a
+mount, reason=""):
+def get_gamification_pr
+ofile():
+def get_leaderboard():
+def sync_gamification()
+:
+def get_user_preference
+s(user):
+def update_user_taste(u
+ser, model_used, answer
+_text, user_question=""
+):
+def post_process_respon
+se(text: str) -> str:
+def detect_intent(quest
+ion: str, code: str = "
+") -> str:
+def serialize_history(i
+tem: History) -> dict:
+def serialize_conversat
+ion(conv: Conversation)
+ -> dict:
+def serialize_answer(an
+swer: Answer) -> dict:
+def serialize_user(user
+: User) -> dict:
+def hash_password(passw
+ord: str) -> str:
+def verify_password(pas
+sword: str, hashed: str
+) -> bool:
+def get_current_user():
+def register():
+def login():
+def me():
+def get_preferences_api
+():
+def update_preferences_
+api():
+def update_profile():
+def upload_profile_imag
+e():
+def analyze_profile():
+def delete_account():
+def send_reset_email(to
+_email, reset_code):
+def forgot_password():
+def reset_password():
+def link_github_repo():
+def get_github_tree():
+def get_github_file():
+def generate_tests():
+def audit_github_pr():
+def create_github_pr():
+def get_github_blueprin
+t():
+# def get_github_health
+():
+def bulk_refactor():
+def ask():
+                def gen
+erate_error():
+    def generate_stream
+():
+def fetch_model_respons
+e_sync(model: str, ques
+tion: str, code: str = 
+'', prefs = None):
+def blend_models():
+    def generate_blend_
+stream():
+def list_conversations(
+):
+def create_conversation
+():
+def rename_conversation
+(conversation_id):
+def pin_conversation(co
+nversation_id):
+def archive_conversatio
+n(conversation_id):
+def list_archived_conve
+rsations():
+def get_user_posts():
+def get_conversation(co
+nversation_id):
+def delete_conversation
+(conversation_id):
+def add_history_item(co
+nversation_id):
+def delete_post(post_id
+):
+def edit_post(post_id):
+def get_notifications()
+:
+def mark_notification_r
+ead():
+def delete_notification
+():
+def get_history():
+def get_popular():
+def get_model_usage():
+def like_history(histor
+y_id: int):
+def like_answer(answer_
+id: int):
+def delete_history(hist
+ory_id: int):
+def list_answers(histor
+y_id: int):
+def generate_blueprint(
+):
+def get_code_health():
+def get_similar_questio
+ns(history_id: int):
+def create_answer(histo
+ry_id: int):
+def delete_answer(answe
+r_id: int):
+def get_community_post(
+history_id):
+def create_community_po
+st():
+def get_community_feed(
+):
+def uploaded_file(filen
+ame):
+def list_snippets():
+def create_snippet():
+def delete_snippet(snip
+pet_id):
+def follow_user(user_id
+):
+def unfollow_user(user_
+id):
+def get_followers(user_
+id):
+def get_following(user_
+id):
+def get_user_profile(us
+er_id):
+def get_following_feed(
+):
+def get_all_notificatio
+ns():
+def mark_single_notific
+ation_read(notification
+_id):
+def init_db():
+def get_favorites():
+def add_favorite(histor
+y_id):
+def remove_favorite(his
+tory_id):
+def check_favorite(hist
+ory_id):
+def serve_file(filename
+):
+def call_gemini_with_re
+try(prompt, model_name=
+'gemini-2.5-flash', max
+_retries=2):
+def submit_feedback():
+def get_feedback(histor
+y_id):
+def list_projects():
+def create_project():
+def list_project_files(
+project_id):
+def add_project_file(pr
+oject_id):
+def delete_project_file
+(project_id, file_id):
+def delete_project(proj
+ect_id):
+def submit_feedback_det
+ail():
+def get_project_context
+(project_id):
+def semantic_search_pro
+ject_context(project_id
+):
+def serve(path):
+
+

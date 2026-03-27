@@ -193,14 +193,35 @@ const estimateTokenCount = (text = '') => Math.max(1, Math.ceil((text || '').len
 
 const optimizePromptWithReport = (prompt = '') => {
   const original = prompt || '';
-  const lines = original.split('\n');
+  const blocks = original
+    .split(/\n\s*\n/g)
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  const seenBlocks = new Set();
+  const dedupedBlocks = [];
+  let duplicateBlocksRemoved = 0;
+
+  for (const block of blocks) {
+    const normalizedBlock = block.replace(/\s+/g, ' ').toLowerCase();
+    if (normalizedBlock.length > 40) {
+      if (seenBlocks.has(normalizedBlock)) {
+        duplicateBlocksRemoved += 1;
+        continue;
+      }
+      seenBlocks.add(normalizedBlock);
+    }
+    dedupedBlocks.push(block);
+  }
+
+  const lines = dedupedBlocks.join('\n\n').split('\n');
   const seen = new Set();
   const deduped = [];
   let duplicateLinesRemoved = 0;
 
   for (const line of lines) {
     const normalized = line.trim().replace(/\s+/g, ' ').toLowerCase();
-    if (normalized.length > 24) {
+    if (normalized.length > 12) {
       if (seen.has(normalized)) {
         duplicateLinesRemoved += 1;
         continue;
@@ -216,14 +237,158 @@ const optimizePromptWithReport = (prompt = '') => {
     .replace(/^[ \t]+/gm, '')
     .trim();
 
-  const optimized = compacted;
+  // Recover cases where natural language and code are glued together on one line.
+  const splitCodeBoundaries = compacted
+    .replace(/([.!?])\s*(import\s+\{?)/gi, '$1\n$2')
+    .replace(/([.!?])\s*(from\s+\w+)/gi, '$1\n$2')
+    .replace(/([.!?])\s*(def\s+\w+\s*\()/gi, '$1\n$2')
+    .replace(/([.!?])\s*(class\s+\w+)/gi, '$1\n$2')
+    .replace(/([.!?])\s*(const\s+\w+\s*=)/gi, '$1\n$2');
+
+  let optimized = splitCodeBoundaries;
+  let backgroundIntroRemoved = false;
+
+  const splitLines = splitCodeBoundaries.split('\n');
+  const codeLikePattern = /(^\s*(import|from|def|class|function|const|let|var|createRoot)\b)|document\.getElementById|render\(|<\/?[A-Za-z][^>]*>|=>|\{[^\n]*\}/;
+  const codeStartIndex = splitLines.findIndex((line) => codeLikePattern.test(line.trim()));
+
+  if (codeStartIndex > 0) {
+    const intro = splitLines.slice(0, codeStartIndex).join(' ').trim();
+    const codePart = splitLines.slice(codeStartIndex).join('\n').trim();
+    const hasChitChat = /(merhaba|selam|bugun|bug\u00fcn|kahve|market|toplanti|toplant\u0131|geri geldim|sonra|aslinda|asl\u0131nda)/i.test(intro);
+    const intentPattern = /(asagidaki|a\u015fa\u011f\u0131daki|kodu|fonksiyon|hizlandir|h\u0131zland\u0131r|iyilestir|iyile\u015ftir|optimiz|duzelt|d\u00fczelt|refactor|performans|okunabilirlik|bakim|bak\u0131m|test|edge-case)/i;
+    const hasIntent = intentPattern.test(intro);
+
+    if (hasChitChat && hasIntent && codePart.length > 0) {
+      const intentClauses = intro
+        .split(/[,;]+/)
+        .map((part) => part.trim())
+        .filter((part) => intentPattern.test(part));
+
+      const fallbackInstruction = 'Asagidaki kodu performans, okunabilirlik ve bakim acisindan iyilestir.';
+      const instruction = (intentClauses.join(', ').trim() || fallbackInstruction).replace(/\s+/g, ' ');
+      optimized = `${instruction}\n\n${codePart}`.trim();
+      backgroundIntroRemoved = optimized !== splitCodeBoundaries;
+    }
+  }
+
+  const qualityHints = [];
+  const appliedQualityRules = new Set();
+  const markQualityRule = (ruleKey, hintText) => {
+    if (appliedQualityRules.has(ruleKey)) return;
+    appliedQualityRules.add(ruleKey);
+    qualityHints.push(hintText);
+  };
+
+  const qualityLines = optimized.split('\n');
+  const qualityCodeStart = qualityLines.findIndex((line) => codeLikePattern.test(line.trim()));
+  const introLines = (qualityCodeStart >= 0 ? qualityLines.slice(0, qualityCodeStart) : qualityLines)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const codePart = qualityCodeStart >= 0 ? qualityLines.slice(qualityCodeStart).join('\n').trim() : '';
+  const hasCodePart = codePart.length > 0;
+
+  let introText = introLines.join(' ').replace(/\s+/g, ' ').trim();
+  const additions = [];
+
+  const objectiveHitCount = introLines.filter((line) =>
+    /(hizlandir|h\u0131zland\u0131r|performans|guvenli|g\u00fcvenli|ui|tasarla|ci\/cd|test|dokuman|dok\u00fcmantasyon|deploy|refactor|iyilestir|iyile\u015ftir)/i.test(line)
+  ).length;
+  const tooManyObjectives = objectiveHitCount >= 4 || /(tek seferde yap|hepsini yap|bastan sona|ba\u015ftan sona)/i.test(introText);
+  if (tooManyObjectives) {
+    additions.push('Onceliklendirme: Once sadece kodu performans ve guvenlik acisindan iyilestir; UI/CI-CD/dokumantasyon maddelerini en sonda "Sonraki adimlar" basliginda listele.');
+    markQualityRule('scope-priority', 'multi-goal prompt split into prioritized scope');
+  }
+
+  const overlyOpenFormat = /(nasil istersen|nas\u0131l istersen|farketmez|format fark etmez|istedigin formatta|istedi\u011fin formatta)/i.test(introText);
+  if (overlyOpenFormat) {
+    introText = introText
+      .replace(/ama\s+cevab[\u0131i]\s+nas[\u0131i]l\s+istersen\s+oyle\s+ver\s*:?/gi, '')
+      .replace(/nas[\u0131i]l\s+istersen\s*(oyle)?\s*ver\s*:?/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    additions.push('Cikti formati: 1) Iyilestirilmis kod 2) Neden daha iyi 3) Olasi edge-case ler 4) Basit test ornekleri.');
+    markQualityRule('output-format', 'ambiguous output request normalized to a concrete response format');
+  }
+
+  const missingConstraints = /(bu problemi co[zs]|cozer misin|cozebilir misin|bu problemi duzelt|duzelt)/i.test(introText)
+    && !/(python|javascript|js|ts|java|uzunluk|kisa|k\u0131sa|adim|ad\u0131m|format|zaman|karma\u015f\u0131kl\u0131k|complexity)/i.test(introText);
+  if (missingConstraints) {
+    additions.push('Kisitlar: Dil=Python, cozum kisa ve uygulanabilir olsun, zaman karmasikligi notunu ekle.');
+    markQualityRule('constraints', 'missing constraints filled with practical defaults');
+  }
+
+  const explainWithoutAudience = /(bu kodu anlat|anlatir misin|anlat\s*$)/i.test(introText)
+    && !/(junior|senior|pm|product|ogrenci|\u00f6\u011frenci|stajyer|ekip)/i.test(introText);
+  if (explainWithoutAudience) {
+    additions.push('Hedef kitle: Junior gelistirici seviyesinde, sade ve adim adim acikla.');
+    markQualityRule('audience', 'explanation prompt enriched with target audience');
+  }
+
+  const needsTests = /(duzelt|d\u00fczelt|iyilestir|iyile\u015ftir|refactor)/i.test(introText)
+    && hasCodePart
+    && !/(test|edge|pytest|unittest|jest|beklenen cikti|beklenen \u00e7\u0131kt\u0131)/i.test(introText);
+  if (needsTests) {
+    additions.push('Ek gereksinim: En az 3 edge-case ve bunlar icin basit test ornekleri ekle.');
+    markQualityRule('tests', 'code-fix request augmented with edge-case and test requirements');
+  }
+
+  const riskySecurityPatch = /(auth|token|jwt|secret|password)/i.test(introText)
+    && /(direkt patch|direct patch|komple degistir|tamamen degistir|hemen uygula)/i.test(introText);
+  if (riskySecurityPatch) {
+    additions.push('Once risk analizi yap, sonra kontrollu patch oner; rollback adimini da yaz.');
+    markQualityRule('risk-first', 'security-sensitive request converted to risk-first workflow');
+  }
+
+  const hugeLogPrompt = /(log)/i.test(introText)
+    && /(1000|1200|tumunu|t\u00fcm\u00fcn\u00fc|hepsini|komple|satir satir|sat\u0131r sat\u0131r)/i.test(introText);
+  if (hugeLogPrompt) {
+    additions.push('Token optimizasyonu: Once yalnizca sorunu temsil eden 30-80 satirlik log kesitini iste ve onun uzerinden analiz et.');
+    markQualityRule('log-scope', 'oversized log request narrowed to relevant excerpts');
+  }
+
+  const ambiguousFailure = /(calismiyor|\u00e7al\u0131\u015fm\u0131yor|hata var|duzgun calismiyor|d\u00fczg\u00fcn \u00e7al\u0131\u015fm\u0131yor)/i.test(introText)
+    && !/(hata mesaji|error message|stack trace|adim|ad\u0131m|repro|tekrar)/i.test(introText);
+  if (ambiguousFailure) {
+    additions.push('Netlestirme: Beklenen davranis, alinana hata mesaji ve tekrar adimlarini kisa maddelerle belirt.');
+    markQualityRule('ambiguity', 'ambiguous failure report converted to debuggable request');
+  }
+
+  const languageNoise = /(daha iyi olsun.*daha iyi olsun|iyi olsun.*guzel olsun|g\u00fczel olsun.*iyi olsun)/i.test(introText);
+  if (languageNoise) {
+    additions.push('Hedef cumlesini tek satirda netlestir: "Asagidaki kodu performans, okunabilirlik ve bakim acisindan iyilestir."');
+    markQualityRule('language-clarity', 'noisy wording simplified into a clear objective sentence');
+  }
+
+  if (hasCodePart && !/(yalnizca diff|sadece diff|tam kod|aciklamali|a\u00e7\u0131klamal\u0131)/i.test(introText)) {
+    additions.push('Teslimat modu: Once tam kodu ver, sonra kisa degisiklik ozeti yaz.');
+    markQualityRule('delivery-mode', 'code request enriched with explicit delivery mode');
+  }
+
+  if (additions.length > 0) {
+    const cleanedIntro = introText || 'Asagidaki kodu optimize et.';
+    const mergedIntro = `${cleanedIntro}\n\n${additions.join('\n')}`.trim();
+    optimized = hasCodePart ? `${mergedIntro}\n\n${codePart}`.trim() : mergedIntro;
+  }
+
   const before = estimateTokenCount(original);
   const after = estimateTokenCount(optimized);
   const reductionPct = before > 0 ? Math.max(0, Math.round(((before - after) / before) * 100)) : 0;
-  const shouldSuggest = reductionPct >= 8 && duplicateLinesRemoved > 0;
+  const meaningfulChange = optimized !== original;
+  const shouldSuggest = meaningfulChange && (
+    appliedQualityRules.size > 0 ||
+    backgroundIntroRemoved ||
+    duplicateBlocksRemoved > 0 ||
+    duplicateLinesRemoved > 0 ||
+    reductionPct >= 5 ||
+    (original.length - optimized.length) >= 120
+  );
 
   const hints = [];
+  if (duplicateBlocksRemoved > 0) hints.push(`${duplicateBlocksRemoved} repeated section(s) removed`);
   if (duplicateLinesRemoved > 0) hints.push(`${duplicateLinesRemoved} repeated line(s) removed`);
+  if (backgroundIntroRemoved) hints.push('non-technical background context trimmed');
+  hints.push(...qualityHints);
   if (original.length - optimized.length > 80) hints.push('extra whitespace and long gaps compacted');
 
   return {
@@ -231,6 +396,9 @@ const optimizePromptWithReport = (prompt = '') => {
     beforeTokens: before,
     afterTokens: after,
     reductionPct,
+    backgroundIntroRemoved,
+    qualityRulesApplied: appliedQualityRules.size,
+    duplicateBlocksRemoved,
     duplicateLinesRemoved,
     shouldSuggest,
     hints,
@@ -273,6 +441,27 @@ const evaluatePatchRisk = (currentCode = '', incomingCode = '') => {
 
 
 const ContextBar = ({ question, code, image, linkedRepo }) => {
+  const inputProfile = useMemo(() => {
+    const text = (question || '').trim();
+    if (!text) {
+      return { hasPromptText: false, hasInlineCode: false };
+    }
+
+    const lines = text.split('\n');
+    const codeLikeLinePattern = /(^\s{2,}\S)|(^\s*(def|class|import|from|return|if|elif|else|for|while|try|except|with)\b)|[{}();=]|(:\s*$)/i;
+    const codeLikeLines = lines.filter((line) => codeLikeLinePattern.test(line)).length;
+    const hasFence = /```/.test(text);
+    const hasCodeKeywords = /\b(def|class|import|from|return|console\.log|function|const|let|var|SELECT|INSERT|UPDATE|DELETE)\b/i.test(text);
+    const hasInlineCode = hasFence || hasCodeKeywords || (lines.length >= 3 && codeLikeLines / lines.length >= 0.45);
+
+    const hasLetters = /[A-Za-z\u00C0-\u024F\u1E00-\u1EFF\u0100-\u017F\u0180-\u024F\u011E\u011F\u0130\u0131\u015E\u015F]/.test(text);
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    const promptIntentHint = /\b(lutfen|lütfen|explain|debug|optimize|test|comment|refactor|neden|nasil|nasıl|iyilestir|iyileştir|yardim|yardım)\b/i.test(text);
+    const hasPromptText = hasLetters && wordCount >= 3 && (!hasInlineCode || promptIntentHint);
+
+    return { hasPromptText, hasInlineCode };
+  }, [question]);
+
   const tokenCount = useMemo(() => {
     // Estimating tokens: chars / 4 as a rough guide
     const totalChars = (question?.length || 0) + (code?.length || 0);
@@ -289,8 +478,8 @@ const ContextBar = ({ question, code, image, linkedRepo }) => {
   };
 
   const contexts = [
-    { id: 'q', active: question?.trim()?.length > 2, icon: '💬', label: 'Prompt' },
-    { id: 'c', active: code?.trim()?.length > 0, icon: '💻', label: 'Code' },
+    { id: 'q', active: inputProfile.hasPromptText, icon: '💬', label: 'Prompt' },
+    { id: 'c', active: (code?.trim()?.length > 0) || inputProfile.hasInlineCode, icon: '💻', label: 'Code' },
     { id: 'i', active: image != null, icon: '🖼️', label: 'Image' },
     { id: 'r', active: linkedRepo != null, icon: '🌐', label: 'Repo' },
   ];
@@ -435,23 +624,13 @@ const ChatInterface = ({
   const handleApplyPatchRequest = (newCode) => {
     const risk = evaluatePatchRisk(code, newCode);
 
-    if (risk.mode !== 'safe') {
-      setPatchRiskGate({
-        show: true,
-        mode: risk.mode,
-        score: risk.score,
-        reasons: risk.reasons,
-        newCode,
-      });
-      return;
-    }
-
-    if (code?.trim()) {
-      // If there is existing code, open Interactive Visual Diff
-      setMergeModal({ isOpen: true, newCode });
-    } else {
-      executeApplyPatch(newCode);
-    }
+    setPatchRiskGate({
+      show: true,
+      mode: risk.mode,
+      score: risk.score,
+      reasons: risk.reasons,
+      newCode,
+    });
   };
 
 
@@ -874,8 +1053,7 @@ const ChatInterface = ({
     }
 
     const report = optimizePromptWithReport(question);
-    const highPressure = currentContextTokens >= 2500;
-    const shouldGate = mode === 'auto' && autoOptimizeEnabled && highPressure && report.shouldSuggest;
+    const shouldGate = mode === 'auto' && autoOptimizeEnabled && report.shouldSuggest;
 
     if (shouldGate) {
       setPromptOptimizeSuggestion(report);
@@ -2054,11 +2232,15 @@ const ChatInterface = ({
                     onClick={() => {
                       const pendingCode = patchRiskGate.newCode;
                       setPatchRiskGate({ show: false, mode: 'safe', score: 0, reasons: [], newCode: '' });
-                      executeApplyPatch(pendingCode);
+                      if (code?.trim()) {
+                        setMergeModal({ isOpen: true, newCode: pendingCode });
+                      } else {
+                        executeApplyPatch(pendingCode);
+                      }
                     }}
                     className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-emerald-100 text-xs"
                   >
-                    Apply Anyway
+                    {patchRiskGate.mode === 'safe' ? 'Apply Safe Patch' : 'Apply Anyway'}
                   </button>
                 )}
               </div>

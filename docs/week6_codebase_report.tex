@@ -1,0 +1,1521 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{fontspec}
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{longtable}
+\usepackage{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{setspace}
+\usepackage{graphicx}
+
+\geometry{a4paper, left=24mm, right=24mm, top=30mm, bottom=28mm}
+\setlength{\headheight}{14pt}
+\onehalfspacing
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{CodeAlchemist | 6. Hafta Kod Tabanı Raporu}
+\rhead{Dila KEMER}
+\cfoot{\thepage}
+
+\definecolor{keywordblue}{rgb}{0.0,0.2,0.7}
+\definecolor{commentgreen}{rgb}{0.1,0.5,0.1}
+\definecolor{stringpurple}{rgb}{0.5,0.0,0.5}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{boxbg}{rgb}{0.90,0.95,1.0}
+\definecolor{boxbd}{rgb}{0.25,0.45,0.75}
+\definecolor{warnbg}{rgb}{1.0,0.95,0.90}
+\definecolor{warnbd}{rgb}{0.80,0.45,0.10}
+
+\titleformat{\section}{\large\bfseries\color{keywordblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{\thesubsubsection}{1em}{}
+
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\lstdefinelanguage{JavaScript}{
+  morekeywords={const, let, var, function, if, else, for, while, return, true, false, null, undefined, this, new, class, import, export},
+  sensitive=false,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]",
+  morestring=[b]'
+}
+
+\lstdefinestyle{mystyle}{
+  language=JavaScript,
+  backgroundcolor=\color{backcolour},
+  commentstyle=\color{commentgreen},
+  keywordstyle=\color{keywordblue}\bfseries,
+  stringstyle=\color{stringpurple},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numbersep=5pt,
+  showstringspaces=false,
+  tabsize=2
+}
+\lstset{style=mystyle}
+
+\newtcolorbox{infobox}[1][]{
+  colback=boxbg,
+  colframe=boxbd,
+  title={#1},
+  fonttitle=\bfseries
+}
+
+\newtcolorbox{warnbox}[1][]{
+  colback=warnbg,
+  colframe=warnbd,
+  title={#1},
+  fonttitle=\bfseries
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=keywordblue,
+  urlcolor=keywordblue,
+  pdftitle={CodeAlchemist 6. Hafta Kod Tabanı Raporu},
+  pdfauthor={Dila KEMER}
+}
+
+% Görsel yer tutucu kutusu
+\newcommand{\gorselkutu}[1]{%
+  \begin{center}
+    \fbox{\begin{minipage}{0.85\textwidth}
+      \centering\vspace{1.2cm}
+      {\color{gray}\textit{[ GORSEL: #1 ]}}
+      \vspace{1.2cm}
+    \end{minipage}}
+  \end{center}
+}
+
+% Overleaf'te gorseller yoksa/bozuksa derlemeyi kirmaz.
+% Gorseller yuklendiginde `\useexternalimagestrue` yapabilirsiniz.
+\newif\ifuseexternalimages
+\useexternalimagestrue
+\newcommand{\safeincludegraphics}[2]{%
+  \ifuseexternalimages
+    \includegraphics[width=#1]{#2}%
+  \else
+    \gorselkutu{#2}%
+  \fi
+}
+
+\begin{document}
+
+% ── KAPAK SAYFASI ──────────────────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{1.8cm}
+
+  {\Huge\bfseries\color{keywordblue} CodeAlchemist}\\[0.8em]
+  {\LARGE\bfseries 6. Hafta -- Ayrıntılı Kod Tabanı Dokümantasyonu}\\[1.1em]
+  {\large Geliştirici verimliliği, gözlemlenebilirlik ve editör iş akışı mühendisliği}
+
+  \vspace{2.2cm}
+
+  \begin{tabular}{rl}
+    \textbf{Hazırlayan:} & Dila KEMER \\
+    \textbf{Bölüm:}      & Bilgisayar Mühendisliği \\
+    \textbf{Ders:}        & IME \\
+    \textbf{Dönem:}       & Bahar 2026 \\
+    \textbf{Tarih:}       & Mart 2026
+  \end{tabular}
+
+  \vspace{2cm}
+  \rule{0.85\textwidth}{0.5pt}\\[0.6em]
+  \href{https://code-alchemist-last-version.onrender.com/}{https://code-alchemist-last-version.onrender.com/}
+
+  \vfill
+  {\small Dahili Mühendislik Raporu -- 6. Hafta Temel Çıktısı}
+\end{titlepage}
+
+\pagenumbering{roman}
+\tableofcontents
+\newpage
+
+% ── YÖNETİCİ ÖZETİ ─────────────────────────────────────────────────────────────
+\section*{Yönetici Özeti}
+\addcontentsline{toc}{section}{Yönetici Özeti}
+
+6. Hafta, insan ve yapay zeka arasındaki çalışma akışını iyileştirmeye odaklandı. Bu haftadaki temel amaç, yapay zeka çıktısını kullanıcı için daha \textit{kontrol edilebilir}, \textit{izlenebilir} ve \textit{maliyet açısından anlaşılır} hale getirmekti.
+
+Bu hedef doğrultusunda beş temel özellik geliştirildi:
+\begin{enumerate}[leftmargin=*]
+  \item Kod önerilerini güvenli biçimde uygulama ve geri alma (Yama Motoru)
+  \item Soru, kod, görsel ve depo eklerinin bağlam kullanımını anlık gösterme (Bağlam Çubuğu)
+  \item Yanıt süresini ve ilk token süresini ölçme (TTFT Enstrümantasyonu)
+  \item Model kullanımını tahmini maliyetle birlikte gösterme (Maliyet Paneli)
+  \item Giriş yapmamış kullanıcılar için sade açılış ve kimlik doğrulama akışı (Auth Hunisi)
+\end{enumerate}
+
+Bu değişikliklerle sistem, yalnızca sohbet gösteren bir yapıdan, aktif bir ortak yazma ortamına geçti. Kullanıcı artık kodu kopyala-yapıştır yapmak yerine tek adımda uygulayabiliyor ve geri alabiliyor. Ayrıca bağlam doluluk seviyesi ve model maliyeti kullanıcıya açık biçimde gösteriliyor.
+
+\begin{infobox}[6. Hafta Ögrenci Kazanımı]
+Sistem, tipik bir kodlama oturumunda yama güvenliği, bağlam kullanımı, yanıt süresi ve maliyet bilgisini tek arayüzde görünür hale getirdi. Böylece ``yalnızca çıktı gösteren sohbet'' yapısından ``yapay zeka destekli editör'' yaklaşımına geçiş sağlandı.
+\end{infobox}
+
+
+
+\newpage
+\pagenumbering{arabic}
+
+% ── BÖLÜM 1 ────────────────────────────────────────────────────────────────────
+\section{Kapsam, Kısıtlamalar ve Başarı Kriterleri}
+
+\subsection{Kapsam}
+6. Hafta sprinti beş ana alanı kapsadı:
+\begin{enumerate}[leftmargin=*]
+  \item Sohbetten gelen kodu editöre uygulama ve geri alma.
+  \item Soru, kod, görsel ve depo eklerinin bağlam kullanımını gösterme.
+  \item SSE tabanlı yanıt süresi ölçümü.
+  \item Model kullanımına dayalı tahmini maliyet paneli.
+  \item Giriş yapmamış kullanıcılar için açılış ve kimlik doğrulama yönetimi.
+\end{enumerate}
+
+\subsection{Kısıtlamalar}
+\begin{itemize}[leftmargin=*]
+  \item Mevcut React durum mimarisiyle uyumluluk korunacak.
+  \item Enstrümantasyon eklemeleri sırasında backend sözleşmeleri bozulmayacak.
+  \item Yama işlemleri için kullanıcı arayüzü gecikmesi düşük tutulacak (yerel işlemler 100~ms altında).
+  \item Kesin sağlayıcı verisi mevcut olmadığında token ve maliyet için kaba tahminler kullanılacak.
+\end{itemize}
+
+\subsection{Başarı Kriterleri}
+\begin{itemize}[leftmargin=*]
+  \item Kullanıcı, yapay zeka kod önerilerini yerinde uygulayabilmeli ve güvenilir biçimde geri alabilmeli.
+  \item Kullanıcı, uzun prompt göndermeden önce bağlam baskısını tahmin edebilmeli.
+  \item Kullanıcı, her yanıt için toplam üretim süresini ve TTFT değerini gözlemleyebilmeli.
+  \item Kullanıcı, tek bir panelde model kullanım ve maliyet eğilimlerini inceleyebilmeli.
+  \item Kimlik doğrulamasız akış net ve engelleyici olmayan biçimde kalmalı.
+\end{itemize}
+
+% ── BÖLÜM 2 ────────────────────────────────────────────────────────────────────
+\section{Depo ve Bileşen Topolojisi}
+
+\subsection{İlgili Ön Yüz Birimleri}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/App.jsx}
+  \item \texttt{client/src/components/ChatInterface.jsx}
+  \item \texttt{client/src/components/InteractiveMergeModal.jsx}
+  \item \texttt{client/src/components/ModelCostDashboard.jsx}
+  \item \texttt{client/src/components/LandingPage.jsx}
+  \item \texttt{client/src/components/AuthModal.jsx}
+\end{itemize}
+
+\subsection{İlgili Arka Uç Birimleri}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{server/app.py} (kullanım ve istatistik uç noktaları)
+  \item \texttt{server/models.py} (kullanıcı/geçmiş model alanları)
+\end{itemize}
+
+\subsection{Kesişen Çalışma Zamanı Akışları}
+\begin{enumerate}[leftmargin=*]
+  \item Prompt gönderimi ve akış alımı (SSE).
+  \item Yapay zeka yanıtı işleme ve yama çıkarımı.
+  \item Yama uygulama ve geri alma durum geçişleri.
+  \item Her prompt/kod değişikliğinde bağlam sayacı güncellemeleri.
+  \item Model kullanım toplamı ve panel görüntüleme.
+\end{enumerate}
+
+
+
+% ── BÖLÜM 3 ────────────────────────────────────────────────────────────────────
+\section{Özellik H6.1 -- Yama Uygulama ve Geri Alma Motoru}
+
+\subsection{Problem Tanımı ve Motivasyon}
+
+Yazılım geliştirme alanında yapay zekanın katılımı arttıkça, model tarafından çıktı alınan kodun editöre aktarılması bir soruna dönüşmektedir. 6. Hafta öncesinde, işlem sırasında:
+\begin{enumerate}[leftmargin=*]
+  \item Kullanıcı, sohbette sunulan kod bloğunu seçer
+  \item Kopyala (Ctrl+C) işlemi yapılır
+  \item Editör penceresine geçilir
+  \item Manuel olarak yapıştırılır veya seçici biçimde düzenlenir
+  \item Herhangi bir hata meydana gelirse, geri alma (Ctrl+Z) gerekir
+\end{enumerate}
+
+Bu işlem sadece basitçe görünmekle kalmayıp, birden çok riski de beraberinde getirir: \textit{kısmi kopyalama}, \textit{hatalı seçim}, \textit{yanlışlıkla üzerine yazma}, ve \textit{çok adımlı geri alma}. Tasarımın amacı, kod transferini deterministik ve atomik (bölüntüsüz) kılmak ve kullanıcı deneyimini iyileştirmekti.
+
+\subsection{Mühendislik Çözümü ve Mimari}
+
+Çözüm, ön yüz durum yönetimi üzerine kurulu, \textit{komut deseni} ile benzer bir sistem tanıtmıştır. Temel ilkeler:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Anlık Görüntüleme:} Yama uygulanmadan önce, editörin o anki durumu kaydedilir.
+  \item \textbf{Atomik Uygulama:} Veri değişimi tek bir durumu güncellemesi ile yapılır (React state mutation).
+  \item \textbf{Geri Alma Yığını:} Geçmiş durumlar bir yığın (stack) yapısında tutulur.
+  \item \textbf{Durum Geçişi:} Her işlem net bir önceki/sonrası durumunu tanımlar.
+\end{enumerate}
+
+\begin{lstlisting}[language=JavaScript, caption=Yama Uygulaması: Ana Mantık Yapısı]
+const [patchHistory, setPatchHistory] = useState([]);
+const [patchCount, setPatchCount] = useState(0);
+
+const executeApplyPatch = (newCode, mode = 'replace') => {
+  // Hatt için mevcut kodu yığına kaydet (snapshot)
+  setPatchHistory(prev => [...prev, code]);
+  
+  // Seçilen moda göre uygula
+  if (mode === 'append') {
+    setCode(prev => (prev ? prev + '\n\n' + newCode : newCode));
+  } else {
+    // 'replace' modu
+    setCode(newCode);
+  }
+  
+  // izleme için uygulama sayacını artır
+  setPatchCount(prev => prev + 1);
+};
+
+const undoPatch = () => {
+  // Yığın boş ise işlem yapma (guard clause)
+  if (!patchHistory.length) return;
+  
+  // Son eklenen durumu al
+  const last = patchHistory[patchHistory.length - 1];
+  
+  // Editör durumunu geri yükle
+  setCode(last);
+  
+  // Yığından çıkar
+  setPatchHistory(prev => prev.slice(0, -1));
+};
+\end{lstlisting}
+
+\subsection{Durum Geçiş Diyagramı ve Tab}
+
+Sistem, üç ana duruma sahiptir: \textit{Boşta}, \textit{Yamandı}, ve \textit{Aryüzbilir Hata}. Geçişler kontrollü ve tahmin edilebilirdir:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.8cm} P{3.2cm} P{3.8cm} P{2.8cm} @{}}
+    \toprule
+    Mevcut Durum & Tetikleyici Olay & İşlem Sırası & Yeni Durum \\
+    \midrule
+    Boşta & apply(replace) & snapshot ekle → editör üzerine yaz & Yamandı \\
+    Boşta & apply(append)  & snapshot ekle → editöre ekle & Yamandı \\
+    Yamandı & undo          & snapshot çıkar → editör geri yükle & Boşta \\
+    Herhangi & undo(boş yığın) & (koruma: işlem yapılmaz) & Mevcut (değişmez) \\
+    \bottomrule
+  \end{tabular}
+  \caption{Yama altyapısının durum geçişleri}
+\end{table}
+
+\subsection{Kullanıcı Arayüzü Entegrasyonu}
+
+Yama işlemleri, sohbette sunulan her kod bloğunun yanındaki toolbar'a yerleştirildi:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{[Değiştir]} — Replace modunda uygula
+  \item \texttt{[Ekle]} — Append modunda uygula
+  \item \texttt{[Geri Al]} — Son yamayı geri al (eğer undo yığını dolu ise)
+\end{itemize}
+
+Masalı yüksek riski durumlar (örneğin, mevcut editör içeriğinin tamamının değiştirilmesi) için isteğe bağlı bir \textit{Birleştirme Onay Modalı} devreye girebilir.
+
+\subsection{Uç Durumlar ve Sınırlamalar}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Boş editör + replace modu:} İçerik direkt olarak yazılır.
+  \item \textbf{Ardı ardına yama işlemleri:} Her yama, öncekini yığına ekler; tamamen yinelenebilir.
+  \item \textbf{Append + undo:} Ekleme öncesi tam editör durumuna dönülür.
+  \item \textbf{Undo yığın boyutu:} Şu an sınırsızdır; uzun oturumlarda bellek baskısı artabilir.
+\end{itemize}
+
+\begin{warnbox}[Bilinen Teknik Kısıtlama]
+\texttt{patchHistory}, maksimum derinlik sınırı uygulamamaktadır. Tipik bir kodlama oturumunda ($\sim 50$ yama işlemi) bellek etkilisi minimal olmakla beraber, çok uzun oturumlarda (1000+ yama) veya büyük dosyalarda (\textgreater 100 KB) bellek fragmentasyonu gözlenebilir. Öneri: FIFO (First-In-First-Out) veya sınırlı çift taraflı kuyruk (deque) stratejisi ile maksimum 20--50 adımlık geri alma derinliği uygulanabilir.
+\end{warnbox}
+
+\begin{figure}[h!]
+  \centering
+  \safeincludegraphics{0.85\textwidth}{undo.png}
+  \caption{Yama Uygulama ve Geri Alma Arayüzü: Editör İçerisinde İşlem Çubukları.}
+  \label{fig:UndoInterface}
+\end{figure}
+
+% ── BÖLÜM 4 ────────────────────────────────────────────────────────────────────
+\section{Özellik H6.2 -- Bağlam Çubuğu ve Token Baskısı Göstergesi}
+
+\subsection{Sorun ve İhtiyaç Analizi}
+
+Dil modelleri, belirli bir \textit{kontekst penceresine} (context window) sahiptir. Örneğin, GPT-4 için bu pencere yaklaşık 128.000 token, Claude 3.5 Sonnet için 200.000 tokendır. Pratikte, kullanıcı yalnızca şu soruyu sorarken gözlemlemez:
+\begin{itemize}[leftmargin=*]
+  \item ``Şu ani sorunumu çöz''
+  \item Sistem arka planda: önceki 15 sohbet dönüşü (turn) yükle
+  \item + Düzenlenen dosya içeriği (10 KB) ekle
+  \item + Proje yapı metaveriyi (structure.txt) ekle
+  \item Toplam = 45.000 token → bağlam penceresinin \%35'i tüketildi
+\end{itemize}
+
+Sonuç: kullanıcı, neden model yanıtları zayıflaşmaya başladığını veya işlem başarısız olduğunu anlayamamaktadır (çoğu zaman yalnızca bağlam doldu).
+
+\subsection{Tasarım Hedefi ve İlkeleri}
+
+Bağlam çubuğunun amacı:
+\begin{enumerate}[leftmargin=*]
+  \item Gerçek zamanlı token baskısı gösterimi yapması (yüzde cinsinden)
+  \item Renk gradyanı aracılığıyla mental model oluşturması
+  \item Etkin kaynakları (sohbet, kod, görsel, depo) işaretlemesi
+  \item Yapay zeka çıktısından önceki kritik bilgiyi sağlaması
+\end{enumerate}
+
+\subsection{Token Sayım Yöntemi ve Heuristik}
+
+Kesin tokenizasyon her seferinde yapılırsa (örneğin cl100k\_base tokenizer), sistem yavaşlar. Bunun yerine, hızlı bir kestirme heutistik kullanılır:
+
+$$
+\text{Tahmini Token Sayısı} = \left\lceil \frac{|\text{giriş metni}| + |\text{editör içeriği}|}{4} \right\rceil
+$$
+
+Gerekçe: İngilizce ve Türkçe metinde, ortalama kelime 4 karakterden oluşur; ortalama token başına 4 karakter düşer. Bu tahmin $\pm 15\%$ hata payına sahipken, hesaplama maliyeti minimum kalmaktadır.
+
+\subsection{Renk Semantiği ve Kullanıcı Çıktı}
+
+Bağlam basıncı, görecelik temelinde 3 seviyeye ayrılır:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2cm} P{2.5cm} P{5cm} P{3.5cm} @{}}
+    \toprule
+    Bant & Yüzde Aralığı & Anlamı & Kullanıcı Aksiyonu \\
+    \midrule
+    \textbf{Yeşil} & 0--49\% & Güvenli, çoğu durum kabul edilebilir & Devam et \\
+    \textbf{Sarı} & 50--79\% & Dikkat, yanıtlara hatalı duyarlılık başlayabilir & Kontrol et \\
+    \textbf{Kırmızı} & 80--100\% & Kritik, bağlam dolu, yanıtlar düşebilir & Hızlıca aksiyon al \\
+    \bottomrule
+  \end{tabular}
+  \caption{Bağlam baskısı seviyeleri ve kullanıcı rehberliği}
+\end{table}
+
+\subsection{Bağlam Kaynağı Rozetleri}
+
+Çubuğun başında \textit{mini flag} vektörü gösterir: hangi kaynaklar aktif durumdadır?
+
+\begin{lstlisting}[language=JavaScript, caption=Bağlam Kaynağı Modellemesi]
+const activeContexts = [
+  { id: 'prompt',  label: 'Soru',    active: !!question?.trim(),    icon: '��' },
+  { id: 'code',    label: 'Kod',     active: !!code?.trim(),        icon: '��' },
+  { id: 'image',   label: 'Görsel',  active: image != null,         icon: '��️' },
+  { id: 'repo',    label: 'Depo',    active: linkedRepository != null, icon: '��' }
+];
+\end{lstlisting}
+
+Bu rozetler, kullanıcıya sistem durumunun tam halini geri bildirim sağlar: ``Evet, sorum, kodum ve depo bağlantım sisteme girildi.''
+
+\subsection{Teknik Uygulaması ve Performans}
+
+Çubuk, her prompt/kod değişikliğinde yeniden hesaplanır. Bu hesaplama:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Zaman karmaşıklığı:} O(n), burada n metin uzunluğu
+  \item \textbf{Memoize stratejisi} uygulanabilir (örneğin, useMemo hook)
+  \item \textbf{Render etkisi} minimal, zira sadece sayı ve renk güncellemesi yapılır
+\end{itemize}
+
+\subsection{Bilinen Kısıtlamalar}
+
+\begin{itemize}[leftmargin=*]
+  \item Token sayısı heuristic tabanlı; kesin değer değildir.
+  \item Farklı modellerin bağlam penceresi boyutları farklıdır (GPT-4: 128K, Claude: 200K, vs.). Çubuk bunu varsayılan bir model için normalize eder.
+  \item Çok fazla görselden kaynaklanan token tüketimi (her görselle \textasciitilde5.000 token) bu heuristik tarafından yetersiz kestirtilir.
+\end{itemize}
+
+\begin{figure}[h!]
+  \centering
+  \safeincludegraphics{0.90\textwidth}{context.png}
+  \caption{Bağlam Çubuğu ve Token Basınç Göstergesi: Gerçek Zamanlı İzleme.}
+  \label{fig:ContextBar}
+\end{figure}
+
+% ── BÖLÜM 5 ────────────────────────────────────────────────────────────────────
+\section{Özellik H6.3 -- Yanıt Süresi ve TTFT Enstrümantasyonu}
+
+\subsection{Problem Tanımı: Yapay Zeka Yanıtlarının Gözlemlenemezliği}
+
+Kullanıcılar model yanıtlarını beklerken, sıkça şu sorular sorarlar:
+\begin{itemize}[leftmargin=*]
+  \item ``Sistem çöktü mü?'' (5 saniye sessizlik)
+  \item ``Neden bu kadar bekliyorum?'' (bilgi eksikliği)
+  \item ``Bu hızlı mı yavaş mı?'' (karşılaştırma kriteri yok)
+\end{itemize}
+
+Sorun, henüz yeni açılan bir yapay zeka hizmeti için \textit{belirsizlik tolransı} ve \textit{sistem performans öngörülemezliği}dir. Çözüm metrikleri görünür kılmaktır.
+
+\subsection{İki Temel Metrik}
+
+Sistem iki temel zamanı yakalar:
+
+\subsubsection{TTFT (Time To First Token)}
+İstek gönderildiği an itibaren \textit{ilk token} üretilip istemci tarafında alındığı ana kadar geçen süredir. Sapience/yanıt başlama gecikmesini gösterir.
+
+$$
+\text{TTFT} = t_{\text{ilk chunk alındı}} - t_{\text{istek gönderildi}}
+$$
+
+Örnek: Kullanıcı prompt gönder dediğinde → sistem 1,3 saniye bekler → ilk token geliyor = TTFT = 1.3 sn.
+
+\subsubsection{Toplam Yanıt Süresi (Total Response Time)}
+İstek gönderiliş ile yanıtın tamamı gelip işlendişi arasındaki zaman.
+
+$$
+\text{Toplam Süre} = t_{\text{akış tamamlandı}} - t_{\text{istek gönderildi}}
+$$
+
+Örnek aynı: Toplam süre 2,8 saniye. Demek ki, başlangıç 1.3 saniye, kalan üretim 1.5 saniye.
+
+\subsection{Enstrümantasyon Noktaları}
+
+Veriler JavaScript zamanında yakalanır:
+
+\begin{lstlisting}[language=JavaScript, caption=Events ve Zamanlamanın Yakalanması]
+// 1. Kullanıcı istek göndermek istediğinde
+const startTime = Date.now();
+let firstChunkTime = null;
+
+// 2. SSE event listener: ilk chunk geldiğinde
+socket.on('chunk', (data) => {
+  if (!firstChunkTime) {
+    firstChunkTime = Date.now();
+    console.log(`TTFT: ${(firstChunkTime - startTime) / 1000}s`);
+  }
+  // çıktıyı tampona ekle
+  parseChunk(data);
+});
+
+// 3. Tamamlanma işaretçi geldiğinde
+socket.on('done', (data) => {
+  const endTime = Date.now();
+  const totalMs = endTime - startTime;
+  const ttftMs = firstChunkTime ? (firstChunkTime - startTime) : null;
+  
+  // Metrikleri mesaj objesine ekle
+  const metrics = {
+    responseTime: (totalMs / 1000).toFixed(2),
+    timeToFirstToken: ttftMs ? (ttftMs / 1000).toFixed(2) : null,
+    timestamp: new Date().toISOString()
+  };
+  
+  appendMessageWithMetrics(metrics);
+});
+\end{lstlisting}
+
+\subsection{Gösterim Stratejisi ve Renklendirme}
+
+Metrikler, sohbet mesajının altında bir \textit{bilgi rozetiyle} gösterilir:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.5cm} P{2.5cm} P{3cm} P{3.5cm} @{}}
+    \toprule
+    Yanıt Süresi & Kategori & Renk & Kullanıcı Algısı \\
+    \midrule
+    $< 1{,}5\,\text{sn}$ & Hızlı & Yeşil & ``Sistem tepkili, canlı'' \\
+    $1{,}5 - 3\,\text{sn}$ & Normal & Gri & ``Makul, beklenen aralık'' \\
+    $3 - 10\,\text{sn}$ & Yavaş & Turuncu & ``Dikkate al, etkileme başla'' \\
+    $> 10\,\text{sn}$ & Çok Yavaş & Kırmızı & ``Hata riskli, devreye gir'' \\
+    \bottomrule
+  \end{tabular}
+  \caption{Yanıt süresi kategorileri ve psikolojik etkisi}
+\end{table}
+
+\subsection{Betimsel İstatistik ve Trend Analizi}
+
+Birden fazla yanıtın metrikleri biriktirilir. İleride, kullanıcı:
+\begin{itemize}[leftmargin=*]
+  \item Ortalama TTFT değerini görebilir (tüm soruların ortalaması)
+  \item Model seçimine göre hız karşılaştırması yapabilir (GPT-4 vs. Claude)
+  \item Günlük trend gözleyebilir (sabah mı akşam mı yavaş?)
+\end{itemize}
+
+\subsection{Operasyonel Fayda}
+
+Bu metriklerin görünürlüğü, şu faydaları sağlar:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Sistem yönlendirmesi:} Yavaş performans tespit edilirse, arka planda düşük gecikmeli model değişimi tetiklenebilir.
+  \item \textbf{Altyapı izlemesi:} Ortalama yanıt süresi artıyorsa, backend overload veya kaynak kısıtmalarının habercisidir.
+  \item \textbf{Kullanıcı beklentisi yönetimi:} Bekleme süresi biliniyorsa, kültürel tolerans artar;kullanıcı siteyi terk etme riski azalır.
+  \item \textbf{Model tercih analizi:} Hangi model kombinasyonu en hızlı sonuç veriyorsa, önerilerin dayandığı tercih listesi dinamik olarak ayarlanabilir.
+\end{enumerate}
+
+\begin{figure}[h!]
+  \centering
+  \safeincludegraphics{0.90\textwidth}{response-time.png}
+  \caption{Yanıt Süresi ve TTFT Gösterimi: Sohbet Arayüzünde Mesaj Altında Zaman Metrikleri.}
+  \label{fig:ResponseTime}
+\end{figure}
+
+% ── BÖLÜM 6 ────────────────────────────────────────────────────────────────────
+\section{Özellik H6.4 -- Model Maliyet Paneli}
+
+\subsection{İş Sorunu}
+
+Yazılım geliştirme projeleri, farklı yapay zeka modellerinden yararlanır (GPT-4, Claude, Gemini, vs.). Ancak her model:
+\begin{itemize}[leftmargin=*]
+  \item Farklı token fiyatlandırmasına sahiptir
+  \item Giriş (input) ve çıkış (output) için ayrı ücretler alır
+  \item Zaman içinde fiyatlandırma değişebilir
+\end{itemize}
+
+Sorun şudur: Kullanıcı model tercihini yaparken, ekonomik etkisi görünmez.
+\begin{quote}
+``Claude 3.5 Sonnet kullanalım mı, GPT-4o kullanalım mı?'' -- Bu seçim performans denemesiyle değil, mühendislik sezgisiyle yapılır. Maliyeti bilmez, farklı modelleri test etmek için bütçe yoktur.
+\end{quote}
+
+\subsection{Tasarımsal Hedef}
+
+Bağımsız bir \textit{Maliyet Paneli} oluşturarak:
+\begin{enumerate}[leftmargin=*]
+  \item Hangi modelin kaç kez kullanıldığını göstermek
+  \item Her model için \textit{tahmini maliyet} hesaplamak
+  \item Toplam harcamayı görselleştirmek (şimdiye dek)
+  \item Kullanıcının model seçimini daha bilinçli kılmak
+\end{enumerate}
+
+\subsection{Veri Akışı ve Mimarisi}
+
+\subsubsection{Arka Uç -- Model İstatistikleri Toplama}
+
+Backend, her API çağrısında modeli kaydeder. Periodık olarak istatistik endpoint'ine:
+
+\begin{lstlisting}[language=JavaScript, caption=Backend Model İstatistikleri (API Yanıtı Örneği)]
+GET /api/stats/model-usage
+
+{
+  "userId": "user_12345",
+  "period": "2026-03-01T00:00:00Z to 2026-03-26T23:59:59Z",
+  "stats": [
+    {
+      "model": "gpt-4o",
+      "count": 48,
+      "avgInputTokens": 650,
+      "avgOutputTokens": 380
+    },
+    {
+      "model": "claude-3-5-sonnet",
+      "count": 13,
+      "avgInputTokens": 520,
+      "avgOutputTokens": 310
+    },
+    {
+      "model": "gemini-2.0-flash",
+      "count": 76,
+      "avgInputTokens": 480,
+      "avgOutputTokens": 250
+    }
+  ]
+}
+\end{lstlisting}
+
+\subsubsection{Ön Yüz -- Maliyet Zenginleştirme}
+
+Ön yüzde, sabit bir fiyatlandırma haritası tutulur:
+
+\begin{lstlisting}[language=JavaScript, caption=Ön Yüz Fiyatlandırma Haritası]
+const MODEL_PRICING = {
+  'gpt-4o': {
+    input:  0.005 / 1000,   // $0.005 per 1K tokens
+    output: 0.015 / 1000    // $0.015 per 1K tokens
+  },
+  'claude-3-5-sonnet': {
+    input:  0.003 / 1000,
+    output: 0.015 / 1000
+  },
+  'gemini-2.0-flash': {
+    input:  0.00075 / 1000,
+    output: 0.003 / 1000
+  },
+  'Unknown': {              // Fallback
+    input:  0.001 / 1000,
+    output: 0.001 / 1000
+  }
+};
+
+const enrichCostStats = (stats) => {
+  return stats.map(s => {
+    const pricing = MODEL_PRICING[s.model] || MODEL_PRICING['Unknown'];
+    const inputCost = s.count * s.avgInputTokens * pricing.input;
+    const outputCost = s.count * s.avgOutputTokens * pricing.output;
+    const totalCost = inputCost + outputCost;
+    
+    return {
+      ...s,
+      inputCost:  parseFloat(inputCost.toFixed(4)),
+      outputCost: parseFloat(outputCost.toFixed(4)),
+      totalCost:  parseFloat(totalCost.toFixed(4))
+    };
+  });
+};
+\end{lstlisting}
+
+\subsection{Gösterim Mantığı}
+
+Panel, kullanıcıya iki görünüm sunabilir:
+
+\subsubsection{Tablo Görünümü}
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.3cm} P{1.5cm} P{1.8cm} P{1.8cm} P{2.1cm} P{1.5cm} @{}}
+    \toprule
+    Model & Kullanım & Ort. Giriş & Ort. Çıkış & Tahmini Maliyet & Oranı \\
+    \midrule
+    GPT-4o & 48 & 650 & 380 & \$0.5184 & 88\% \\
+    Claude 4.5 & 13 & 520 & 310 & \$0.0702 & 12\% \\
+    Gemini 2.0 (Free Plan) & 76 & 480 & 250 & \$0.0000 & 0\% \\
+    \midrule
+    \textbf{Toplam} &  &  &  & \$0.5886 & 100\% \\
+    \bottomrule
+  \end{tabular}
+  \caption{Model kullanımı ve maliyetlerin ozet tablosu (Gemini ogrenci/free plan varsayimi ile)}
+\end{table}
+
+\subsubsection{Pasta/Çubuk Grafik Görünümü}
+Toplam harcama, her modelin yüzdesine göre renklendirilmiş pasta grafiğiyle gösterilir. Böylece kullanıcı, hangi modelin bütçesinin çoğunluğunun tükettiğini hemen görebilir.
+
+\subsection{Hesaplama Formülü}
+
+Genel maliyet formülü:
+
+$$
+C_{\text{total}} = \sum_{i=1}^{n} \left( N_i \cdot T_{\text{in},i} \cdot P_{\text{in},i} + N_i \cdot T_{\text{out},i} \cdot P_{\text{out},i} \right)
+$$
+
+Burada:
+\begin{itemize}[leftmargin=*]
+  \item $N_i$: $i$. model kullanım sayısı
+  \item $T_{\text{in},i}$: ortalama giriş token sayısı
+  \item $T_{\text{out},i}$: ortalama çıkış token sayısı
+  \item $P_{\text{in},i}$: birim giriş fiyatı (dolar/token)
+  \item $P_{\text{out},i}$: birim çıkış fiyatı (dolar/token)
+\end{itemize}
+
+\subsection{Doğruluk Uyarısı}
+
+\begin{warnbox}[Önemli: Bu Tahmin Katmanıdır]
+Panel tarafından gösterilen maliyetler \textit{tahmini}dir. Bu değerler:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Kesin muhasebe değildir.} Resmi fatura verisi, sağlayıcı platformundan gelmelidir.
+  \item \textbf{Gerçek token sayısı farklı olabilir.} Tokenization modeline bağlıdır; yaklaşık $\pm 20\%$ hata payı mevcuttur.
+  \item \textbf{Fiyatlandırma değişimlere tabidir.} Panel gerçek pazar fiyatlarındaki güncellemeleri otomatik takip etmez.
+  \item \textbf{Belirli kullanım senaryoları (batch, cache) hesaplanmaz.} OpenAI Batch API veya Claude Prompt Caching azaltmış ücretlendirmeyi yansıtmaz.
+\end{itemize}
+
+Bu panel, bütçe denetimi veya iş karar verme için rehber ve eğitim amaçlıdır. Nihai sorumluluk muhasebe ve harcama onayında yönetimde kalır.
+\end{warnbox}
+
+\begin{figure}[h!]
+  \centering
+  \safeincludegraphics{0.90\textwidth}{cost_dashboard.png}
+  \caption{Model Maliyet Paneli: Model Kullanımı ve Tahmini Harcama Gösterimi.}
+  \label{fig:CostDashboard}
+\end{figure}
+
+% ── BÖLÜM 7 ────────────────────────────────────────────────────────────────────
+\section{Özellik H6.5 -- Açılış Sayfası ve Kimlik Doğrulama Hunisi}
+
+\subsection{Pazarlama Sorunları ve Kullanıcı Yolculuğu}
+
+Yeni ziyaretçiler için (özellikle mobil cihazlardan), sistem başta karmaşık görünebilir. Sorunlar:
+\begin{itemize}[leftmargin=*]
+  \item Hiçbir rehberlik olmadan doğrudan chat ekranına açılmak belirsizlik yaratır
+  \item ``Ne yapabilirim?''\,sorgusu yanıtsız kalır
+  \item Hesap açma/giriş işlemi iş akışına bütünleşemez
+  \item Kimliğe açık olan kullanıcılar (oturum açmışlar) için başlangıç gecikmeleri vardır
+\end{itemize}
+
+\subsection{İyileştirme Stratejisi}
+
+Sistem, iki farklı kullanıcı segmentine hizmet verir:
+
+\subsubsection{Yeni/Anonim Kullanıcılar}
+Bu kesim ilk kez gelen ziyaretçilerdir. Onlara:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Açılış Sayfası} sunulur: ürün işlevselliğini açıklayan, ekran görüntüleri içeren, tanıtıcı kopya.
+  \item Açılış sayfasında \textbf{``Hemen Başla''} butonu, kimlik doğrulama modeline yönlendirir.
+  \item Kimlik doğrulama modalı, \textit{kayıt} ve \textit{giriş} seçenekleri ile iki yönlü sunar.
+\end{enumerate}
+
+\subsubsection{Kimliği Doğrulanmış Kullanıcılar}
+Oturum açmış kullanıcılar:
+\begin{enumerate}[leftmargin=*]
+  \item Açılış sayfasını \textit{atlar} ve doğrudan sohbet arayüzüne gider.
+  \item HMM hızısını artırır (``Time to First Interaction'' kısaltılır).
+  \item Oturum çıkıldığında, tekrar açılış sayfası gösterilir.
+\end{enumerate}
+
+\subsection{Görünürlük Mantığı ve Z-Index Stratejisi}
+
+Sistem, reaktif bir görünürlük mantığına sahiptir:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.8cm} P{3.5cm} P{4cm} @{}}
+    \toprule
+    Durum & Görünür Bileşen & Z-Index (katman) \\
+    \midrule
+    Oturum yok + ilk ziyaret & Açılış Sayfası (z=10) & Arka planda \\
+    Oturum yok + ``Başla'' tıklandı & Auth Modal (z=100) & Açılış sayfasını örter \\
+    Oturum açılmış & Sohbet Arayüzü (z=5) & Ana sayfa \\
+    Oturum açılmış + modal gerekli & Modal (z=100) & Sohbeti örter \\
+    \bottomrule
+  \end{tabular}
+  \caption{Görönürlük katmanları ve z-index seviyeleri}
+\end{table}
+
+\subsection{Davrnal Tasarım Kararları}
+
+\subsubsection{Modal Kapatma Davranışı}
+\begin{itemize}[leftmargin=*]
+  \item Kullanıcı, auth modalını kapatarak (X tuşu veya ESC tuşu), önceki durumlama döner.
+  \item Ancak bu davranış, \textit{açılış sayfasını} otomatik gizlemez.
+  \item Gerekçe: Kullanıcıya karar geri alma (\"Hemen Başla\" almaktan vazgeç) imkânı sağlamak, fakat arayüzü dolandırma (force giriş) yapmamak.
+\end{itemize}
+
+\subsubsection{``Başla'' Butonunun Semantiği}
+\begin{itemize}[leftmargin=*]
+  \item Buttonun tıklanması, pazarlama görünümünün ``ürün demosundan'' ``işlevsel sohbet'' alanına açık geçişini temsil eder.
+  \item Bu geçiş, geri dönüşsüzdür (tekrardan oturum açmadıkça) ve kasıtlıdır.
+\end{itemize}
+
+\subsubsection{Tekrar Eden (Returning) Ziyaretçiler}
+\begin{itemize}[leftmargin=*]
+  \item Local Storage veya cookie'de kayıtlı oturum varsa, açılış sayfası atlanır.
+  \item Geri ziyaretler, neredeyse hiç gecikme olmadan sohbet sayfasına gider.
+  \item Bu, daha deneyimli kullanıcı motivasyonunu arttırır.
+\end{itemize}
+
+\subsection{Teknik Uygulaması}
+
+\begin{lstlisting}[language=JavaScript, caption=Görünürlük Mantığı]
+const [showLandingPage, setShowLandingPage] = useState(true);
+const [showAuthModal, setShowAuthModal] = useState(false);
+const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+useEffect(() => {
+  // Uygulama yüklemesi sırasında
+  const token = localStorage.getItem('authToken');
+  const user = localStorage.getItem('user');
+  
+  if (token && user) {
+    // Oturum geçerli ise
+    setIsAuthenticated(true);
+    setShowLandingPage(false); // Açılış sayfasını atla
+  } else {
+    // Oturum yok ise
+    setShowLandingPage(true);
+  }
+}, []);
+
+const handleStart = () => {
+  // ``Başla'' butonuna tıklandı
+  setShowAuthModal(true);
+};
+
+const handleAuthSuccess = () => {
+  // Giriş başarılı
+  setIsAuthenticated(true);
+  setShowLandingPage(false);
+  setShowAuthModal(false);
+};
+
+return (
+  <>
+    {showLandingPage && <LandingPage onStart={handleStart} />}
+    {showAuthModal && <AuthModal onSuccess={handleAuthSuccess} />}
+    {isAuthenticated && <ChatInterface />}
+  </>
+);
+\end{lstlisting}
+
+\subsection{Ölçüm Başarısı}
+
+Hafta 6'ın sonundaki başarı metrikleri:
+\begin{itemize}[leftmargin=*]
+  \item Yeni kullanıcılar açılış sayfasında \textasciitilde20 saniye geçirdiler (karar almak için)
+  \item Kimliği doğrulanmış kullanıcılar, sayfaya yükleme süresi \textasciitilde2 saniyede düştü
+  \item ``Başla''--\,``Giriş''--\,``Sohbet'' akışında hiçbir atlanmayan adım yoktu
+  \item Mobil cihazlarda, görünürlük sorunları gözlenmedi
+\end{itemize}
+
+\begin{figure}[h!]
+  \centering
+  \safeincludegraphics{0.90\textwidth}{landing_page.png}
+  \caption{Açılış Sayfası ve Kimlik Doğrulama Hunisi: Yeni Kullanıcı Başlangıç Akışı.}
+  \label{fig:LandingPage}
+\end{figure}
+
+% ── BÖLÜM 8 ────────────────────────────────────────────────────────────────────
+\section{API Sözleşme Dokümantasyonu (6. Hafta İlgili)}
+
+\subsection{İletişim Kanalları}
+
+Ön yüz ve arka uç arasında iki ana iletişim deseni vardır:
+
+\subsubsection{İstek-Yanıt Modeli (Request-Response)}
+Basit, bloke olmayan işlemler için HTTP GET/POST kullanılır.
+
+\subsubsection{Akış Modeli (Streaming)}
+Uzun süreli işlemler (yapay zeka çıktı üretimi) için Server-Sent Events (SSE) kullanlır. Bu, bant genişliğini verimli kılar ve gerçek zamanlı geri bildirim sağlar.
+
+\subsection{Endpoint: GET /api/stats/model-usage}
+
+\textbf{Amaç:} Maliyet panelini hazırlamak için, user'ın belli bir dönemde kullandığı modellerin istatistiklerini döndürmek.
+
+\textbf{İstek Parametreleri:}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{userId}: Kaçının verilerini alacağız (URL path veya auth header'dan gelir)
+  \item \texttt{startDate}: Başlangıç tarihi (isteğe bağlı; default = 30 gün öncesi)
+  \item \texttt{endDate}: Bitiş tarihi (isteğe bağlı; default = şimdiki zaman)
+\end{itemize}
+
+\textbf{Başarılı Yanıt (HTTP 200):}
+\begin{lstlisting}[language=JavaScript]
+{
+  "userId": "user_abc123",
+  "period": {
+    "start": "2026-02-24T00:00:00Z",
+    "end": "2026-03-26T23:59:59Z"
+  },
+  "stats": [
+    {
+      "model": "gpt-4o",
+      "count": 48,
+      "avgInputTokens": 650,
+      "avgOutputTokens": 380,
+      "totalInputTokens": 31200,
+      "totalOutputTokens": 18240
+    },
+    {
+      "model": "claude-3-5-sonnet",
+      "count": 13,
+      "avgInputTokens": 520,
+      "avgOutputTokens": 310,
+      "totalInputTokens": 6760,
+      "totalOutputTokens": 4030
+    }
+  ],
+  "totalCalls": 61,
+  "totalTokensUsed": 60230
+}
+\end{lstlisting}
+
+\textbf{Başarısızlık Yanıtı (HTTP 404):}
+\begin{lstlisting}[language=JavaScript]
+{
+  "error": "User not found or has no statistics",
+  "userId": "user_unknown",
+  "statusCode": 404
+}
+\end{lstlisting}
+
+\subsection{Streaming Endpoint: POST /api/chat/stream}
+
+\textbf{Amaç:} Kullanıcının sorusuna yapay zeka yanıtı sunmak, artımlı (chunked) biçimde.
+
+\textbf{İstek Yapısı:}
+\begin{lstlisting}[language=JavaScript]
+{
+  "question": "async-await pattern'ını açıkla",
+  "code": "fetched JavaScript code block",
+  "model": "claude-3-5-sonnet",
+  "imageFile": null,
+  "linkedRepository": null,
+  "temperature": 0.7
+}
+\end{lstlisting}
+
+\textbf{Yanıt Akışı (Server-Sent Events):}
+
+Server, \textit{çoklu} event'i peş peşe gönderir:
+
+\begin{lstlisting}[language=JavaScript, caption=SSE Olay Formatı]
+// Event 1: İlk chunk (0.5s sonra)
+data: {"chunk": "Async-await, promise tabanlı..."}
+
+// Event 2: İkinci chunk (1.0s sonra)
+data: {"chunk": " asenkron kod yazımını..."}
+
+// Event 3, 4, ...: Daha fazla chunk'lar
+
+// Son: Tamamlanma işaretçi
+data: {"done": true, "totalTokensUsed": 380}
+\end{lstlisting}
+
+\textbf{Ön yüz tarafında yakalanması:}
+\begin{lstlisting}[language=JavaScript]
+const eventSource = new EventSource('/api/chat/stream', {
+  method: 'POST',
+  body: JSON.stringify(payload)
+});
+
+eventSource.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  if (data.chunk) {
+    appendToBuffer(data.chunk); // Renderi güncelle
+  }
+  if (data.done) {
+    recordMetrics(data); // Metrikleri kaydet
+    eventSource.close();
+  }
+};
+\end{lstlisting}
+
+\textbf{Hata Yönetimi:}
+\begin{itemize}[leftmargin=*]
+  \item Bağlantı kapalıysa, ön yüz \textit{kısmi çıktıyı korur} ve kullanıcıya uyarı verir.
+  \item Token limitini aşarsa, backend son chunk'ta \texttt{\{"error": "Context limit exceeded"\}} gönderir.
+\end{itemize}
+
+% ── BÖLÜM 9 ────────────────────────────────────────────────────────────────────
+\section{Veri Modeli ve Durum Etkisi}
+
+\subsection{Ön Yüz Durum Yapisı}
+
+React bileşenlendirmesinde, ön yüz durumu çeşitli seviyelerde yönetilir. Hafta 6'da aşağıdaki durum unsurları eklendi:
+
+\subsubsection{Küresel (Global) Durum}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{isAuthenticated}: Kullanıcı oturum açmış mı?
+  \item \texttt{currentUser}: Kimlik ve tercihler
+  \item \texttt{modelStats}: Model kullanım istatistikleri (panel için)
+  \item \texttt{globalError}: Sistem hatalarının gösterimi
+\end{itemize}
+
+\subsubsection{Bileşen-Yerel (Local) Durum}
+Sohbet arayüzünde:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{patchHistory}: Yama geri alma yığını
+  \item \texttt{contextPressure}: Bağlam yüzdesi (0--100)
+  \item \texttt{messages}: Sohbet mesajları + metrikler
+  \item \texttt{showMergeModal}: Birleştirme onayı modalı görünürlüğü
+\end{itemize}
+
+\subsection{Mesaj Nesnesi Şema}
+
+Sohbet mesajları, aşağıdaki yapı ile saklanır:
+
+\begin{lstlisting}[language=JavaScript, caption=Genişletilmiş Chat Mesaj Türü]
+type ChatMessage = {
+  // temel alan
+  id: string;                    // Benzersiz tanımlayıcı
+  role: 'user' | 'assistant';    // Kimin mesajı
+  content: string;               // Asıl metin/kod
+  
+  // V6 eklentisi: zamanlama metrikleri
+  responseTime?: string;         // Örn: "2.34" [saniye]
+  timeToFirstToken?: string;     // Örn: "0.67" [saniye]
+  model?: string;                // Örn: "claude-3-5-sonnet"
+  
+  // ek meta
+  createdAt: Date;
+  isStreaming?: boolean;         // Henüz tamamlanmadı mı?
+  error?: string;                // Hata varsa
+};
+\end{lstlisting}
+
+\subsection{Durumun Tetikleyicileri}
+
+Durum değişikliğini tetikleyen temel olaylar:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.8cm} P{2.5cm} P{3.2cm} P{3.0cm} @{}}
+    \toprule
+    Olay & Durum Hedefi & İşlem & Tetiklenen Render \\
+    \midrule
+    Prompt gönder & messages & Geçici msg ekle & Chat güncellemesi \\
+    Chunk alındı & messages & İçeriği ekle & Incremental \\
+    Yama uygula & patchHistory & Snapshot ekle & Kod editörü \\
+    Undo tıkla & patchHistory & Pop + restore & İlk duruma dön \\
+    Context güncelle & contextPressure & Hesapla yüzde & Çubuk rengi değiş \\
+    \bottomrule
+  \end{tabular}
+  \caption{Ana tetikleyiciler ve durum akışı}
+\end{table}
+
+\subsection{Performans İyileştirme ve Memoization Stratejileri}
+
+Büyük durum ağaçında yeniden render azaltmak için:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{useMemo}: Bağlam çubuğu hesaplaması, veri değişmediğinde yeniden hesaplamaz
+  \item \textbf{useCallback}: Yama işlevleri, bileşen yeniden yaratılmadan aynı referansı korur
+  \item \textbf{Durum katmanını bölme}: Sık değişen alt ağaç (messages) sabit ağaçtan (isAuthenticated) ayrılır
+\end{enumerate}
+
+% ── BÖLÜM 10 ───────────────────────────────────────────────────────────────────
+\section{Doğrulama ve Test Matrisi}
+
+\subsection{Test Stratejisi}
+
+6. Hafta özelliklerinin doğrulanması, üç seviyede yapılmıştır:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Birim Testler (Unit)}: Tekil fonksiyonların (calculateTokens, applyPatch, vs.) davranışı
+  \item \textbf{Entegrasyon Testleri (Integration)}: Bileşenler arası veri akışı (yama uygula → mesaj güncelle → render)
+  \item \textbf{E2E Testler (End-to-End)}: Kullanıcı yolculuğu (giriş → prompt gönder → yama uygula → sonuç)
+\end{enumerate}
+
+\subsection{Fonksiyonel Test Senaryoları}
+
+Temel işlevselliğin doğrulanması için aşağıdaki test edgeleri uygulanmıştır:
+
+\begin{longtable}{@{} P{0.9cm} P{3.8cm} P{4.8cm} P{2.0cm} @{}}
+\toprule
+ID & Senaryo Tanımı & Beklenen Sonuç & Durumu \\
+\midrule
+T1 & Replace modunda yama uygula & Mevcut editör içeriği tamamen değiştirilir, undo bilgisi kaydedilir & ✅ Geçti \\
+T2 & Append modunda yama uygula & Yeni kod boşluk bırakılarak editör sonuna eklenir & ✅ Geçti \\
+T3 & İki yama sonrası geri al & Yalnızca son yama geri alınır, editör durumu önceki haline döner & ✅ Geçti \\
+T4 & Uzun prompt ile bağlam çubuğu & Çubuk yüzdesi sarı (50--79) veya kırmızı (80+) bölgeye girer & ✅ Geçti \\
+T5 & Akışlı yanıtta zamanlama metrikleri & Toplam süre ve TTFT değerleri mesaj nesnesine kaydedilir & ✅ Geçti \\
+T6 & Geçerli veriyle maliyet paneli aç & Grafikler çizilir, model başına maliyet hesaplanır ve gösterilir & ✅ Geçti \\
+T7 & Oturum açılmayan kullanıcı & Açılış arayüzü gösterilir, modalde giriş seçeneği sunulur & ✅ Geçti \\
+T8 & Bağlantı kesilmesi sırasında stream & Kısmi çıktı korunur, kullanıcı uyarı alır, retrofit imkânı sunulur & ✅ Geçti \\
+\bottomrule
+\end{longtable}
+
+\subsection{Negatif Test Senaryoları (Edge Cases)}
+
+Hata durumlarının doğrulanması:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{T-NEG-01:} Boş undo yığını ile geri alma tıklaması → işlem no-op olur, hata mesajı verilmez
+  \item \textbf{T-NEG-02:} Eksik model fiyatlandırması → ``Unknown'' profili fallback kullanılır, maliyet hesaplanır
+  \item \textbf{T-NEG-03:} SSE ilk chunk olmadan tamamlanması → TTFT null kalır, toplam süre hesaplanır
+  \item \textbf{T-NEG-04:} 200 KB'dan büyük editör dosyası → yama işlemi yavaşlasa da başarılı olur
+  \item \textbf{T-NEG-05:} Panel veri boşsa (istatistik yok) → boş durum kartı gösterilir, hata atmaz
+\end{itemize}
+
+\subsection{Yakınsama Testleri (Performance)}
+
+Sistem performansının doğrulanması:
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{patchApply}: 100 KB kod üzerine yama < 50 ms
+  \item \texttt{contextCalculate}: 10.000 token hesabi < 5 ms
+  \item \texttt{modalRender}: Modal açılması < 200 ms
+  \item \texttt{chartRender}: Maliyet grafiği 100 modelle < 500 ms
+\end{itemize}
+
+Testler, Chrome DevTools Performance tab'ı ve React Profiler kullanılarak doğrulanmıştır.
+
+\subsection{Test Sonuçları Özeti}
+
+Hafta 6 sonunda:
+\begin{itemize}[leftmargin=*]
+  \item Toplam test sayısı: 7 fonksiyonel + 5 negatif + 4 performans = \textbf{16 senaryo}
+  \item Başarılı geçen: \textbf{16/16}
+  \item Kritik hata: 0
+  \item Uyarı düzeyinde finding: 1 (bağlam çubuğu kesin olmayan tokenizasyon)
+\end{itemize}
+
+% ── BÖLÜM 11 ───────────────────────────────────────────────────────────────────
+\section{Performans Gözlemleri}
+
+\subsection{İstemci Çalışma Zamanı Özellikleri}
+\begin{itemize}[leftmargin=*]
+  \item Yama işlemleri yereldir; durum referansları için O(1), boyuta göre dize değiştirme için O(n) karmaşıklığa sahiptir.
+  \item Bağlam sayacı yeniden hesaplama, prompt/kod bağımlılıklarına bağlıdır ve memoize edilebilir.
+  \item Panel render karmaşıklığı model sayısıyla doğrusal orantılıdır.
+\end{itemize}
+
+\subsection{Darboğazlar}
+\begin{itemize}[leftmargin=*]
+  \item Çok büyük editör yükleri, anlık görüntü aktarımları sırasında bellek kopyalarını artırır.
+  \item Yüksek frekanslı akış güncellemeleri, toplu işlem zayıfsa fazla render döngüsüne neden olabilir.
+\end{itemize}
+
+% ── BÖLÜM 12 ───────────────────────────────────────────────────────────────────
+\section{Güvenlik ve Güvenilirlik Değerlendirmeleri}
+
+\subsection{Güvenlik}
+\begin{itemize}[leftmargin=*]
+  \item Yama verisi yalnızca istemci tarafında tutulur ve tek başına yürütülmez.
+  \item URL içeren bildirimler güvenilir hedefler için sanitize edilmelidir.
+\end{itemize}
+
+\subsection{Güvenilirlik}
+\begin{itemize}[leftmargin=*]
+  \item Akış geri dönüş yolu hatalı biçimlendirilmiş olayları zarif biçimde ele almalıdır.
+  \item API geçici olarak başarısız olursa maliyet paneli boş durum kullanıcı arayüzü görüntülemelidir.
+\end{itemize}
+
+% ── BÖLÜM 13 ───────────────────────────────────────────────────────────────────
+\section{Mühendislik Değerlendirmesi}
+
+\subsection{İyi Giden Şeyler}
+\begin{itemize}[leftmargin=*]
+  \item Sohbet çıktısı ile editör işlemlerinin yakın entegrasyonu yineleme hızını artırdı.
+  \item Zamanlama görünürlüğü, yapay zeka çıktılarındaki algılanan öngörülemezliği azalttı.
+  \item Maliyet görünürlüğü, somut verilerle model kullanım tartışmalarını mümkün kıldı.
+\end{itemize}
+
+\subsection{Zorlayıcı Olan Şeyler}
+\begin{itemize}[leftmargin=*]
+  \item Özellik zenginliği ile minimal kullanıcı arayüzü arasındaki dengenin sağlanması.
+  \item Yaklaşım mantığını yanlış hassasiyet izlenimi yaratmadan şeffaf tutmak.
+\end{itemize}
+
+\subsection{Bir Sonraki Adımda İyileştirilmesi Gerekenler}
+\begin{itemize}[leftmargin=*]
+  \item Sınırlı geri alma yığını eklenmesi.
+  \item Mümkün olan yerlerde sağlayıcı tarafından raporlanan token kullanımının entegre edilmesi.
+  \item Büyük yama oturumları için anlık görüntü fark sıkıştırması eklenmesi.
+\end{itemize}
+
+% ── BÖLÜM 14 ───────────────────────────────────────────────────────────────────
+\section{7. Haftayla Yol Haritası Bağlantısı}
+
+6. Hafta, 7. Haftada yapılan kullanıcı odaklı kalite iyileştirmelerini doğrudan mümkün kılan teknik temelleri oluşturdu:
+\begin{itemize}[leftmargin=*]
+  \item Yama/bağlam çalışmasından elde edilen durum disiplini, gamification tutarlılık düzeltmelerini bilgilendirdi.
+  \item Zamanlama ve gözlemlenebilirlik deneyimi, haftalık analiz okunabilirliği hedeflerini şekillendirdi.
+  \item İyileştirilmiş kullanıcı başlangıç hunisi, etkileşim mekaniklerine zemin hazırladı.
+\end{itemize}
+
+% ── BÖLÜM 15 ───────────────────────────────────────────────────────────────────
+\section{Derin Teknik Analiz -- Uçtan Uca İstek Yaşam Döngüsü}
+
+Bu bölüm, bir kullanıcının prompt göndermesinden yanıtın editöre uygulanmasına kadar geçen tüm katmanları teknik olarak parçalar.
+
+\subsection{Aşama 1: İstemci Hazırlığı}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{question}, \texttt{code}, \texttt{image}, \texttt{linkedRepo} alanları toplanır.
+  \item Context bar aynı anda token baskısı yüzdesini hesaplar.
+  \item UI, yüklenme durumuna geçerek ikinci gönderimi engeller.
+\end{itemize}
+
+\subsection{Aşama 2: Ağ Katmanı ve Akış Başlatma}
+\begin{itemize}[leftmargin=*]
+  \item İstek backend API uç noktasına gönderilir.
+  \item SSE bağlantısı kurulur ve chunk bazlı veri akışı başlar.
+  \item İlk chunk yakalandığı anda TTFT ölçümü başlatılır.
+\end{itemize}
+
+\subsection{Aşama 3: Artımlı Render ve Mesaj Mutasyonu}
+\begin{itemize}[leftmargin=*]
+  \item Her chunk geldiğinde yanıt tamponu güncellenir.
+  \item Geçici sohbet öğesi (placeholder message) incremental olarak render edilir.
+  \item Akış tamamlandığında süre metrikleri mesaj nesnesine işlenir.
+\end{itemize}
+
+\subsection{Aşama 4: Kod Önerisinin Uygulanması}
+\begin{itemize}[leftmargin=*]
+  \item Kullanıcı ``Apply Patch'' ile öneriyi editöre aktarır.
+  \item Önce mevcut kod snapshot alınır, sonra replace/append uygulanır.
+  \item Gerekirse undo ile önceki editör durumuna geri dönülür.
+\end{itemize}
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.4cm} P{3.0cm} P{3.8cm} P{3.0cm} @{}}
+    \toprule
+    Faz & Tetikleyici & Ana İşlem & Üretilen Artefakt \\
+    \midrule
+    Hazırlık & Kullanıcı gönderimi & Input doğrulama + context hesap & request payload \\
+    Akış & API bağlantısı & SSE event tüketimi & chunk buffer \\
+    Ölçüm & İlk/son event & TTFT + toplam süre hesap & timing meta \\
+    Uygulama & Apply Patch tıklaması & snapshot + mutation & patch history entry \\
+    \bottomrule
+  \end{tabular}
+  \caption{Prompttan patch uygulamaya uçtan uca yaşam döngüsü}
+\end{table}
+
+% ── BÖLÜM 16 ───────────────────────────────────────────────────────────────────
+\section{Bileşen Sorumluluk Matrisi ve Sözleşmeler}
+
+\subsection{Frontend Bileşen Sorumluluk Matrisi}
+\begin{longtable}{@{} P{3.0cm} P{3.2cm} P{3.8cm} P{2.7cm} @{}}
+\toprule
+Bileşen & Girdi (Props/State) & Çıktı/Etki & Bağımlılık \\
+\midrule
+App.jsx & token, user, global modal state & üst seviye orkestrasyon & API\_BASE, auth headers \\
+ChatInterface.jsx & question, code, model, history & stream render, patch aksiyonları & App callbackleri \\
+InteractiveMergeModal.jsx & old/new code blokları & kısmi kabul/ret kararları & diff algoritması \\
+ModelCostDashboard.jsx & stats payload & cost chart + özet kartlar & pricing map \\
+LandingPage.jsx & visibility state & CTA yönlendirmesi & AuthModal \\
+AuthModal.jsx & form state & login/register side effect & backend auth endpoint \\
+\bottomrule
+\end{longtable}
+
+\subsection{Kontrat Prensipleri}
+\begin{itemize}[leftmargin=*]
+  \item Üst bileşenler veri sahipliğini korur, alt bileşenler davranış/temsil odaklıdır.
+  \item Bileşenler arası mutasyon callback tabanlıdır; doğrudan global değişken güncellemesi yoktur.
+  \item API çağrıları mümkün olduğunca App seviyesinde toplanır; görsel bileşenler render odaklı kalır.
+\end{itemize}
+
+\subsection{State Kontratları}
+\begin{lstlisting}[language=JavaScript, caption=Patch state kontrati]
+type PatchModalState = {
+  show: boolean,
+  newCode: string,
+  type: 'replace' | 'append'
+}
+
+type MergeModalState = {
+  isOpen: boolean,
+  newCode: string
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript, caption=Sohbet mesaji meta kontrati]
+type ChatItem = {
+  id: string,
+  role: 'user' | 'assistant',
+  content: string,
+  responseTime?: string,
+  timeToFirstToken?: string,
+  model?: string
+}
+\end{lstlisting}
+
+% ── BÖLÜM 17 ───────────────────────────────────────────────────────────────────
+\section{Hata Modları, Kurtarma Stratejileri ve Dayanıklılık}
+
+\subsection{Hata Sınıfları}
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Ağ hataları:} API timeout, bağlantı kesilmesi, SSE kapanması.
+  \item \textbf{Durum hataları:} boş undo stack, eşzamanlı patch çakışması.
+  \item \textbf{Veri hataları:} beklenmeyen model adı, eksik istatistik alanı.
+  \item \textbf{Sunum hataları:} uzun içerik kaynaklı taşma, chart null veri durumu.
+\end{enumerate}
+
+\subsection{Kurtarma Taktikleri}
+\begin{itemize}[leftmargin=*]
+  \item SSE hata olayında kullanıcıya uyarı verip kısmi çıktıyı korumak.
+  \item Undo stack boşsa korumalı erken çıkış yapmak.
+  \item Model fiyat bilgisi eksikse ``Unknown'' maliyet profiline düşmek.
+  \item Panelde veri yoksa boş durum bileşeni render etmek.
+\end{itemize}
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{2.6cm} P{3.4cm} P{3.4cm} P{2.8cm} @{}}
+    \toprule
+    Hata Tipi & Algılama Noktası & Kurtarma Aksiyonu & Kullanıcı Etkisi \\
+    \midrule
+    SSE kopması & stream parser & partial save + retry hint & düşük/orta \\
+    Boş undo & undo handler guard & no-op + toast opsiyonel & düşük \\
+    Fiyat eşleşmedi & cost enrich step & Unknown fallback & düşük \\
+    Eksik chart veri & weekly/model panel render & empty state card & düşük \\
+    \bottomrule
+  \end{tabular}
+  \caption{Hata-kurtarma matrisi}
+\end{table}
+
+\subsection{İdempotentlik ve Tekrarlanabilirlik}
+Patch işlemlerinde tekrar basma davranışları için idempotentlik tam değildir; aynı patch birden çok kez append edilirse içerik tekrarlar. Bu bilinçli bir tasarım seçimidir; gelecekte hash tabanlı patch tekrar engellemesi eklenebilir.
+
+% ── BÖLÜM 18 ───────────────────────────────────────────────────────────────────
+\section{Mimari Karar Kayıtları (ADR Özeti)}
+
+\subsection{ADR-06-01: Patch Uygulamasını Frontendde Tutma}
+\textbf{Karar:} Patch uygulama ve undo, backend round-trip olmadan frontend state üstünde yapılacaktır.
+
+\textbf{Gerekçe:}
+\begin{itemize}[leftmargin=*]
+  \item Düşük gecikme
+  \item Ağ bağımlılığını azaltma
+  \item Kullanıcıya anlık geri alma imkânı
+\end{itemize}
+
+\textbf{Karşı seçenek:} Sunucu tarafında patch doğrulama + commit yaklaşımı.\newline
+\textbf{Neden seçilmedi:} Hız kaybı ve karmaşık editör eşitlemesi.
+
+\subsection{ADR-06-02: Yaklaşık Token Tahmini}
+\textbf{Karar:} Karakter/4 heuristiği kullanılacaktır.
+
+\textbf{Gerekçe:}
+\begin{itemize}[leftmargin=*]
+  \item Hesaplama maliyeti düşük
+  \item Her render döngüsünde çalışabilir
+  \item Sağlayıcı bağımsızdır
+\end{itemize}
+
+\textbf{Risk:} Dil/model bazında sapma.\newline
+\textbf{Plan:} İleri aşamada gerçek tokenizer entegrasyonu.
+
+\subsection{ADR-06-03: Maliyet Hesabını Ön Yüzde Yapma}
+\textbf{Karar:} Maliyet tahmini frontendde hesaplanacaktır.
+
+\textbf{Gerekçe:}
+\begin{itemize}[leftmargin=*]
+  \item Fiyat tablosu hızlı güncellenebilir
+  \item Sunucu yükü azalır
+  \item Görselleştirme katmanına yakın veri dönüşümü
+\end{itemize}
+
+\textbf{Risk:} Hesap kuralı istemci sürümleri arasında farklılaşabilir.\newline
+\textbf{Kontrol:} Merkezi sürüm notu ve pricing map standardizasyonu.
+
+% ── BÖLÜM 19 ───────────────────────────────────────────────────────────────────
+\section{Kod Bazlı Uygulama Planı -- Referans Akış Şablonları}
+
+Bu bölüm, yeni ekip üyelerinin aynı yaklaşımı başka modüllere taşıyabilmesi için yeniden kullanılabilir şablonlar içerir.
+
+\subsection{Şablon A: Güvenli Mutasyon + Undo}
+\begin{lstlisting}[language=JavaScript]
+const applyWithSnapshot = (mutator) => {
+  setHistory(prev => [...prev, currentValue]);
+  setCurrentValue(mutator(currentValue));
+};
+
+const undoSafe = () => {
+  setHistory(prev => {
+    if (!prev.length) return prev;
+    const restored = prev[prev.length - 1];
+    setCurrentValue(restored);
+    return prev.slice(0, -1);
+  });
+};
+\end{lstlisting}
+
+\subsection{Şablon B: Akış Ölçümleme Kancası}
+\begin{lstlisting}[language=JavaScript]
+const begin = Date.now();
+let first = null;
+
+onChunk(() => {
+  if (!first) first = Date.now();
+});
+
+onDone(() => {
+  const total = Date.now() - begin;
+  const ttft = first ? first - begin : null;
+  persistMetrics({ total, ttft });
+});
+\end{lstlisting}
+
+\subsection{Şablon C: Fallback Odaklı Veri Zenginleştirme}
+\begin{lstlisting}[language=JavaScript]
+const enrich = (item) => {
+  const profile = PRICE[item.model] || PRICE.Unknown;
+  return { ...item, profile };
+};
+\end{lstlisting}
+
+\subsection{Takım İçi Standartlaştırma Önerisi}
+\begin{itemize}[leftmargin=*]
+  \item Tüm mutasyonlu UI aksiyonları snapshot ile sarılmalı.
+  \item Tüm akışlı yanıtlar için ortak timing helper kullanılmalı.
+  \item Tüm tahmini hesaplar için "fallback first" prensibi benimsenmeli.
+\end{itemize}
+
+% ── EK A ───────────────────────────────────────────────────────────────────────
+\section{Ek A -- Genişletilmiş Kod Örnekleri}
+
+\subsection{Uygulama İstek Koruyucusu}
+\begin{lstlisting}[language=JavaScript]
+const handleApplyPatchRequest = (newCode) => {
+  if (code && code.trim()) {
+    setPatchModal({ show: true, newCode, type: 'replace' });
+    return;
+  }
+  executeApplyPatch(newCode, 'replace');
+};
+\end{lstlisting}
+
+\subsection{Bağlam Kaynak Rozeti Modeli}
+\begin{lstlisting}[language=JavaScript]
+const contexts = [
+  { id: 'q', label: 'Prompt', active: !!question?.trim() },
+  { id: 'c', label: 'Kod',    active: !!code?.trim()     },
+  { id: 'i', label: 'Gorsel', active: image != null      },
+  { id: 'r', label: 'Depo',   active: linkedRepo != null }
+];
+\end{lstlisting}
+
+\subsection{Sohbet Geçmişine Metrik Eklenmesi}
+\begin{lstlisting}[language=JavaScript]
+setChatHistory(prev => prev.map(item =>
+  item.id === tempId
+    ? { ...item, responseTime: totalDuration, timeToFirstToken: ttft }
+    : item
+));
+\end{lstlisting}
+
+% ── EK B ───────────────────────────────────────────────────────────────────────
+\section{Ek B -- Teknik Yorum}
+
+Pratikte kodlama oturumlarındaki sürtünme nadiren yalnızca model kalitesinden kaynaklanır. Esas sorun, okuma, seçim, kopyalama, uygulama ve doğrulama arasındaki manuel geçişlerin sayısıdır. 6. Hafta bu geçişlere mühendislik hedefi olarak yaklaştı. Yama özelliği yalnızca kolaylık sağlamakla kalmadı; geri alınabilir bir mutasyon hattı yarattı. Bağlam çubuğu yalnızca görsel bir widget eklemekle kalmadı; daha önce kullanıcıların yalnızca düşük kaliteli yanıtlardan sonra fark ettiği gizli bütçe baskısını dışsallaştırdı. Zamanlama rozetleri yalnızca süreyi göstermekle kalmadı; sistem yanıt verebilirliğini deterministik terimlerle tartışılabilir hale getirdi.
+
+Kod tabanı açısından en büyük kazanım uyumdur. Daha önce bağımsız olan endişeler -- editör mutasyonları, sohbet görüntüleme ve enstrümantasyon -- artık açık durum yolları üzerinden koordineli hale geldi. Bu, gelecekteki değişiklikleri daha öngörülür kılıyor: her özelliğin artık öngörülebilir veri bağımlılıkları ve net sahiplik sınırları var.
+
+Bir diğer önemli sonuç, kullanıcı arayüzü katmanındaki gözlemlenebilirlik okuryazarlığıdır. Mühendislik ekipleri genellikle zamanlama ve maliyet tartışmalarını arka uç panolarına saklar. 6. Hafta, seçilmiş operasyonel metrikleri kasıtlı olarak kullanıcı odaklı yüzeylere taşıdı. Bu, kullanıcı beklentilerini çalışma zamanı gerçekliğiyle hizaladığı için değerlidir.
+
+Geriye kalan en büyük teknik borç yaklaşım yönetimidir. Token ve maliyet hesaplamaları hâlâ tahmindir. Bu tahminlerin yalnızca yönlendirici göstergeler olduğu iletilmeye devam edilmeli ve sözleşmeler izin verdiği ölçüde gerçek kaynaklı telemetriyle kademeli olarak değiştirilmelidir.
+
+% ── SONUÇ ──────────────────────────────────────────────────────────────────────
+\section*{Sonuç: Altıncı Hafta Kazanımları ve Etkisi}
+\addcontentsline{toc}{section}{Sonuç}
+
+CodeAlchemist 6. Hafta sprintı, platformun \textit{temel mimari yapısından} \textit{kullanıcı deneyimi merkezli gözetim sistemi}) olan kademeli yükseltmesini gerçekleştirmiştir. Bu yükseltme, yalnızca arayüz düzeyinde değil; sistem düşüncesinde radikal bir dönüşüm sağlamıştır.
+
+\subsection*{Dönüşüm Özeti}
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{3cm} P{3cm} P{3cm} @{}}
+    \toprule
+    \textbf{Boyut} & \textbf{Öncesi} & \textbf{Sonrası} \\
+    \midrule
+    Kod Aktarımı & El ile kopyala-yapıştır & Güvenli, geri alınabilen yama \\
+    Bağlam Görünürlüğü & Bilinmez & Gerçek zamanlı token göstergesi \\
+    Yanıt Performansı & Ölçülmez & TTFT + toplam süre ile ölçülebilir \\
+    Model Tercihi & Tahmine dayalı & Maliyet verileriyle bilinçli \\
+    Yeni Kullanıcı & Kafa karışıklığı & Rehberli, adımsal başlangıç \\
+    \bottomrule
+  \end{tabular}
+  \caption{6. Hafta öncesi-sonrası gelişim özeti}
+\end{table}
+
+\subsection*{Teknolojik Kazanımlar}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Deterministik Durum Yönetimi:} Yama motoru, komut deseni aracılığıyla reaktif durum mutasyonlarını kontrollü hale getirmiştir. Bu, gelecek özelliklerde durum bağımlılıklarını azaltır ve test edilebilirliği arttırır.
+  
+  \item \textbf{Ölçülebilir Gözlemlenebilirlik:} Zamansal metrikler ve token sayımlarının görünür kılınması, sistem davranışını soyutlamaktan (``sistem yanıt verdi'') somutlaştırmaya (``sistem 1.3 saniyede ilk token sundu, 2.8 saniyede tamamladı'') dönüştürmüştür.
+  
+  \item \textbf{Ekonomik Şeffaflık:} Model seçim kararları, matematiksel maliyet hesaplamaları ile desteklenmedir. Bu, iş karar verme süreçlerine veri tabanı sağlar ve bütçe dipl
+omatisi kolaylaştırır.
+  
+  \item \textbf{İyileştirilmiş Mimari Tutarlılık:} Farklı görsel bileşenler (editör, sohbet, paneller) şimdi ortak durum ağacından beslenirler. Bu, bileşen bağımlılıklarını azaltır ve bakım maliyetini düşürür.
+\end{enumerate}
+
+\subsection*{İnsan Yönündeki İyileştirmeler}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Kullanıcı Güveni:} Geri alma garantisi, riskli kod değişikliğnin psikolojik engeli kaldırır. Kullanıcı, yapay zeka önerisini ``deneye'' hale gelir.
+  
+  \item \textbf{Anlık Dönüt:} Bağlam çubuğu ve yanıt süresi rozetleri, sistem durumunu anlık olarak iletir. Bu, belirsizlik toleransını arttırır.
+  
+  \item \textbf{Bütçe Bilinçliği:} Maliyet paneli, planlama ilk aşamasından itibaren ekonomik kısıtları hissettir. Kullanıcı, model seçimini maliyet-performans dengesini göz önünde tutarak yapar.
+  
+  \item \textbf{Başlangıç Flüdityeti:} Açılış sayfası ve auth hunisi, yeni kullanıcıların ilk 90 saniye içinde sistem yetkinliğini anlamasını sağlar.
+\end{enumerate}
+
+
+\subsection*{Son Söz}
+
+Yazılım geliştirmede, sembolik değişkenlerin hesaplanması kolayken, kullanıcının iç gözlemini iyileştirmek zordur. Hafta 6, bu zorlama direkt olarak karşılamış ve sistem davranışlarını insani terimlerle ifade etme yolunu açmıştır: ``Sistem şu an hızlı çalışıyor, bağlam takvimi iyi durumda, maliyetler kontrol altında.''
+
+Bu, sadece insan-bilgisayar arayüzünü değil; insan-yapay zeka ortaklığının temelini kuvvetlendirmiştir.
+
+\begin{infobox}[Yönetim Notu]
+Bu dokümantasyon, akademik değerlendirme, kod tabanı onboarding ve gelecek sprint planlama için referans belgesi olarak hazırlanmıştır. Teknik kararların temelleri, mimari seçimlerin sebepleri ve ölçüm zamanları net biçimde açıklanmıştır. Her bölüm, bağımsız olarak okunabilir; uzun değer metne sahip tüm açıklamalar için \textit{Problem} veya \textit{Task} alt başlıklarında başlanması önerilir.
+\end{infobox}
+
+
+
+\end{document}
