@@ -1,4 +1,5 @@
 import os
+import uuid
 import sys
 import re
 import io
@@ -20,7 +21,7 @@ from flask_jwt_extended import (
 )
 from passlib.hash import pbkdf2_sha256
 from google import generativeai as genai
-from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile
+from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment
 from anthropic import Anthropic, APIError
 from openai import OpenAI
 from utils.language_detector import LanguageDetector
@@ -35,6 +36,17 @@ CACHE_TTL = 3600  # 1 saat cache
 # Project embedding cache (RAG-lite for project chat)
 project_embedding_cache = {}
 PROJECT_EMBED_CACHE_TTL = 1800  # 30 minutes
+
+PLAN_LIMITS = {
+    'free': {
+        'daily_requests': 30,
+        'monthly_tokens': 120000,
+    },
+    'premium': {
+        'daily_requests': 250,
+        'monthly_tokens': 1200000,
+    }
+}
 
 
 def _cosine_similarity(v1, v2):
@@ -1300,6 +1312,354 @@ def summarize_answer(answer: str) -> str:
         return answer[:100] + "..."
 
 
+# --- GAMIFICATION SYSTEM ---
+
+BADGES = {
+    'first_question': {'icon': '🌱', 'name': 'İlk Adım', 'desc': 'İlk soruyu sordun'},
+    '10_questions': {'icon': '💬', 'name': 'Meraklı', 'desc': '10 soru sordun'},
+    '100_questions': {'icon': '🧠', 'name': 'Bilge', 'desc': '100 soru sordun'},
+    'first_share': {'icon': '📢', 'name': 'Paylaşımcı', 'desc': 'Toplulukta ilk paylaşım'},
+    '10_shares': {'icon': '🌟', 'name': 'İçerik Üretici', 'desc': '10 paylaşım yaptın'},
+    'first_answer': {'icon': '🤝', 'name': 'Yardımsever', 'desc': 'Toplulukta ilk cevap'},
+    'streak_7': {'icon': '🔥', 'name': 'Haftalık Seri', 'desc': '7 gün üst üste aktif'},
+    'streak_30': {'icon': '⚡', 'name': 'Aylık Seri', 'desc': '30 gün üst üste aktif'},
+    '10_likes': {'icon': '❤️', 'name': 'Beğenilen', 'desc': '10 beğeni aldın'},
+    'multi_model': {'icon': '⚗️', 'name': 'Simyacı', 'desc': 'Birden fazla AI modeli kullandın'},
+    'level_10': {'icon': '👑', 'name': 'Usta', 'desc': '10. Seviyeye ulaştın'}
+}
+
+def calculate_level(xp):
+    """XP'ye göre seviye hesaplar (Seviye = Kök(XP/100) + 1)
+    Not: total_xp_earned kullanılarak level hiçbir zaman düşmez"""
+    safe_xp = max(int(xp or 0), 0)
+    return math.floor(math.sqrt(safe_xp / 100)) + 1
+
+def resolve_effective_progress(user):
+    """Kullanıcı için tutarlı total_xp ve level döndürür.
+    total_xp_earned eski kayıtlarda boş kalmışsa xp ile tamamlanır.
+    """
+    safe_xp = max(int((user.xp or 0)), 0)
+    safe_total_xp = max(int((user.total_xp_earned or 0)), 0)
+    effective_total_xp = max(safe_total_xp, safe_xp)
+    calculated_level = calculate_level(effective_total_xp)
+    stored_level = max(int((user.level or 1)), 1)
+    effective_level = max(stored_level, calculated_level)
+    return effective_total_xp, effective_level
+
+def get_level_xp_bounds(level):
+    """Verilen seviye için [min_xp, next_level_xp) aralığını döner."""
+    safe_level = max(int(level or 1), 1)
+    current_level_min_xp = 100 * ((safe_level - 1) ** 2)
+    next_level_xp = 100 * (safe_level ** 2)
+    return current_level_min_xp, next_level_xp
+
+def get_rank_title(level):
+    safe_level = max(int(level or 1), 1)
+    if safe_level >= 20:
+        return 'Grand Archmage'
+    if safe_level >= 15:
+        return 'Master Alchemist'
+    if safe_level >= 10:
+        return 'Arcane Engineer'
+    if safe_level >= 6:
+        return 'Code Adept'
+    if safe_level >= 3:
+        return 'Junior Alchemist'
+    return 'Novice Alchemist'
+
+def check_and_award_badges(user):
+    """Kullanıcının statülerine göre hak ettiği rozetleri kontrol eder ve verir."""
+    if not user:
+        return []
+    
+    new_badges = []
+    
+    # Mevcut rozetleri al
+    existing_badges = [b.badge_id for b in user.badges.all()]
+    
+    stats = {
+        'questions': History.query.join(Conversation).filter(Conversation.user_id == user.id).count(),
+        'shares': History.query.filter_by(conversation_id=None).filter(History.id.in_(
+            db.session.query(History.id).join(Conversation, isouter=True).filter(Conversation.user_id == user.id)
+        )).count(), # Çok detaylı değil, sadece fikir vermesi için (TODO: Daha iyi paylaşım sayımı)
+        'answers': Answer.query.filter_by(author_id=user.id).count(),
+        'likes': db.session.query(db.func.sum(History.likes)).join(Conversation).filter(Conversation.user_id == user.id).scalar() or 0
+    }
+    
+    # Soru Badge'leri
+    if stats['questions'] >= 1 and 'first_question' not in existing_badges:
+        new_badges.append('first_question')
+    if stats['questions'] >= 10 and '10_questions' not in existing_badges:
+        new_badges.append('10_questions')
+    if stats['questions'] >= 100 and '100_questions' not in existing_badges:
+        new_badges.append('100_questions')
+        
+    # Cevap Badge'i
+    if stats['answers'] >= 1 and 'first_answer' not in existing_badges:
+        new_badges.append('first_answer')
+        
+    # Beğeni Badge'i
+    if stats['likes'] >= 10 and '10_likes' not in existing_badges:
+        new_badges.append('10_likes')
+        
+    # Streak Badge'leri
+    if user.streak_days >= 7 and 'streak_7' not in existing_badges:
+        new_badges.append('streak_7')
+    if user.streak_days >= 30 and 'streak_30' not in existing_badges:
+        new_badges.append('streak_30')
+        
+    # Seviye Badge'i
+    if user.level >= 10 and 'level_10' not in existing_badges:
+        new_badges.append('level_10')
+        
+    # Multi-model Badge (Farklı modeller kullanmış mı?)
+    if 'multi_model' not in existing_badges:
+        prefs = get_user_preferences(user)
+        usage = prefs.get('usage_stats', {})
+        used_models_count = sum(1 for m, count in usage.items() if count > 0)
+        if used_models_count > 1:
+            new_badges.append('multi_model')
+            
+    # Rozetleri veritabanına ekle
+    for badge_id in new_badges:
+        badge = UserBadge(user_id=user.id, badge_id=badge_id)
+        db.session.add(badge)
+        
+    # Kullanıcıya bildirim gönderilebilir (opsiyonel)
+    if new_badges:
+        db.session.commit()
+        
+    return new_badges
+
+def update_streak(user):
+    """Kullanıcının streak (seri) günlerini günceller."""
+    today = datetime.datetime.utcnow().date()
+    
+    if user.last_active_date == today:
+        return False # Bugün zaten güncellenmiş
+        
+    if user.last_active_date == today - timedelta(days=1):
+        # Dün aktifmiş, streak artar
+        user.streak_days += 1
+    else:
+        # Arada gün boşluk var veya ilk defa, sıfırla/başlat
+        user.streak_days = 1
+        
+    if user.streak_days > user.longest_streak:
+        user.longest_streak = user.streak_days
+        
+    user.last_active_date = today
+    return True
+
+def award_xp(user_id, amount, reason="", source="generic", metadata=None):
+    """Kullanıcıya XP verir ve seviyesini günceller.
+    Not: total_xp_earned her zaman artar, xp harcama mekanizmalarından etkilenmez."""
+    user = db.session.get(User, user_id)
+    if not user:
+        return None
+
+    old_xp = user.xp or 0
+    old_total_xp = user.total_xp_earned or 0
+    
+    # XP ve total_xp_earned'i güncelle
+    user.xp = old_xp + amount
+    user.total_xp_earned = old_total_xp + amount
+    
+    awarded_total = amount
+    metadata_json = json.dumps(metadata) if metadata else None
+
+    db.session.add(XPEvent(
+        user_id=user.id,
+        amount=amount,
+        source=source,
+        reason=reason,
+        metadata_json=metadata_json
+    ))
+    
+    # Streak güncellemesi
+    streak_updated = update_streak(user)
+    if streak_updated and user.streak_days > 1:
+        streak_bonus = 20
+        user.xp += streak_bonus # Streak bonusu
+        user.total_xp_earned += streak_bonus  # Total'a da ekle
+        awarded_total += streak_bonus
+        db.session.add(XPEvent(
+            user_id=user.id,
+            amount=streak_bonus,
+            source='streak_bonus',
+            reason='Streak Bonus',
+            metadata_json=None
+        ))
+        
+    # Seviye hesaplama - total_xp_earned'e göre (hiçbir zaman düşmez)
+    old_level = user.level
+    new_level = calculate_level(user.total_xp_earned)
+    
+    level_up = False
+    if new_level > old_level:
+        user.level = new_level
+        level_up = True
+    
+    # 💰 COIN KAZANMA MANTIGI - Sadık kullanıcılara bonus
+    coins_earned = 0
+    if source == 'ask_question':
+        coins_earned = 1  # Her soru sorunca 1 coin
+    elif source == 'share_solution':
+        coins_earned = 3  # Çözüm paylaşınca 3 coin
+    elif source == 'community_post':
+        coins_earned = 2  # Community post için 2 coin
+    elif source in ('received_like_post', 'received_like_answer'):
+        coins_earned = 1  # Beğeni için 1 coin
+    
+    # Streak bonusu - sadık kullanıcılara ek coin
+    if user.streak_days >= 14:
+        coins_earned += 5
+    elif user.streak_days >= 7:
+        coins_earned += 2
+    elif user.streak_days >= 3:
+        coins_earned += 1
+    
+    user.coins += coins_earned
+        
+    db.session.commit()
+    
+    # Rozet kontrolü yap
+    earned_badges = check_and_award_badges(user)
+    
+    # Rozet aldığında ek bonus coin
+    if earned_badges:
+        bonus_coins = len(earned_badges) * 10
+        user.coins += bonus_coins
+        db.session.commit()
+    
+    return {
+        'old_xp': old_xp,
+        'new_xp': user.xp,
+        'awarded_xp': awarded_total,
+        'coins_earned': coins_earned,
+        'total_coins': user.coins,
+        'old_level': old_level,
+        'new_level': new_level,
+        'level_up': level_up,
+        'streak_days': user.streak_days,
+        'earned_badges': earned_badges,
+        'reason': reason
+    }
+
+
+# --- GAMIFICATION API ROUTES ---
+
+@app.route('/api/gamification/profile', methods=['GET'])
+@jwt_required()
+def get_gamification_profile():
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    # Level ve total_xp değerlerini tutarlı hale getir
+    total_xp_earned, user_level = resolve_effective_progress(user)
+    needs_commit = False
+    if (user.total_xp_earned or 0) != total_xp_earned:
+        user.total_xp_earned = total_xp_earned
+        needs_commit = True
+    if (user.level or 1) != user_level:
+        user.level = user_level
+        needs_commit = True
+    if needs_commit:
+        db.session.commit()
+
+    # Progress hesaplaması da total_xp_earned'e göre
+    current_level_min_xp, next_level_xp = get_level_xp_bounds(user_level)
+    xp_to_next_level = max(next_level_xp - total_xp_earned, 0)
+    level_span = max(next_level_xp - current_level_min_xp, 1)
+    progress_percent = round(((total_xp_earned - current_level_min_xp) / level_span) * 100, 1)
+    progress_percent = max(0, min(progress_percent, 100))
+
+    base_name = (user.display_name or '').strip()
+    safe_handle = re.sub(r'[^a-z0-9_]', '', re.sub(r'\s+', '_', base_name.lower()))
+    if not safe_handle:
+        safe_handle = f'user_{user.id}'
+
+    badges = []
+    for b in user.badges.all():
+        info = BADGES.get(b.badge_id, {})
+        badges.append({
+            'id': b.badge_id,
+            'earned_at': b.earned_at.isoformat(),
+            'icon': info.get('icon', '🏅'),
+            'name': info.get('name', b.badge_id),
+            'description': info.get('desc', '')
+        })
+    
+    return jsonify({
+        'user_id': user.id,
+        'display_name': user.display_name,
+        'username': safe_handle,
+        'xp': user.xp or 0,
+        'total_xp_earned': total_xp_earned,
+        'coins': user.coins or 0,
+        'level': user_level,
+        'rank_title': get_rank_title(user_level),
+        'current_level_min_xp': current_level_min_xp,
+        'next_level_xp': next_level_xp,
+        'xp_to_next_level': xp_to_next_level,
+        'progress_percent': progress_percent,
+        'streak_days': user.streak_days,
+        'longest_streak': user.longest_streak,
+        'last_active_date': user.last_active_date.isoformat() if user.last_active_date else None,
+        'badges': badges,
+        'all_badges_info': BADGES
+    })
+
+@app.route('/api/gamification/leaderboard', methods=['GET'])
+@jwt_required()
+def get_leaderboard():
+    # En yüksek total_xp_earned'e sahip aktif kullanıcıları getir (0 XP doldurma yapma)
+    top_users = (
+        User.query
+        .filter(db.func.coalesce(User.total_xp_earned, 0) > 0)
+        .order_by(db.func.coalesce(User.total_xp_earned, 0).desc(), User.id.asc())
+        .limit(20)
+        .all()
+    )
+    
+    leaderboard = []
+    needs_commit = False
+    for idx, u in enumerate(top_users):
+        total_xp, user_level = resolve_effective_progress(u)
+        if (u.total_xp_earned or 0) != total_xp:
+            u.total_xp_earned = total_xp
+            needs_commit = True
+        if (u.level or 1) != user_level:
+            u.level = user_level
+            needs_commit = True
+        leaderboard.append({
+            'user_id': u.id,
+            'display_name': u.display_name,
+            'profile_image': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(u.profile_image)}" if u.profile_image else None,
+            'level': user_level,
+            'total_xp': total_xp,
+            'rank': idx + 1,
+            'badges_count': u.badges.count()
+        })
+    if needs_commit:
+        db.session.commit()
+        
+    return jsonify({'leaderboard': leaderboard})
+
+@app.route('/api/gamification/sync', methods=['POST'])
+@jwt_required()
+def sync_gamification():
+    """Client tarafından tetiklenen günlük giriş XP'si kazanımı."""
+    user = get_current_user()
+    if not user:
+         return jsonify({'error': 'User not found'}), 404
+         
+    # update_streak zaten award_xp içinde çalışıyor
+    result = award_xp(user.id, 5, "Daily Login", source='daily_login')
+    
+    return jsonify(result)
+
 def get_user_preferences(user):
     """Kullanıcının AI Taste Profile bilgilerini JSON olarak döner."""
     if not user or not user.preferences:
@@ -1308,6 +1668,7 @@ def get_user_preferences(user):
             "response_style": "balanced",
             "fav_language": "natural",
             "usage_stats": {"claude": 0, "gemini": 0, "gpt": 0},
+            "subscription_plan": "free",
             "persona": "General User",
             "expertise": "Mid-level",
             "interests": []
@@ -1320,10 +1681,156 @@ def get_user_preferences(user):
             "response_style": "balanced",
             "fav_language": "natural",
             "usage_stats": {"claude": 0, "gemini": 0, "gpt": 0},
+            "subscription_plan": "free",
             "persona": "General User",
             "expertise": "Mid-level",
             "interests": []
         }
+
+
+def _normalize_subscription_plan(raw_plan):
+    return 'premium' if str(raw_plan or '').strip().lower() == 'premium' else 'free'
+
+
+def _estimate_tokens_for_request(question, code=''):
+    chars = len(question or '') + len(code or '')
+    return max(1, math.ceil(chars / 4))
+
+
+def _build_usage_payload(plan, daily_count, month_tokens):
+    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS['free'])
+    daily_remaining = max(0, limits['daily_requests'] - daily_count)
+    monthly_remaining = max(0, limits['monthly_tokens'] - month_tokens)
+    return {
+        'plan': plan,
+        'limits': limits,
+        'usage': {
+            'daily_requests_used': daily_count,
+            'monthly_tokens_used': month_tokens,
+            'daily_requests_remaining': daily_remaining,
+            'monthly_tokens_remaining': monthly_remaining,
+        }
+    }
+
+
+def _get_or_init_usage_counters(user):
+    prefs = get_user_preferences(user)
+    plan = _normalize_subscription_plan(prefs.get('subscription_plan', 'free'))
+
+    usage_limits = prefs.get('usage_limits') or {}
+    today = datetime.datetime.utcnow().date().isoformat()
+    month_key = datetime.datetime.utcnow().strftime('%Y-%m')
+
+    daily = usage_limits.get('daily') or {}
+    monthly = usage_limits.get('monthly') or {}
+
+    if daily.get('date') != today:
+        daily = {'date': today, 'count': 0}
+
+    if monthly.get('month') != month_key:
+        monthly = {'month': month_key, 'tokens': 0}
+
+    usage_limits['daily'] = daily
+    usage_limits['monthly'] = monthly
+    prefs['usage_limits'] = usage_limits
+    prefs['subscription_plan'] = plan
+
+    return prefs, plan, usage_limits
+
+
+def consume_plan_quota(user, estimated_tokens, request_weight=1):
+    """Consume request/token quota for authenticated users."""
+    if not user:
+        return {
+            'allowed': True,
+            'plan': 'guest',
+            'limits': None,
+            'usage': None,
+            'reason': None,
+        }
+
+    prefs, plan, usage_limits = _get_or_init_usage_counters(user)
+    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS['free'])
+
+    daily_count = int(usage_limits['daily'].get('count', 0) or 0)
+    month_tokens = int(usage_limits['monthly'].get('tokens', 0) or 0)
+
+    projected_daily = daily_count + max(1, int(request_weight or 1))
+    projected_monthly_tokens = month_tokens + max(1, int(estimated_tokens or 1))
+
+    if projected_daily > limits['daily_requests']:
+        payload = _build_usage_payload(plan, daily_count, month_tokens)
+        return {
+            'allowed': False,
+            'plan': plan,
+            'limits': limits,
+            'usage': payload['usage'],
+            'reason': 'daily_requests_exceeded',
+        }
+
+    if projected_monthly_tokens > limits['monthly_tokens']:
+        payload = _build_usage_payload(plan, daily_count, month_tokens)
+        return {
+            'allowed': False,
+            'plan': plan,
+            'limits': limits,
+            'usage': payload['usage'],
+            'reason': 'monthly_tokens_exceeded',
+        }
+
+    usage_limits['daily']['count'] = projected_daily
+    usage_limits['monthly']['tokens'] = projected_monthly_tokens
+    prefs['usage_limits'] = usage_limits
+    user.preferences = json.dumps(prefs)
+    db.session.commit()
+
+    payload = _build_usage_payload(plan, projected_daily, projected_monthly_tokens)
+    return {
+        'allowed': True,
+        'plan': plan,
+        'limits': limits,
+        'usage': payload['usage'],
+        'reason': None,
+    }
+
+
+@app.route('/api/billing/usage', methods=['GET'])
+@jwt_required()
+def get_billing_usage():
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    prefs, plan, usage_limits = _get_or_init_usage_counters(user)
+    daily_count = int(usage_limits['daily'].get('count', 0) or 0)
+    month_tokens = int(usage_limits['monthly'].get('tokens', 0) or 0)
+    user.preferences = json.dumps(prefs)
+    db.session.commit()
+
+    payload = _build_usage_payload(plan, daily_count, month_tokens)
+    return jsonify(payload)
+
+
+@app.route('/api/billing/plan', methods=['POST'])
+@jwt_required()
+def update_billing_plan():
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    data = request.json or {}
+    requested_plan = _normalize_subscription_plan(data.get('plan', 'free'))
+
+    prefs, plan, usage_limits = _get_or_init_usage_counters(user)
+    prefs['subscription_plan'] = requested_plan
+    user.preferences = json.dumps(prefs)
+    db.session.commit()
+
+    daily_count = int(usage_limits['daily'].get('count', 0) or 0)
+    month_tokens = int(usage_limits['monthly'].get('tokens', 0) or 0)
+    payload = _build_usage_payload(requested_plan, daily_count, month_tokens)
+    payload['message'] = f"Plan updated to {requested_plan}."
+    return jsonify(payload)
 
 def update_user_taste(user, model_used, answer_text, user_question=""):
     """Kullanıcının tercihlerini ve personasını analiz ederek otomatik günceller."""
@@ -1615,7 +2122,12 @@ def serialize_user(user: User) -> dict:
         'is_admin': user.is_admin,
         'profile_image': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(user.profile_image)}" if user.profile_image else None,
         'created_at': user.created_at.strftime('%Y-%m-%d %H:%M'),
-        'preferences': prefs
+        'preferences': prefs,
+        'xp': user.xp,
+        'level': user.level,
+        'streak_days': user.streak_days,
+        'last_active_date': user.last_active_date.strftime('%Y-%m-%d %H:%M') if user.last_active_date else None,
+        'longest_streak': user.longest_streak
     }
 
 def hash_password(password: str) -> str:
@@ -2490,6 +3002,27 @@ def ask():
     # AI Taste Profile al
     prefs = get_user_preferences(user)
 
+    # Free/Premium quota gate (best effort for authenticated users)
+    try:
+        estimated_tokens = _estimate_tokens_for_request(question, code)
+        quota_result = consume_plan_quota(user, estimated_tokens, request_weight=1)
+        if not quota_result.get('allowed', True):
+            reason = quota_result.get('reason')
+            message = (
+                'Daily request limit reached. Upgrade to Premium for higher limits.'
+                if reason == 'daily_requests_exceeded'
+                else 'Monthly token limit reached. Upgrade to Premium for higher limits.'
+            )
+            return jsonify({
+                'error': message,
+                'upgrade_required': quota_result.get('plan') == 'free',
+                'plan': quota_result.get('plan'),
+                'usage': quota_result.get('usage'),
+                'reason': reason,
+            }), 429
+    except Exception as e:
+        print(f"Quota check failed (continuing): {e}")
+
     # Check if this is a no-save request (used for model comparison)
     no_save = data.get('no_save', False) if 'data' in dir() and data else False
     if request.content_type and 'application/json' in request.content_type:
@@ -2789,6 +3322,13 @@ def ask():
                     'selected_model': model,
                     'persona': history.persona
                 }
+                
+                # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa)
+                if user and current_conv:
+                    xp_result = award_xp(user.id, 10, "Asking a Question", source='ask_question')
+                    if xp_result:
+                        final_data['xp_awarded'] = xp_result
+                        
                 yield f"data: {json.dumps(final_data)}\n\n"
             else:
                 # No-save mode: just signal completion without DB info
@@ -2849,6 +3389,27 @@ def blend_models():
     prefs = get_user_preferences(user)
     persona = prefs.get('persona', 'General User')
     expertise = prefs.get('expertise', 'intermediate')
+
+    # Blend requests are costlier: request weight equals selected model count.
+    try:
+        blend_estimated_tokens = _estimate_tokens_for_request(question, code) * max(1, len(models))
+        quota_result = consume_plan_quota(user, blend_estimated_tokens, request_weight=max(2, len(models)))
+        if not quota_result.get('allowed', True):
+            reason = quota_result.get('reason')
+            message = (
+                'Daily blend quota reached for your plan. Upgrade to Premium.'
+                if reason == 'daily_requests_exceeded'
+                else 'Monthly token quota reached for your plan. Upgrade to Premium.'
+            )
+            return jsonify({
+                'error': message,
+                'upgrade_required': quota_result.get('plan') == 'free',
+                'plan': quota_result.get('plan'),
+                'usage': quota_result.get('usage'),
+                'reason': reason,
+            }), 429
+    except Exception as e:
+        print(f"Blend quota check failed (continuing): {e}")
     
     # Create or get conversation
     if user:
@@ -3029,7 +3590,7 @@ Provide a clear reasoning/justification for why this blended response was chosen
                     ai_response=blended_response,
                     code_snippet=code if code else None,
                     selected_model=f"Blend: {', '.join(models[:2])}{'...' if len(models) > 2 else ''}",
-                    timestamp=datetime.datetime.now(),
+                    timestamp=datetime.datetime.utcnow(),
                     reasoning=referee_reasoning,
                     routing_reason=f"Blended {', '.join(models)} for enhanced accuracy",
                     persona=persona
@@ -3582,12 +4143,18 @@ def get_popular():
 @app.route('/api/stats/model-usage', methods=['GET'])
 @jwt_required(optional=True)
 def get_model_usage():
-    """Returns model usage statistics and estimated costs"""
+    """Returns model usage statistics and estimated costs for current user"""
     try:
-        # Group by selected_model and count
+        user_id = get_jwt_identity()
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+        
+        # Mevcut kullanıcı için sorguyu filtrele (tüm zamanlar)
         results = db.session.query(
             History.selected_model,
             db.func.count(History.id)
+        ).filter(
+            History.conversation.has(user_id=user_id)
         ).group_by(History.selected_model).all()
 
         usage_data = []
@@ -3644,6 +4211,9 @@ def like_history(history_id: int):
             related_post_id=history_id
         )
         db.session.add(notification)
+        
+        # Beğeni alan kişiye XP ver
+        award_xp(history.conversation.user_id, 5, "Received a Like", source='received_like_post')
     
     db.session.commit()
     return jsonify({'likes': history.likes, 'status': 'liked'})
@@ -3681,6 +4251,9 @@ def like_answer(answer_id: int):
             related_post_id=answer.history_id
         )
         db.session.add(notification)
+        
+        # Beğeni alan kişiye XP ver
+        award_xp(answer.author_id, 5, "Received a Like on Comment", source='received_like_answer')
     
     db.session.commit()
     return jsonify({'likes': answer.likes, 'status': 'liked'})
@@ -4456,6 +5029,10 @@ def create_answer(history_id: int):
             except Exception as ne:
                 print(f"Notification error (ignored): {ne}")
         
+        
+        # Çözüm paylaşan kişiye XP ver
+        award_xp(user.id, 15, "Sharing a Solution", source='share_solution')
+        
         db.session.commit()
         return jsonify({'answer': serialize_answer(answer)}), 201
         
@@ -4550,6 +5127,9 @@ def create_community_post():
         )
         db.session.add(answer)
         db.session.commit()
+
+    # Toplulukta paylaşım yapan kişiye XP ver
+    award_xp(user.id, 15, "Creating a Community Post", source='community_post')
 
     return jsonify({
         'status': 'success',
@@ -5403,6 +5983,426 @@ def semantic_search_project_context(project_id):
     })
 
 
+# ==========================================
+# TEMA VE KİŞİSELLEŞTİRME MAĞAZASI (THEME STORE)
+# ==========================================
+
+@app.route('/api/themes', methods=['GET'])
+@jwt_required()
+def get_user_theme():
+    """Kullanıcının tercih ettiği temayı ve açılmış temaları getir."""
+    from models import UserTheme
+    user_id = int(get_jwt_identity())
+    
+    theme_pref = UserTheme.query.filter_by(user_id=user_id).first()
+    
+    if not theme_pref:
+        # Varsayılan oluştur
+        theme_pref = UserTheme(
+            user_id=user_id,
+            active_theme='dark',
+            unlocked_themes=json.dumps(['light', 'dark'])
+        )
+        db.session.add(theme_pref)
+        db.session.commit()
+    
+    unlocked = []
+    try:
+        unlocked = json.loads(theme_pref.unlocked_themes)
+    except:
+        unlocked = ['light', 'dark']
+        
+    return jsonify({
+        'active_theme': theme_pref.active_theme,
+        'unlocked_themes': unlocked
+    })
+
+@app.route('/api/themes', methods=['POST'])
+@jwt_required()
+def update_user_theme():
+    """Kullanıcının aktif temasını güncelle veya yeni tema satın al."""
+    from models import UserTheme, User
+    user_id = int(get_jwt_identity())
+    data = request.json or {}
+    
+    action = data.get('action') # 'set_active' or 'unlock'
+    theme_name = data.get('theme')
+    
+    if not theme_name:
+        return jsonify({'error': 'Tema adı gerekli'}), 400
+        
+    theme_pref = UserTheme.query.filter_by(user_id=user_id).first()
+    user = User.query.get(user_id)
+    
+    if not theme_pref:
+        theme_pref = UserTheme(
+            user_id=user_id,
+            active_theme='dark',
+            unlocked_themes=json.dumps(['light', 'dark'])
+        )
+        db.session.add(theme_pref)
+    
+    unlocked = []
+    try:
+        unlocked = json.loads(theme_pref.unlocked_themes)
+    except:
+        unlocked = ['light', 'dark']
+        
+    if action == 'set_active':
+        if theme_name not in unlocked:
+            return jsonify({'error': 'Bu temanın kilidi henüz açılmamış'}), 403
+        
+        theme_pref.active_theme = theme_name
+        db.session.commit()
+        return jsonify({'message': 'Aktif tema güncellendi', 'theme': theme_name})
+        
+    elif action == 'unlock':
+        cost = data.get('cost', 50)  # Varsayılan 50 Coin (XP değil)
+        
+        if theme_name in unlocked:
+            return jsonify({'error': 'Bu tema zaten açık'}), 400
+            
+        if user.coins < cost:
+            return jsonify({'error': f'Yetersiz Coin. ({cost} Coin gerekli)'}), 403
+            
+        # Coin harcatma
+        user.coins -= cost
+        unlocked.append(theme_name)
+        theme_pref.unlocked_themes = json.dumps(unlocked)
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'{theme_name} teması başarıyla açıldı',
+            'unlocked_themes': unlocked,
+            'remaining_coins': user.coins
+        })
+        
+    return jsonify({'error': 'Geçersiz işlem'}), 400
+
+
+
+
+# ==========================================
+# GERÇEK ZAMANLI İŞBİRLİĞİ (COLLABORATION)
+# ==========================================
+
+@app.route('/api/collaboration/share', methods=['POST'])
+@jwt_required()
+def share_conversation():
+    """Konuşma için paylaşım linki/token'ı oluştur."""
+    from models import SharedSession, Conversation
+    user_id = int(get_jwt_identity())
+    data = request.json or {}
+    conversation_id = data.get('conversation_id')
+    
+    if not conversation_id:
+        return jsonify({'error': 'conversation_id gerekli'}), 400
+        
+    # Konuşma sahipliği kontrolü
+    conv = Conversation.query.filter_by(id=conversation_id, user_id=user_id).first()
+    if not conv:
+        return jsonify({'error': 'Konuşma bulunamadı veya erişim yetkiniz yok'}), 404
+        
+    # Mevcut aktif session var mı bak
+    existing_session = SharedSession.query.filter_by(conversation_id=conversation_id, is_active=True).first()
+    if existing_session:
+        return jsonify({
+            'share_token': existing_session.share_token,
+            'message': 'Mevcut paylaşım linki döndürüldü'
+        })
+        
+    # Yeni token oluştur
+    token = str(uuid.uuid4())
+    new_session = SharedSession(
+        conversation_id=conversation_id,
+        owner_id=user_id,
+        share_token=token,
+        is_active=True
+    )
+    db.session.add(new_session)
+    db.session.commit()
+    
+    return jsonify({
+        'share_token': token,
+        'message': 'Yeni paylaşım linki oluşturuldu'
+    })
+
+@app.route('/api/collaboration/session/<token>', methods=['GET'])
+def get_shared_session(token):
+    """Token üzerinden paylaşılan konuşma detaylarını getir."""
+    from models import SharedSession, History
+    
+    session = SharedSession.query.filter_by(share_token=token, is_active=True).first()
+    if not session:
+        return jsonify({'error': 'Geçersiz veya süresi dolmuş paylaşım linki'}), 404
+        
+    # Konuşma geçmişini getir
+    history = History.query.filter_by(conversation_id=session.conversation_id).order_by(History.timestamp.asc()).all()
+    
+    history_data = []
+    for h in history:
+        history_data.append({
+            'id': h.id,
+            'user_question': h.user_question,
+            'ai_response': h.ai_response,
+            'code_snippet': h.code_snippet,
+            'selected_model': h.selected_model,
+            'timestamp': h.timestamp.isoformat(),
+            'image_url': f"/api/uploads/{h.image_path}" if h.image_path else None
+        })
+        
+    return jsonify({
+        'conversation_id': session.conversation_id,
+        'history': history_data,
+        'owner_display_name': session.owner.display_name,
+        'title': session.conversation.title or 'Paylaşılan Sohbet'
+    })
+
+@app.route('/api/collaboration/session/<token>/send', methods=['POST'])
+def send_to_session(token):
+    # ... (existing code for sending to session)
+    from models import SharedSession, History, User
+    
+    session = SharedSession.query.filter_by(share_token=token, is_active=True).first()
+    if not session:
+        return jsonify({'error': 'Geçersiz paylaşım linki'}), 404
+        
+    if not session.allow_chat:
+        return jsonify({'error': 'Bu oturumda mesaj gönderme yetkisi kapalı'}), 403
+        
+    data = request.json or {}
+    question = data.get('question')
+    model_name = data.get('model', 'gemini-1.5-flash')
+    
+    if not question:
+        return jsonify({'error': 'Mesaj boş olamaz'}), 400
+        
+    user_msg = History(
+        conversation_id=session.conversation_id,
+        user_question=question,
+        selected_model=model_name,
+        ai_response="Simyacı hazırlanıyor... (Yanıt bekleniyor)"
+    )
+    db.session.add(user_msg)
+    db.session.commit()
+    
+    return jsonify({
+        'status': 'success',
+        'message_id': user_msg.id
+    })
+
+
+@app.route('/api/collaboration/session/<token>/review', methods=['GET'])
+def get_session_review(token):
+    """Return current review status and comment thread for a shared session."""
+    session = SharedSession.query.filter_by(share_token=token, is_active=True).first()
+    if not session:
+        return jsonify({'error': 'Geçersiz paylaşım linki'}), 404
+
+    review = CollaborationReview.query.filter_by(session_id=session.id).first()
+    comments = CollaborationComment.query.filter_by(session_id=session.id).order_by(CollaborationComment.created_at.desc()).limit(100).all()
+
+    return jsonify({
+        'status': review.status if review else 'open',
+        'updated_at': review.updated_at.isoformat() if review and review.updated_at else None,
+        'updated_by': review.updated_by_name if review else None,
+        'comments': [
+            {
+                'id': c.id,
+                'author': c.author_name,
+                'comment': c.comment,
+                'created_at': c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in comments
+        ]
+    })
+
+
+@app.route('/api/collaboration/session/<token>/review/comment', methods=['POST'])
+def add_session_review_comment(token):
+    """Add a review comment to shared session thread."""
+    session = SharedSession.query.filter_by(share_token=token, is_active=True).first()
+    if not session:
+        return jsonify({'error': 'Geçersiz paylaşım linki'}), 404
+
+    data = request.json or {}
+    comment_text = (data.get('comment') or '').strip()
+    if not comment_text:
+        return jsonify({'error': 'Yorum boş olamaz'}), 400
+
+    user = get_current_user()
+    author_name = user.display_name if user else (data.get('guest_name') or 'Guest Reviewer')
+
+    comment = CollaborationComment(
+        session_id=session.id,
+        author_user_id=user.id if user else None,
+        author_name=author_name,
+        comment=comment_text,
+    )
+    db.session.add(comment)
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Yorum eklendi',
+        'comment': {
+            'id': comment.id,
+            'author': comment.author_name,
+            'comment': comment.comment,
+            'created_at': comment.created_at.isoformat() if comment.created_at else None,
+        }
+    })
+
+
+@app.route('/api/collaboration/session/<token>/review/status', methods=['POST'])
+def set_session_review_status(token):
+    """Update review status for shared collaboration session."""
+    session = SharedSession.query.filter_by(share_token=token, is_active=True).first()
+    if not session:
+        return jsonify({'error': 'Geçersiz paylaşım linki'}), 404
+
+    data = request.json or {}
+    status = (data.get('status') or '').strip().lower()
+    allowed = {'open', 'revision_requested', 'approved'}
+    if status not in allowed:
+        return jsonify({'error': 'Geçersiz durum'}), 400
+
+    user = get_current_user()
+    actor_name = user.display_name if user else (data.get('guest_name') or 'Guest Reviewer')
+
+    review = CollaborationReview.query.filter_by(session_id=session.id).first()
+    if not review:
+        review = CollaborationReview(session_id=session.id, status=status)
+        db.session.add(review)
+    review.status = status
+    review.updated_by_user_id = user.id if user else None
+    review.updated_by_name = actor_name
+    review.updated_at = datetime.datetime.utcnow()
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Review durumu güncellendi',
+        'status': review.status,
+        'updated_by': review.updated_by_name,
+        'updated_at': review.updated_at.isoformat() if review.updated_at else None,
+    })
+
+@app.route('/api/stats/weekly', methods=['GET'])
+@jwt_required()
+def get_weekly_stats():
+    """Haftalık kullanım istatistiklerini getir."""
+    from models import History, User, XPEvent
+    from datetime import datetime, timedelta
+    
+    user_id = int(get_jwt_identity())
+    now = datetime.utcnow()
+    last_7_days = now - timedelta(days=7)
+    prev_7_days = now - timedelta(days=14)
+    
+    # Bu haftaki sorular
+    current_questions = History.query.filter(
+        History.conversation.has(user_id=user_id),
+        History.timestamp >= last_7_days
+    ).all()
+    
+    # Geçen haftaki sorular
+    prev_questions = History.query.filter(
+        History.conversation.has(user_id=user_id),
+        History.timestamp >= prev_7_days,
+        History.timestamp < last_7_days
+    ).count()
+    
+    # Model kullanımı
+    model_usage = {}
+    for q in current_questions:
+        m = q.selected_model or 'unknown'
+        model_usage[m] = model_usage.get(m, 0) + 1
+
+    # Gerçek XP event tablosundan haftalık hesap
+    xp_breakdown = {
+        'asking_question': 0,
+        'sharing_solution': 0,
+        'creating_community_post': 0,
+        'received_likes': 0,
+        'daily_login': 0,
+        'streak_bonus': 0,
+        'daily_login_and_streak': 0,
+        'other': 0
+    }
+
+    weekly_events = XPEvent.query.filter(
+        XPEvent.user_id == user_id,
+        XPEvent.created_at >= last_7_days
+    ).all()
+
+    real_xp_earned = 0
+    for ev in weekly_events:
+        ev_amount = ev.amount or 0
+        real_xp_earned += ev_amount
+
+        if ev.source == 'ask_question':
+            xp_breakdown['asking_question'] += ev_amount
+        elif ev.source == 'share_solution':
+            xp_breakdown['sharing_solution'] += ev_amount
+        elif ev.source == 'community_post':
+            xp_breakdown['creating_community_post'] += ev_amount
+        elif ev.source in ('received_like_post', 'received_like_answer'):
+            xp_breakdown['received_likes'] += ev_amount
+        elif ev.source == 'daily_login':
+            xp_breakdown['daily_login'] += ev_amount
+        elif ev.source == 'streak_bonus':
+            xp_breakdown['streak_bonus'] += ev_amount
+        else:
+            xp_breakdown['other'] += ev_amount
+
+    xp_breakdown['daily_login_and_streak'] = xp_breakdown['daily_login'] + xp_breakdown['streak_bonus']
+        
+    # Günlük dağılım (Son 7 gün, kronolojik) - tarih bazlı anahtarlar
+    daily_by_date = {}
+    for i in range(6, -1, -1):
+        date_obj = (now - timedelta(days=i)).date()
+        daily_by_date[date_obj.isoformat()] = {
+            'date': date_obj.isoformat(),
+            'label': date_obj.strftime('%a'),
+            'count': 0
+        }
+
+    for q in current_questions:
+        date_key = q.timestamp.date().isoformat()
+        if date_key in daily_by_date:
+            daily_by_date[date_key]['count'] += 1
+
+    # Geriye dönük uyumluluk için eski formatı da döndür
+    daily_stats = {item['label']: item['count'] for item in daily_by_date.values()}
+            
+    user = User.query.get(user_id)
+    total_xp_earned, user_level = resolve_effective_progress(user)
+    needs_commit = False
+    if (user.total_xp_earned or 0) != total_xp_earned:
+        user.total_xp_earned = total_xp_earned
+        needs_commit = True
+    if (user.level or 1) != user_level:
+        user.level = user_level
+        needs_commit = True
+    if needs_commit:
+        db.session.commit()
+    
+    return jsonify({
+        'current_week': {
+            'total_questions': len(current_questions),
+            'model_usage': model_usage,
+            'xp_earned': real_xp_earned,
+            'xp_breakdown': xp_breakdown,
+            'daily_distribution': daily_stats,
+            'daily_points': list(daily_by_date.values())
+        },
+        'previous_week_total': prev_questions,
+        'user_stats': {
+            'xp': user.xp,
+            'level': user_level,
+            'streak': user.streak_days
+        }
+    })
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')

@@ -188,6 +188,89 @@ const getUniqueContextHits = (hits = [], limit = 5) => {
 };
 
 
+const estimateTokenCount = (text = '') => Math.max(1, Math.ceil((text || '').length / 4));
+
+
+const optimizePromptWithReport = (prompt = '') => {
+  const original = prompt || '';
+  const lines = original.split('\n');
+  const seen = new Set();
+  const deduped = [];
+  let duplicateLinesRemoved = 0;
+
+  for (const line of lines) {
+    const normalized = line.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (normalized.length > 24) {
+      if (seen.has(normalized)) {
+        duplicateLinesRemoved += 1;
+        continue;
+      }
+      seen.add(normalized);
+    }
+    deduped.push(line);
+  }
+
+  const compacted = deduped
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^[ \t]+/gm, '')
+    .trim();
+
+  const optimized = compacted;
+  const before = estimateTokenCount(original);
+  const after = estimateTokenCount(optimized);
+  const reductionPct = before > 0 ? Math.max(0, Math.round(((before - after) / before) * 100)) : 0;
+  const shouldSuggest = reductionPct >= 8 && duplicateLinesRemoved > 0;
+
+  const hints = [];
+  if (duplicateLinesRemoved > 0) hints.push(`${duplicateLinesRemoved} repeated line(s) removed`);
+  if (original.length - optimized.length > 80) hints.push('extra whitespace and long gaps compacted');
+
+  return {
+    optimized,
+    beforeTokens: before,
+    afterTokens: after,
+    reductionPct,
+    duplicateLinesRemoved,
+    shouldSuggest,
+    hints,
+  };
+};
+
+
+const evaluatePatchRisk = (currentCode = '', incomingCode = '') => {
+  const currentLines = (currentCode || '').split('\n').length;
+  const incomingLines = (incomingCode || '').split('\n').length;
+  const lineDelta = Math.abs(incomingLines - currentLines);
+  const deletedRatio = currentLines > 0 && incomingLines < currentLines
+    ? Math.min(1, (currentLines - incomingLines) / currentLines)
+    : 0;
+
+  const combined = `${currentCode || ''}\n${incomingCode || ''}`;
+  const touchesCritical = /(auth|password|token|secret|jwt|\.env|api[_-]?key|billing|subscription)/i.test(combined);
+  const touchesTests = /(describe\(|it\(|assert|pytest|unittest|jest|vitest|spec\.\w+)/i.test(combined);
+
+  let score = 0;
+  score += Math.min(35, lineDelta * 0.6);
+  score += Math.min(30, deletedRatio * 100);
+  if (touchesCritical) score += 30;
+  if (touchesTests) score += 10;
+  if (incomingLines > 500) score += 15;
+  score = Math.min(100, Math.round(score));
+
+  const reasons = [];
+  if (lineDelta > 40) reasons.push(`large line delta (${lineDelta})`);
+  if (deletedRatio > 0.2) reasons.push(`high deletion ratio (${Math.round(deletedRatio * 100)}%)`);
+  if (touchesCritical) reasons.push('critical keywords detected (auth/token/secret/billing)');
+  if (touchesTests) reasons.push('test-related changes detected');
+  if (incomingLines > 500) reasons.push('large output patch size');
+  if (reasons.length === 0) reasons.push('small and low-impact patch footprint');
+
+  const mode = score >= 70 ? 'block' : score >= 40 ? 'review' : 'safe';
+  return { score, mode, reasons, lineDelta, deletedRatio };
+};
+
+
 
 const ContextBar = ({ question, code, image, linkedRepo }) => {
   const tokenCount = useMemo(() => {
@@ -271,6 +354,9 @@ const ChatInterface = ({
   const [favorites, setFavorites] = useState(new Set());
   const [patchHistory, setPatchHistory] = useState([]); // Undo stack
   const [patchCount, setPatchCount] = useState(0);
+  const [autoOptimizeEnabled, setAutoOptimizeEnabled] = useState(true);
+  const [promptOptimizeSuggestion, setPromptOptimizeSuggestion] = useState(null);
+  const [patchRiskGate, setPatchRiskGate] = useState({ show: false, mode: 'safe', score: 0, reasons: [], newCode: '' });
   // Feedback state: { [historyId]: +1 | -1 | null }
   const [feedbacks, setFeedbacks] = useState({});
   // Monaco code editor state
@@ -318,6 +404,11 @@ const ChatInterface = ({
     newCode: ''
   });
 
+  const currentContextTokens = useMemo(() => {
+    const totalChars = (question?.length || 0) + (code?.length || 0);
+    return Math.ceil(totalChars / 4);
+  }, [question, code]);
+
   const undoPatch = () => {
     if (patchHistory.length === 0) return;
     const lastCode = patchHistory[patchHistory.length - 1];
@@ -339,10 +430,22 @@ const ChatInterface = ({
     }
     
     setPatchCount(prev => prev + 1);
-    setPatchModal({ show: false, newCode: '', type: 'replace' });
   };
 
   const handleApplyPatchRequest = (newCode) => {
+    const risk = evaluatePatchRisk(code, newCode);
+
+    if (risk.mode !== 'safe') {
+      setPatchRiskGate({
+        show: true,
+        mode: risk.mode,
+        score: risk.score,
+        reasons: risk.reasons,
+        newCode,
+      });
+      return;
+    }
+
     if (code?.trim()) {
       // If there is existing code, open Interactive Visual Diff
       setMergeModal({ isOpen: true, newCode });
@@ -756,9 +859,37 @@ const ChatInterface = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (question.trim() || image) {
-        onAsk();
+        handleAskRequest();
       }
     }
+  };
+
+  const handleAskRequest = (mode = 'auto') => {
+    if (loading || (!question.trim() && !image)) return;
+
+    if (image) {
+      setPromptOptimizeSuggestion(null);
+      onAsk();
+      return;
+    }
+
+    const report = optimizePromptWithReport(question);
+    const highPressure = currentContextTokens >= 2500;
+    const shouldGate = mode === 'auto' && autoOptimizeEnabled && highPressure && report.shouldSuggest;
+
+    if (shouldGate) {
+      setPromptOptimizeSuggestion(report);
+      return;
+    }
+
+    if (mode === 'optimized') {
+      onAsk({ question: report.optimized });
+      setPromptOptimizeSuggestion(null);
+      return;
+    }
+
+    onAsk();
+    setPromptOptimizeSuggestion(null);
   };
 
   const handleFileSelect = (e) => {
@@ -937,10 +1068,7 @@ const ChatInterface = ({
                         messageId={`${turn.id}-r1`}
                         onGenerateTests={handleGenerateTests}
                         generatingTestId={generatingTestId}
-                        onApplyPatch={(newCode) => {
-                          setCode(newCode);
-                          showToast("Patch applied to code editor!", "success");
-                        }}
+                        onApplyPatch={handleApplyPatchRequest}
                       />
                     </div>
                   </div>
@@ -972,10 +1100,7 @@ const ChatInterface = ({
                         messageId={`${turn.id}-r2`}
                         onGenerateTests={handleGenerateTests}
                         generatingTestId={generatingTestId}
-                        onApplyPatch={(newCode) => {
-                          setCode(newCode);
-                          showToast("Patch applied to code editor!", "success");
-                        }}
+                        onApplyPatch={handleApplyPatchRequest}
                       />
                     </div>
                   </div>
@@ -1189,7 +1314,7 @@ const ChatInterface = ({
                           className="flex items-center gap-1 text-xs text-gray-400 hover:text-fuchsia-300 transition-colors"
                           title="Expand Response"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               ö           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                           </svg>
                           <span>Continue</span>
@@ -1388,8 +1513,66 @@ const ChatInterface = ({
             </div>
             
             {/* COMPACT CONTEXT BAR MOVED HERE */}
-            <ContextBar question={question} code={code} image={image} linkedRepo={linkedRepo} />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAutoOptimizeEnabled(v => !v)}
+                className={`text-[10px] px-2 py-1 rounded-full border transition-colors ${
+                  autoOptimizeEnabled
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+                    : 'border-gray-700 bg-gray-900/50 text-gray-400'
+                }`}
+                title="Auto context optimization before send"
+              >
+                {autoOptimizeEnabled ? 'Auto Optimize: ON' : 'Auto Optimize: OFF'}
+              </button>
+              <ContextBar question={question} code={code} image={image} linkedRepo={linkedRepo} />
+            </div>
           </div>
+
+          {promptOptimizeSuggestion && (
+            <div className="mb-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="font-semibold text-cyan-200">Context Optimizer Suggestion</p>
+                <span className="text-[10px] text-cyan-300">
+                  ~{promptOptimizeSuggestion.beforeTokens}t → ~{promptOptimizeSuggestion.afterTokens}t ({promptOptimizeSuggestion.reductionPct}% saved)
+                </span>
+              </div>
+              <p className="text-cyan-100/85 mb-2">
+                {promptOptimizeSuggestion.hints.join(', ') || 'Prompt can be compacted before sending.'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuestion(promptOptimizeSuggestion.optimized);
+                    setPromptOptimizeSuggestion(null);
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-cyan-700/50 hover:bg-cyan-600 text-cyan-100"
+                >
+                  Apply Optimized Text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAskRequest('optimized')}
+                  className="px-2.5 py-1 rounded-md bg-emerald-700/50 hover:bg-emerald-600 text-emerald-100"
+                >
+                  Send Optimized
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPromptOptimizeSuggestion(null);
+                    onAsk();
+                  }}
+                  className="px-2.5 py-1 rounded-md bg-gray-700/70 hover:bg-gray-600 text-gray-100"
+                >
+                  Send Original
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="w-full bg-gray-800/80 rounded-2xl border border-gray-700/50 focus-within:border-fuchsia-500/50 focus-within:ring-1 focus-within:ring-fuchsia-500/50 shadow-inner flex flex-col transition-all backdrop-blur-sm relative">
             {useMonacoEditor ? (
               <MonacoCodeEditor
@@ -1472,7 +1655,7 @@ const ChatInterface = ({
               <div className="flex items-center gap-2">
                 {isMagicFix ? (
                   <button
-                    onClick={(e) => onAsk(e)}
+                    onClick={() => handleAskRequest('auto')}
                     disabled={loading || (!question.trim() && !image)}
                     className="flex justify-center items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-pink-400 text-white font-bold rounded-full shadow-lg shadow-fuchsia-500/30 transition-all hover:scale-105 animate-pulse-slow disabled:opacity-50 disabled:hover:scale-100"
                     title="Magic Fix (Detects root cause)"
@@ -1488,7 +1671,7 @@ const ChatInterface = ({
                   </button>
                 ) : (
                   <button
-                    onClick={onAsk}
+                    onClick={() => handleAskRequest('auto')}
                     disabled={loading || (!question.trim() && !image)}
                     className="p-2 px-3 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-xl transition-all shadow-lg shadow-fuchsia-900/20 group"
                   >
@@ -1824,6 +2007,66 @@ const ChatInterface = ({
           </button>
         </div>
       )}
+
+      {patchRiskGate.show && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[145] flex items-center justify-center p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-amber-500/30 bg-gray-900 text-gray-100 shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-800 bg-gray-900/80 flex items-center justify-between">
+              <h3 className="font-bold text-amber-300">Patch Safety Check</h3>
+              <span className="text-xs text-gray-400">Risk Score: {patchRiskGate.score}/100</span>
+            </div>
+            <div className="p-5 text-sm space-y-3">
+              <p className="text-gray-300">
+                Mode: <span className="font-semibold text-white uppercase">{patchRiskGate.mode}</span>
+              </p>
+              <ul className="space-y-1 text-gray-300 text-xs">
+                {patchRiskGate.reasons.map((reason, idx) => (
+                  <li key={`risk-reason-${idx}`} className="bg-black/30 border border-gray-800 rounded px-2 py-1">
+                    {reason}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setPatchRiskGate({ show: false, mode: 'safe', score: 0, reasons: [], newCode: '' })}
+                  className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-100 text-xs"
+                >
+                  Cancel
+                </button>
+                {patchRiskGate.mode === 'review' && (
+                  <button
+                    onClick={() => {
+                      const pendingCode = patchRiskGate.newCode;
+                      setPatchRiskGate({ show: false, mode: 'safe', score: 0, reasons: [], newCode: '' });
+                      if (code?.trim()) {
+                        setMergeModal({ isOpen: true, newCode: pendingCode });
+                      } else {
+                        executeApplyPatch(pendingCode);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-600 text-amber-100 text-xs"
+                  >
+                    Review & Continue
+                  </button>
+                )}
+                {patchRiskGate.mode !== 'block' && (
+                  <button
+                    onClick={() => {
+                      const pendingCode = patchRiskGate.newCode;
+                      setPatchRiskGate({ show: false, mode: 'safe', score: 0, reasons: [], newCode: '' });
+                      executeApplyPatch(pendingCode);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-emerald-100 text-xs"
+                  >
+                    Apply Anyway
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Interactive Merge Modal */}
       <InteractiveMergeModal
         isOpen={mergeModal.isOpen}

@@ -21,10 +21,11 @@ import ProjectManager from './components/ProjectManager';
 import ProjectWorkspace from './components/ProjectWorkspace';
 import LandingPage from './components/LandingPage';
 import ModelCostDashboard from './components/ModelCostDashboard';
+import GamificationPanel from './components/GamificationPanel';
+import ThemeStore from './components/ThemeStore';
+import WeeklyReport from './components/WeeklyReport';
 import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
-
-
-const API_BASE = import.meta.env.PROD ? '' : (import.meta.env.VITE_API_BASE || 'http://localhost:5000');
+import { API_BASE } from './config';
 
 function App() {
   const [model, setModel] = useState('auto');
@@ -43,6 +44,21 @@ function App() {
   const [showCodeHealth, setShowCodeHealth] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackHistoryId, setFeedbackHistoryId] = useState(null);
+  const [showGamificationData, setShowGamificationData] = useState(false);
+  const [gamificationToasts, setGamificationToasts] = useState([]);
+  const [showThemeStore, setShowThemeStore] = useState(false);
+  const [collabToken, setCollabToken] = useState(null);
+  const [isCollabView, setIsCollabView] = useState(false);
+  const [collabOwner, setCollabOwner] = useState(null);
+  const [collabReview, setCollabReview] = useState({ status: 'open', updated_by: null, updated_at: null, comments: [] });
+  const [collabReviewLoading, setCollabReviewLoading] = useState(false);
+  const [collabReviewComment, setCollabReviewComment] = useState('');
+  const [showWeeklyReport, setShowWeeklyReport] = useState(false);
+  const [weeklyReportData, setWeeklyReportData] = useState(null);
+  const [showToolsDrawer, setShowToolsDrawer] = useState(false);
+  const [collabShareLink, setCollabShareLink] = useState('');
+  const [showCollabShareOptions, setShowCollabShareOptions] = useState(false);
+  const [usageInfo, setUsageInfo] = useState(null);
 
   // Community State
   const [activeCommunityPost, setActiveCommunityPost] = useState(null);
@@ -112,6 +128,7 @@ function App() {
 
   // Mobile Sidebar State
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Following Feed Modal State
   const [showFollowingFeedModal, setShowFollowingFeedModal] = useState(false);
@@ -143,7 +160,206 @@ function App() {
     // Ensure DB tables exist
     fetch(`${API_BASE}/api/debug/init-db`, { method: 'POST' })
       .catch(err => console.error('DB Init Error:', err));
+
+    // Check for collaboration token in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenParam = urlParams.get('collab');
+    if (tokenParam) {
+      loadSharedSession(tokenParam);
+    }
   }, [user]);
+
+  // Polling for collaboration
+  useEffect(() => {
+    let interval;
+    if (isCollabView && collabToken) {
+      interval = setInterval(() => {
+        fetch(`${API_BASE}/api/collaboration/session/${collabToken}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.history && data.history.length > chatHistory.length) {
+              setChatHistory(data.history);
+            }
+            fetchCollabReview(collabToken);
+          })
+          .catch(err => console.error("Polling error", err));
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [isCollabView, collabToken, chatHistory.length]);
+
+  useEffect(() => {
+    if (token) {
+      fetchUsageLimits();
+    } else {
+      setUsageInfo(null);
+    }
+  }, [token]);
+
+  const loadSharedSession = async (token) => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/collaboration/session/${token}`);
+      if (!resp.ok) throw new Error('Paylaşım linki geçersiz');
+      const data = await resp.json();
+      setChatHistory(data.history);
+      setCollabToken(token);
+      setIsCollabView(true);
+      setCollabOwner(data.owner_display_name);
+      setActiveConversationId(data.conversation_id);
+      fetchCollabReview(token);
+      handleShowAlert(`Paylaşılan oturuma katıldınız: ${data.owner_display_name}`);
+    } catch (err) {
+      handleShowAlert(err.message);
+    }
+  };
+
+  const fetchUsageLimits = async () => {
+    if (!token) {
+      setUsageInfo(null);
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/api/billing/usage`, { headers: authHeaders });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setUsageInfo(data);
+    } catch (err) {
+      console.error('Billing usage fetch error:', err);
+    }
+  };
+
+  const switchSubscriptionPlan = async (plan) => {
+    if (!token) {
+      setAuthOpen(true);
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/api/billing/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ plan })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        handleShowAlert(data.error || 'Plan güncellenemedi');
+        return;
+      }
+      setUsageInfo(data);
+      handleShowAlert(data.message || `Plan ${plan} olarak güncellendi.`);
+    } catch (err) {
+      handleShowAlert(`Plan güncelleme hatası: ${err.message}`);
+    }
+  };
+
+  const fetchCollabReview = async (tokenValue = collabToken) => {
+    if (!tokenValue) return;
+    setCollabReviewLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/collaboration/session/${tokenValue}/review`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setCollabReview(data);
+    } catch (err) {
+      console.error('Collab review fetch error:', err);
+    } finally {
+      setCollabReviewLoading(false);
+    }
+  };
+
+  const submitCollabReviewComment = async () => {
+    if (!collabToken || !collabReviewComment.trim()) return;
+    try {
+      const payload = {
+        comment: collabReviewComment.trim(),
+        guest_name: user?.display_name || 'Guest Reviewer'
+      };
+      const resp = await fetch(`${API_BASE}/api/collaboration/session/${collabToken}/review/comment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? authHeaders : {}) },
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        handleShowAlert(data.error || 'Yorum gönderilemedi');
+        return;
+      }
+      setCollabReviewComment('');
+      fetchCollabReview(collabToken);
+    } catch (err) {
+      handleShowAlert(`Yorum hatası: ${err.message}`);
+    }
+  };
+
+  const updateCollabReviewStatus = async (status) => {
+    if (!collabToken) return;
+    try {
+      const payload = {
+        status,
+        guest_name: user?.display_name || 'Guest Reviewer'
+      };
+      const resp = await fetch(`${API_BASE}/api/collaboration/session/${collabToken}/review/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? authHeaders : {}) },
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        handleShowAlert(data.error || 'Review durumu güncellenemedi');
+        return;
+      }
+      fetchCollabReview(collabToken);
+    } catch (err) {
+      handleShowAlert(`Review durum hatası: ${err.message}`);
+    }
+  };
+
+  const fetchWeeklyReport = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/stats/weekly`, { headers: authHeaders });
+      if (resp.ok) {
+        const data = await resp.json();
+        setWeeklyReportData(data);
+        setShowWeeklyReport(true);
+      } else {
+        handleShowAlert('Rapor verileri alınamadı.');
+      }
+    } catch (err) {
+      handleShowAlert('Hata: ' + err.message);
+    }
+  };
+
+  const handleShareSession = async () => {
+    if (!activeConversationId) {
+      handleShowAlert('Önce bir sohbet seçmelisiniz.');
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/api/collaboration/share`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
+        body: JSON.stringify({ conversation_id: activeConversationId })
+      });
+      const data = await resp.json();
+      if (data.share_token) {
+        const url = `${window.location.origin}${window.location.pathname}?collab=${data.share_token}`;
+        setCollabShareLink(url);
+        setShowCollabShareOptions(true);
+        try {
+          await navigator.clipboard.writeText(url);
+          handleShowAlert('Paylaşım linki hazır ve panoya kopyalandı.');
+        } catch {
+          handleShowAlert('Paylaşım linki hazır. Kopyala butonunu kullanabilirsiniz.');
+        }
+      } else {
+        handleShowAlert(data.error || 'Link oluşturulamadı');
+      }
+    } catch (err) {
+      handleShowAlert('Paylaşım hatası: ' + err.message);
+    }
+  };
 
   const handleProfileOpen = (userId) => {
     if (showUserProfile) {
@@ -303,6 +519,22 @@ function App() {
       fetchProjects();
     }
   }, [token]);
+
+  const refreshUserInfo = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setUser(json.user);
+        localStorage.setItem('codebrain_user', JSON.stringify(json.user));
+      }
+    } catch (err) {
+      console.error("Failed to refresh user info", err);
+    }
+  };
 
   const fetchProjects = async () => {
     if (!token) return;
@@ -513,6 +745,34 @@ function App() {
   async function handleAsk(opts = {}) {
     const effectiveQuestion = opts.question !== undefined ? opts.question : question;
     const effectiveConversationId = opts.conversationId !== undefined ? opts.conversationId : activeConversationId;
+    
+    // Collaboration redirect
+    if (isCollabView && collabToken) {
+      if (!effectiveQuestion.trim()) return;
+      setLoading(true);
+      try {
+        const resp = await fetch(`${API_BASE}/api/collaboration/session/${collabToken}/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: effectiveQuestion, model: model })
+        });
+        if (resp.ok) {
+          setQuestion('');
+          setCode('');
+          setImage(null);
+          loadSharedSession(collabToken);
+        } else {
+          const derr = await resp.json().catch(() => ({}));
+          handleShowAlert(derr.error || 'Mesaj gönderilemedi');
+        }
+      } catch (e) {
+        handleShowAlert('Hata: ' + e.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!effectiveQuestion.trim() && !image) return;
 
     // Project can come from selected workspace OR an already-open project conversation.
@@ -645,7 +905,16 @@ function App() {
         body: body
       });
 
-      if (!res.ok) throw new Error(res.statusText);
+      if (!res.ok) {
+        const errPayload = await res.json().catch(() => ({}));
+        const errMsg = errPayload.error || res.statusText || 'Request failed';
+        if (res.status === 429 && errPayload.upgrade_required) {
+          handleShowAlert(`${errMsg} Daha fazla limit için Premium plana geçebilirsin.`);
+        } else {
+          handleShowAlert(errMsg);
+        }
+        throw new Error(errMsg);
+      }
 
       // 2. Setup Streaming Reader
       const reader = res.body.getReader();
@@ -738,6 +1007,24 @@ function App() {
         }
       }
 
+      // After streaming is complete, sync gamification silently
+      if (token && user) {
+        fetch(`${API_BASE}/api/gamification/sync`, { headers: { ...authHeaders } })
+          .then(res => res.ok ? res.json() : null)
+          .then(data => {
+            if (data && data.events && data.events.length > 0) {
+              const newToasts = data.events.map(ev => ({ id: Date.now() + Math.random(), ...ev }));
+              setGamificationToasts(prev => [...prev, ...newToasts]);
+              setTimeout(() => {
+                setGamificationToasts(prev => prev.filter(t => !newToasts.includes(t)));
+              }, 5000);
+            }
+          })
+          .catch(e => console.error("Error syncing gamification", e));
+
+        fetchUsageLimits();
+      }
+
     } catch (error) {
       console.error("Error:", error);
       setChatHistory(prev => prev.map(item =>
@@ -745,6 +1032,7 @@ function App() {
       ));
     } finally {
       setLoading(false);
+      if (token) fetchUsageLimits();
     }
   };
 
@@ -840,13 +1128,35 @@ function App() {
     if (shouldShowOnboarding()) setShowOnboarding(true);
   };
 
-  const handleLogout = () => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem('codebrain_token');
-    localStorage.removeItem('codebrain_user');
-    setConversations([]);
-    handleNewChat();
+  const handleLogout = async () => {
+    try {
+      // Reset theme on backend before logout
+      if (token) {
+        const defaultTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        await fetch(`${API_BASE}/api/themes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ action: 'set_active', theme: defaultTheme })
+        }).catch(() => {}); // Ignore errors
+      }
+    } finally {
+      // Clear frontend state
+      setToken(null);
+      setUser(null);
+      localStorage.removeItem('codebrain_token');
+      localStorage.removeItem('codebrain_user');
+      localStorage.removeItem('codebrain_theme');
+      // Hard reset theme
+      const defaultTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      setTheme(defaultTheme);
+      document.documentElement.setAttribute('data-theme', defaultTheme);
+      setConversations([]);
+      setShowThemeStore(false); // Close theme store modal
+      handleNewChat();
+    }
   };
 
   return (
@@ -881,16 +1191,16 @@ function App() {
       />
 
       {/* Sidebar */}
-      <aside className={`w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col backdrop-blur-xl mobile-sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="p-5 border-b border-gray-800">
+      <aside className={`bg-gray-900/50 border-r border-gray-800 flex flex-col backdrop-blur-xl mobile-sidebar transition-all duration-300 overflow-hidden ${sidebarOpen ? 'open' : ''} ${isSidebarCollapsed ? 'w-0 border-none opacity-0' : 'w-80 opacity-100'}`}>
+        <div className="p-5 border-b border-gray-800 relative group/sidebar">
           <div className="flex items-center gap-4 px-2">
             {/* Logo */}
-            <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-full blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+            <div className="relative group/logo">
+              <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 to-purple-600 rounded-full blur opacity-25 group-hover/logo:opacity-50 transition duration-1000 group-hover/logo:duration-200"></div>
               <img
                 src="/code_alchemist_logo.png"
                 alt="CodeAlchemist logo"
-                className="relative h-14 w-auto object-contain drop-shadow-[0_0_8px_rgba(56,189,248,0.4)] transition-transform duration-500 group-hover:scale-110"
+                className="relative h-14 w-auto object-contain drop-shadow-[0_0_8px_rgba(56,189,248,0.4)] transition-transform duration-500 group-hover/logo:scale-110"
                 onError={(e) => { e.currentTarget.src = '/alchemy_wave.png'; }}
               />
             </div>
@@ -905,309 +1215,322 @@ function App() {
               </p>
             </div>
           </div>
-        </div>
 
-        {/* Tabs */}
-        <div className="flex p-2 gap-1 bg-gray-900/80 mx-2 mt-2 rounded-lg flex-wrap">
+          {/* Desktop Collapse Button */}
           <button
-            onClick={() => setActiveTab('conversations')}
-            className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'conversations'
-              ? 'bg-gray-800 text-white shadow'
-              : 'text-gray-400 hover:text-gray-200'
-              }`}
+            onClick={() => setIsSidebarCollapsed(true)}
+            className="absolute top-1/2 -right-2 -translate-y-1/2 w-6 h-12 bg-gray-800 border border-gray-700 rounded-l-lg items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 transition-all z-20 hidden md:flex opacity-0 group-hover/sidebar:opacity-100"
+            title="Collapse Sidebar"
           >
-            💬 Chat
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
           </button>
-          {user && (
-            <button
-              onClick={() => {
-                setActiveTab('archived');
-                fetchArchivedConversations();
-              }}
-              className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'archived'
-                ? 'bg-gray-800 text-white shadow'
-                : 'text-gray-400 hover:text-gray-200'
-                }`}
-            >
-              📦 Archive
-            </button>
-          )}
-          {user && (
-            <button
-              onClick={() => {
-                setActiveTab('favorites');
-                fetchFavorites();
-              }}
-              className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'favorites'
-                ? 'bg-gray-800 text-white shadow'
-                : 'text-gray-400 hover:text-gray-200'
-                }`}
-            >
-              ⭐ Favorites
-            </button>
-          )}
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
-          {activeTab === 'conversations' ? (
-            <>
+          {/* Tabs */}
+          <div className="flex p-2 gap-1 bg-gray-900/80 mx-2 mt-2 rounded-lg flex-wrap">
+            <button
+              onClick={() => setActiveTab('conversations')}
+              className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'conversations'
+                ? 'bg-gray-800 text-white shadow'
+                : 'text-gray-400 hover:text-gray-200'
+                }`}
+            >
+              💬 Chat
+            </button>
+            {user && (
               <button
-                onClick={handleNewChat}
-                className="w-full mb-4 bg-gray-800/80 hover:bg-gray-700 text-white py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-gray-500 group shadow-sm"
+                onClick={() => {
+                  setActiveTab('archived');
+                  fetchArchivedConversations();
+                }}
+                className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'archived'
+                  ? 'bg-gray-800 text-white shadow'
+                  : 'text-gray-400 hover:text-gray-200'
+                  }`}
               >
-                <span className="text-xl group-hover:scale-110 transition-transform text-fuchsia-400">+</span>
-                <span className="font-medium text-sm">Yeni Sohbet</span>
+                📦 Archive
               </button>
+            )}
+            {user && (
+              <button
+                onClick={() => {
+                  setActiveTab('favorites');
+                  fetchFavorites();
+                }}
+                className={`flex-1 py-2 flex items-center justify-center gap-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'favorites'
+                  ? 'bg-gray-800 text-white shadow'
+                  : 'text-gray-400 hover:text-gray-200'
+                  }`}
+              >
+                ⭐ Favorites
+              </button>
+            )}
+          </div>
 
-              {/* Projects Sidebar Section (ChatGPT Style) */}
-              {user && (
-                <div className="mb-6">
-                  <div className="flex items-center justify-between px-3 py-1 mb-2 group cursor-pointer hover:bg-gray-800/50 rounded-md transition-colors">
-                    <span className="text-xs font-semibold text-gray-400 transition-colors">Projeler</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </div>
+          <div className="mt-4">
+            {activeTab === 'conversations' ? (
+              <>
+                <button
+                  onClick={handleNewChat}
+                  className="w-full mb-4 bg-gray-800/80 hover:bg-gray-700 text-white py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2 border border-gray-600 hover:border-gray-500 group shadow-sm"
+                >
+                  <span className="text-xl group-hover:scale-110 transition-transform text-fuchsia-400">+</span>
+                  <span className="font-medium text-sm">Yeni Sohbet</span>
+                </button>
 
-                  <div className="space-y-0.5">
-                    <button
-                      onClick={() => setShowProjectManager(true)}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors group"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400 group-hover:text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
-                      <span className="font-medium">Yeni proje</span>
-                    </button>
+                {/* Projects Sidebar Section (ChatGPT Style) */}
+                {user && (
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between px-3 py-1 mb-2 group cursor-pointer hover:bg-gray-800/50 rounded-md transition-colors">
+                      <span className="text-xs font-semibold text-gray-400 transition-colors">Projeler</span>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-500 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </div>
 
-                    {projects.map(p => {
-                      const isExpanded = expandedProjects.has(p.id);
-                      const pConvs = projectConversations[p.id] || [];
-                      const projEmoji = p.name.toLowerCase().includes('web') ? '🌐' :
-                        p.name.toLowerCase().includes('api') ? '🔌' :
-                        p.name.toLowerCase().includes('refactor') ? '🛠️' :
-                        p.name.toLowerCase().includes('debug') ? '🐛' : '📁';
-                      return (
-                        <div key={p.id} className="relative group/proj">
-                          <div className={`flex items-center rounded-lg text-sm transition-colors ${activeProject?.id === p.id ? 'bg-gray-800' : 'hover:bg-gray-800/60'}`}>
-                            <button
-                              onClick={() => toggleProjectExpanded(p.id)}
-                              className="pl-2 py-2.5 pr-1 text-gray-500 hover:text-gray-300 flex-shrink-0"
-                              title={isExpanded ? 'Daralt' : 'Genişlet'}
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            <button
-                              onClick={() => setActiveProject(activeProject?.id === p.id ? null : p)}
-                              className={`flex-1 flex items-center gap-2 py-2.5 pr-2 truncate ${activeProject?.id === p.id ? 'text-white font-medium' : 'text-gray-300 hover:text-white'}`}
-                            >
-                              <span className="text-base flex-shrink-0">{projEmoji}</span>
-                              <span className="truncate text-sm">{p.name}</span>
-                              {activeProject?.id === p.id && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] flex-shrink-0 ml-auto"></span>
-                              )}
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }}
-                              className="p-1.5 mr-1 rounded-md text-gray-600 hover:text-red-400 opacity-0 group-hover/proj:opacity-100 transition-all hover:bg-gray-700/50 flex-shrink-0"
-                              title="Projeyi Sil"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                          {isExpanded && (
-                            <div className="ml-5 border-l border-gray-800 pl-2 mt-0.5 mb-1 space-y-0.5">
-                              {pConvs.length === 0 ? (
-                                <p className="text-xs text-gray-600 py-1 px-2">Henüz sohbet yok</p>
-                              ) : (
-                                pConvs.slice(0, 8).map(c => (
-                                  <button
-                                    key={c.id}
-                                    onClick={() => { fetchConversationDetails(c.id); setActiveProject(null); }}
-                                    className={`w-full text-left px-2 py-1.5 rounded-md text-xs truncate transition-colors ${activeConversationId === c.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
-                                  >
-                                    {c.title || 'Sohbet'}
-                                  </button>
-                                ))
-                              )}
+                    <div className="space-y-0.5">
+                      <button
+                        onClick={() => setShowProjectManager(true)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors group"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400 group-hover:text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>
+                        <span className="font-medium">Yeni proje</span>
+                      </button>
+
+                      {projects.map(p => {
+                        const isExpanded = expandedProjects.has(p.id);
+                        const pConvs = projectConversations[p.id] || [];
+                        const projEmoji = p.name.toLowerCase().includes('web') ? '🌐' :
+                          p.name.toLowerCase().includes('api') ? '🔌' :
+                          p.name.toLowerCase().includes('refactor') ? '🛠️' :
+                          p.name.toLowerCase().includes('debug') ? '🐛' : '📁';
+                        return (
+                          <div key={p.id} className="relative group/proj">
+                            <div className={`flex items-center rounded-lg text-sm transition-colors ${activeProject?.id === p.id ? 'bg-gray-800' : 'hover:bg-gray-800/60'}`}>
+                              <button
+                                onClick={() => toggleProjectExpanded(p.id)}
+                                className="pl-2 py-2.5 pr-1 text-gray-500 hover:text-gray-300 flex-shrink-0"
+                                title={isExpanded ? 'Daralt' : 'Genişlet'}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                              </button>
+                              <button
+                                onClick={() => setActiveProject(activeProject?.id === p.id ? null : p)}
+                                className={`flex-1 flex items-center gap-2 py-2.5 pr-2 truncate ${activeProject?.id === p.id ? 'text-white font-medium' : 'text-gray-300 hover:text-white'}`}
+                              >
+                                <span className="text-base flex-shrink-0">{projEmoji}</span>
+                                <span className="truncate text-sm">{p.name}</span>
+                                {activeProject?.id === p.id && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] flex-shrink-0 ml-auto"></span>
+                                )}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }}
+                                className="p-1.5 mr-1 rounded-md text-gray-600 hover:text-red-400 opacity-0 group-hover/proj:opacity-100 transition-all hover:bg-gray-700/50 flex-shrink-0"
+                                title="Projeyi Sil"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            {isExpanded && (
+                              <div className="ml-5 border-l border-gray-800 pl-2 mt-0.5 mb-1 space-y-0.5">
+                                {pConvs.length === 0 ? (
+                                  <p className="text-xs text-gray-600 py-1 px-2">Henüz sohbet yok</p>
+                                ) : (
+                                  pConvs.slice(0, 8).map(c => (
+                                    <button
+                                      key={c.id}
+                                      onClick={() => { fetchConversationDetails(c.id); setActiveProject(null); }}
+                                      className={`w-full text-left px-2 py-1.5 rounded-md text-xs truncate transition-colors ${activeConversationId === c.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
+                                    >
+                                      {c.title || 'Sohbet'}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
+                )}
+                {/* Chat History Title */}
+                <div className="px-3 py-1 mt-6 mb-2">
+                  <span className="text-xs font-semibold text-gray-400">Sohbetlerin</span>
                 </div>
-              )}
-              {/* Chat History Title */}
-              <div className="px-3 py-1 mt-6 mb-2">
-                <span className="text-xs font-semibold text-gray-400">Sohbetlerin</span>
-              </div>
 
-              <HistoryList
-                conversations={conversations}
-                activeId={activeConversationId}
-                onSelect={fetchConversationDetails}
-                onDelete={handleDeleteConversation}
-                onRename={fetchConversations}
-                onPin={fetchConversations}
-                onArchive={fetchConversations}
-                onShare={async (conv) => {
-                  // Fetch conversation details to get full content
-                  try {
-                    const res = await fetch(`${API_BASE}/api/conversations/${conv.id}`, { headers: authHeaders });
-                    if (res.ok) {
-                      const data = await res.json();
-                      const history = data.history || [];
+                <HistoryList
+                  conversations={conversations}
+                  activeId={activeConversationId}
+                  onSelect={fetchConversationDetails}
+                  onDelete={handleDeleteConversation}
+                  onRename={fetchConversations}
+                  onPin={fetchConversations}
+                  onArchive={fetchConversations}
+                  onShare={async (conv) => {
+                    // Fetch conversation details to get full content
+                    try {
+                      const res = await fetch(`${API_BASE}/api/conversations/${conv.id}`, { headers: authHeaders });
+                      if (res.ok) {
+                        const data = await res.json();
+                        const history = data.history || [];
 
-                      // Generate summary from conversation history
-                      let codeSnippets = [];
-                      let aiResponses = [];
-                      let userQuestions = [];
+                        // Generate summary from conversation history
+                        let codeSnippets = [];
+                        let aiResponses = [];
+                        let userQuestions = [];
 
-                      history.forEach((turn) => {
-                        if (turn.user_question) userQuestions.push(turn.user_question);
-                        if (turn.code_snippet) codeSnippets.push(turn.code_snippet);
-                        if (turn.ai_response) aiResponses.push(turn.ai_response);
-                      });
+                        history.forEach((turn) => {
+                          if (turn.user_question) userQuestions.push(turn.user_question);
+                          if (turn.code_snippet) codeSnippets.push(turn.code_snippet);
+                          if (turn.ai_response) aiResponses.push(turn.ai_response);
+                        });
 
-                      // Set title from conversation title or first question
-                      setShareTitle(conv.title || userQuestions[0] || '');
+                        // Set title from conversation title or first question
+                        setShareTitle(conv.title || userQuestions[0] || '');
 
-                      // Set code from collected code snippets
-                      setShareCode(codeSnippets.join('\n\n// ---\n\n'));
+                        // Set code from collected code snippets
+                        setShareCode(codeSnippets.join('\n\n// ---\n\n'));
 
-                      // Set solution from last AI response (most complete answer)
-                      setShareSolution(aiResponses.length > 0 ? aiResponses[aiResponses.length - 1] : '');
-                    } else {
-                      // Fallback to just title
+                        // Set solution from last AI response (most complete answer)
+                        setShareSolution(aiResponses.length > 0 ? aiResponses[aiResponses.length - 1] : '');
+                      } else {
+                        // Fallback to just title
+                        setShareTitle(conv.title || '');
+                        setShareCode('');
+                        setShareSolution('');
+                      }
+                    } catch (err) {
+                      console.error('Failed to fetch conversation for share:', err);
                       setShareTitle(conv.title || '');
                       setShareCode('');
                       setShareSolution('');
                     }
-                  } catch (err) {
-                    console.error('Failed to fetch conversation for share:', err);
-                    setShareTitle(conv.title || '');
-                    setShareCode('');
-                    setShareSolution('');
-                  }
-                  setShareOpen(true);
-                }}
-                apiBase={API_BASE}
-                authHeaders={authHeaders}
-                onShowAlert={handleShowAlert}
-              />
-            </>
-          ) : activeTab === 'archived' ? (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-gray-400 mb-3">📦 Archived Conversations</h3>
-              {archivedConversations.length === 0 ? (
-                <div className="bg-gray-900/60 rounded-lg p-4 border border-gray-700 text-xs text-gray-400 text-center">
-                  No archived conversations.
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {archivedConversations.map((item) => (
-                    <li
-                      key={item.id}
-                      className="cursor-pointer p-3 rounded-xl border-2 border-gray-700 bg-gray-800/50 hover:bg-gray-800 transition-all group"
-                    >
-                      <div className="text-gray-300 font-medium flex justify-between items-center gap-2">
-                        <span className="truncate flex-1" onClick={() => fetchConversationDetails(item.id)}>
-                          {item.title || 'New Conversation'}
-                        </span>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await fetch(`${API_BASE}/api/conversations/${item.id}/archive`, {
-                                method: 'PUT',
+                    setShareOpen(true);
+                  }}
+                  apiBase={API_BASE}
+                  authHeaders={authHeaders}
+                  onShowAlert={handleShowAlert}
+                />
+              </>
+            ) : activeTab === 'archived' ? (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-gray-400 mb-3">📦 Archived Conversations</h3>
+                {archivedConversations.length === 0 ? (
+                  <div className="bg-gray-900/60 rounded-lg p-4 border border-gray-700 text-xs text-gray-400 text-center">
+                    No archived conversations.
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {archivedConversations.map((item) => (
+                      <li
+                        key={item.id}
+                        className="cursor-pointer p-3 rounded-xl border-2 border-gray-700 bg-gray-800/50 hover:bg-gray-800 transition-all group"
+                      >
+                        <div className="text-gray-300 font-medium flex justify-between items-center gap-2">
+                          <span className="truncate flex-1" onClick={() => fetchConversationDetails(item.id)}>
+                            {item.title || 'New Conversation'}
+                          </span>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await fetch(`${API_BASE}/api/conversations/${item.id}/archive`, {
+                                  method: 'PUT',
+                                  headers: authHeaders
+                                });
+                                fetchConversations();
+                                fetchArchivedConversations();
+                              } catch (err) {
+                                console.error("Unarchive error:", err);
+                              }
+                            }}
+                            className="text-xs bg-fuchsia-600/20 hover:bg-fuchsia-600/40 text-fuchsia-300 px-2 py-1 rounded-md transition-colors"
+                            title="Unarchive"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">{item.created_at}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : activeTab === 'favorites' ? (
+              <div className="p-2 space-y-2">
+                {favoritesList.length === 0 ? (
+                  <div className="text-gray-500 text-xs text-center py-4">
+                    No saved responses yet.
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {favoritesList.map((item) => (
+                      <li
+                        key={item.id}
+                        className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 hover:bg-gray-800 transition-colors group cursor-pointer"
+                        onClick={() => {
+                          // Favoriye tıklandığında sohbete gitme mantığı eklenebilir
+                          // Şimdilik sadece detayları gösteriyoruz veya sohbeti yüklüyoruz
+                          if (item.history_id) {
+                            // Basit bir detay modalı veya sohbeti yükleme yapılabilir
+                            // Burada doğrudan o sohbete gidip o mesajı bulmak karmaşık olabilir, 
+                            // şimdilik sadece görsel liste olarak bırakıyorum
+                          }
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-200 truncate mb-1">
+                              {item.user_question}
+                            </div>
+                            <div className="text-xs text-gray-400 line-clamp-2 font-mono bg-black/20 p-1 rounded">
+                              {item.ai_response?.substring(0, 100)}...
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-700/30">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-900/30 text-fuchsia-300 border border-fuchsia-500/20">
+                              {item.model || 'AI'}
+                            </span>
+                            <span className="text-[10px] text-gray-500">
+                              {(new Date(item.created_at)).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              fetch(`${API_BASE}/api/favorites/${item.history_id}`, {
+                                method: 'DELETE',
                                 headers: authHeaders
+                              }).then(() => {
+                                setFavoritesList(prev => prev.filter(f => f.id !== item.id));
+                                // Chat interface favori state güncellemesi için bir event yayabiliriz veya context kullanabiliriz
+                                // Şimdilik basitçe listeden kaldırıyoruz
                               });
-                              fetchConversations();
-                              fetchArchivedConversations();
-                            } catch (err) {
-                              console.error("Unarchive error:", err);
-                            }
-                          }}
-                          className="text-xs bg-fuchsia-600/20 hover:bg-fuchsia-600/40 text-fuchsia-300 px-2 py-1 rounded-md transition-colors"
-                          title="Unarchive"
-                        >
-                          Restore
-                        </button>
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">{item.created_at}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : activeTab === 'favorites' ? (
-            <div className="p-2 space-y-2">
-              {favoritesList.length === 0 ? (
-                <div className="text-gray-500 text-xs text-center py-4">
-                  No saved responses yet.
-                </div>
-              ) : (
-                <ul className="space-y-2">
-                  {favoritesList.map((item) => (
-                    <li
-                      key={item.id}
-                      className="bg-gray-800/50 p-3 rounded-lg border border-gray-700/50 hover:bg-gray-800 transition-colors group cursor-pointer"
-                      onClick={() => {
-                        // Favoriye tıklandığında sohbete gitme mantığı eklenebilir
-                        // Şimdilik sadece detayları gösteriyoruz veya sohbeti yüklüyoruz
-                        if (item.history_id) {
-                          // Basit bir detay modalı veya sohbeti yükleme yapılabilir
-                          // Burada doğrudan o sohbete gidip o mesajı bulmak karmaşık olabilir, 
-                          // şimdilik sadece görsel liste olarak bırakıyorum
-                        }
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-200 truncate mb-1">
-                            {item.user_question}
-                          </div>
-                          <div className="text-xs text-gray-400 line-clamp-2 font-mono bg-black/20 p-1 rounded">
-                            {item.ai_response?.substring(0, 100)}...
-                          </div>
+                            }}
+                            className="text-gray-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                            title="Remove"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 000-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                          </button>
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-700/30">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-900/30 text-fuchsia-300 border border-fuchsia-500/20">
-                            {item.model || 'AI'}
-                          </span>
-                          <span className="text-[10px] text-gray-500">
-                            {(new Date(item.created_at)).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            fetch(`${API_BASE}/api/favorites/${item.history_id}`, {
-                              method: 'DELETE',
-                              headers: authHeaders
-                            }).then(() => {
-                              setFavoritesList(prev => prev.filter(f => f.id !== item.id));
-                              // Chat interface favori state güncellemesi için bir event yayabiliriz veya context kullanabiliriz
-                              // Şimdilik basitçe listeden kaldırıyoruz
-                            });
-                          }}
-                          className="text-gray-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                          title="Remove"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 000-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
+          </div>
 
-        {/* User Profile */}
-        <div className="p-4 border-t border-gray-800 bg-gray-900/80">
-          {user ? (
+          {/* User Profile */}
+          <div className="p-4 border-t border-gray-800 bg-gray-900/80">
+            {user ? (
             <div className="flex items-center justify-between">
               <button
                 onClick={() => {
@@ -1229,7 +1552,7 @@ function App() {
                 </div>
               </button>
               <button
-                onClick={handleLogout}
+                onClick={() => handleLogout()}
                 className="text-gray-400 hover:text-red-400 transition-colors p-2"
                 title="Logout"
               >
@@ -1281,13 +1604,26 @@ function App() {
             {/* Mobile Hamburger Menu */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="mobile-menu-btn w-10 h-10 items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+              className="mobile-menu-btn w-10 h-10 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
               aria-label="Toggle Menu"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
+
+            {/* Desktop Sidebar Toggle (shown when collapsed) */}
+            {isSidebarCollapsed && (
+              <button
+                onClick={() => setIsSidebarCollapsed(false)}
+                className="hidden md:flex w-10 h-10 items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-all z-20 transition-colors"
+                title="Expand Sidebar"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            )}
 
             <span className="text-gray-400 text-sm">Model:</span>
             <ModelSelector
@@ -1352,17 +1688,6 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Snippets Button */}
-            <button
-              onClick={() => setShowSnippets(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-fuchsia-400 hover:bg-gray-800/50 transition-all"
-              title="Code Snippets"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-              </svg>
-            </button>
-
             {/* Notification Bell */}
             {user && (
               <div className="relative flex items-center">
@@ -1499,64 +1824,19 @@ function App() {
               conversationTitle={conversations.find(c => c.id === activeConversationId)?.title || 'Chat Export'}
             />
 
-            <div className="h-6 w-px bg-gray-700"></div>
+            <div className="h-6 w-px bg-gray-700 mx-2"></div>
 
             <button
               onClick={() => {
-                // Populate share fields from current chat history
-                if (chatHistory.length > 0) {
-                  const lastTurn = chatHistory[chatHistory.length - 1];
-                  setShareTitle(lastTurn.user_question || conversations.find(c => c.id === activeConversationId)?.title || '');
-
-                  // Collect all code snippets from history
-                  const codeSnippets = chatHistory
-                    .filter(turn => turn.code_snippet)
-                    .map(turn => turn.code_snippet)
-                    .join('\n\n// ---\n\n');
-                  setShareCode(codeSnippets);
-
-                  // Use last AI response as solution
-                  setShareSolution(lastTurn.ai_response || '');
-                } else {
-                  setShareTitle('');
-                  setShareCode('');
-                  setShareSolution('');
-                }
-                setShareOpen(true);
+                setShowToolsDrawer(true);
+                refreshUserInfo();
               }}
-              className="flex items-center gap-2 bg-fuchsia-600/20 hover:bg-fuchsia-600/30 text-fuchsia-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-fuchsia-500/30"
+              className="flex items-center gap-2 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 text-purple-300 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border border-purple-500/30 group"
+              title="Magical Tools"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Share
-            </button>
-
-            <button
-              onClick={() => setShowModelCompare(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-fuchsia-900/60 to-purple-900/60 hover:from-fuchsia-800/70 hover:to-purple-800/70 text-fuchsia-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border border-fuchsia-500/40"
-              title="Model Alchemy"
-            >
-              <span>⚗️</span>
-              <span>Model Alchemy</span>
-            </button>
-
-            <button
-              onClick={() => setShowFollowingFeedModal(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-cyan-900/60 to-blue-900/60 hover:from-cyan-800/70 hover:to-blue-800/70 text-cyan-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border border-cyan-500/40"
-              title="Following Feed"
-            >
-              <span>👥</span>
-              <span>Following Feed</span>
-            </button>
-
-            <button
-              onClick={() => setShowCostDashboard(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-amber-900/60 to-orange-900/60 hover:from-amber-800/70 hover:to-orange-800/70 text-amber-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border border-amber-500/40"
-              title="Cost Dashboard"
-            >
-              <span>📊</span>
-              <span>Cost Dashboard</span>
+              <span className="text-sm group-hover:scale-110 transition-transform">✨</span>
+              <span>Magical Tools</span>
+              {isCollabView && <span className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></span>}
             </button>
 
             <button
@@ -1564,7 +1844,7 @@ function App() {
                 setShowCommunityFeed(true);
                 fetchCommunityItems();
               }}
-              className="text-gray-400 hover:text-fuchsia-400 transition-colors"
+              className="text-gray-400 hover:text-fuchsia-400 transition-colors ml-2"
               title="Community Feed"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1727,6 +2007,26 @@ function App() {
             authHeaders={authHeaders}
           />
         )}
+        
+        {/* Gamification Modal */}
+        {showGamificationData && user && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="gamification-modal-content relative">
+              <button
+                onClick={() => setShowGamificationData(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-white z-10 text-xl"
+              >
+                ✕
+              </button>
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400 mb-6 flex items-center gap-3">
+                  <i className="fas fa-crown text-yellow-500"></i> Alchemist Rank
+                </h2>
+                <GamificationPanel token={token} />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Share Modal */}
         {
@@ -1808,6 +2108,76 @@ function App() {
             </div>
           )
         }
+
+        {/* Collaboration Share Options */}
+        {showCollabShareOptions && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-emerald-500/40 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-cyan-500" />
+              <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2">
+                <span>🤝</span>
+                <span>Collaborate Share</span>
+              </h2>
+
+              <p className="text-sm text-gray-300 mb-3">Bu linki doğrudan paylaşabilirsin:</p>
+              <div className="bg-black/40 border border-gray-700 rounded-lg p-3 text-xs text-cyan-300 break-all mb-4">
+                {collabShareLink}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/40 text-emerald-200 text-sm font-semibold transition-colors"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(collabShareLink);
+                      handleShowAlert('Link kopyalandı.');
+                    } catch {
+                      handleShowAlert('Kopyalama başarısız oldu.');
+                    }
+                  }}
+                >
+                  Copy Link
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/35 border border-cyan-500/40 text-cyan-200 text-sm font-semibold transition-colors"
+                  onClick={() => window.open(collabShareLink, '_blank', 'noopener,noreferrer')}
+                >
+                  Open Link
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-lg bg-green-600/20 hover:bg-green-600/35 border border-green-500/40 text-green-200 text-sm font-semibold transition-colors"
+                  onClick={() => {
+                    const text = encodeURIComponent(`CodeAlchemist ortak oturum linki: ${collabShareLink}`);
+                    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer');
+                  }}
+                >
+                  WhatsApp
+                </button>
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 text-blue-200 text-sm font-semibold transition-colors"
+                  onClick={() => {
+                    const subject = encodeURIComponent('CodeAlchemist Collaboration Link');
+                    const body = encodeURIComponent(`Merhaba, ortak oturum linki: ${collabShareLink}`);
+                    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                  }}
+                >
+                  E-mail
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowCollabShareOptions(false)}
+                className="absolute top-3 right-4 text-gray-500 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
       </>
     )}
   </main>
@@ -2019,6 +2389,323 @@ function App() {
           />
         </div>
       )}
+
+      {/* Weekly Report Modal */}
+      {showWeeklyReport && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden">
+            <div className="p-8">
+              <WeeklyReport 
+                data={weeklyReportData} 
+                onClose={() => setShowWeeklyReport(false)} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Magical Tools Drawer */}
+      {showToolsDrawer && (
+        <div 
+          className="tools-drawer-overlay" 
+          onClick={(e) => {
+            if (e.target.className === 'tools-drawer-overlay') {
+              setShowToolsDrawer(false);
+            }
+          }}
+        >
+          <div className="tools-drawer">
+            <div className="tools-drawer-header">
+              <h2>⚡ Magical Tools</h2>
+              <button 
+                onClick={() => setShowToolsDrawer(false)}
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-all"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="tools-grid">
+              <button 
+                className="tool-item"
+                onClick={() => { 
+                  if (!user) { setAuthOpen(true); } 
+                  else { setShowThemeStore(true); } 
+                  setShowToolsDrawer(false); 
+                }}
+              >
+                <span className="text-lg">🎨</span>
+                <span>Theme Store</span>
+              </button>
+
+              <button 
+                className="tool-item"
+                onClick={() => { 
+                  if (!user) { setAuthOpen(true); } 
+                  else { setShowSnippets(true); } 
+                  setShowToolsDrawer(false); 
+                }}
+              >
+                <span className="text-lg">📂</span>
+                <span>Code Snippets</span>
+              </button>
+
+              <button 
+                className="tool-item"
+                onClick={() => { setShowModelCompare(true); setShowToolsDrawer(false); }}
+              >
+                <span>⚗️</span>
+                <span>Model Alchemy</span>
+              </button>
+
+              <button 
+                className="tool-item"
+                onClick={() => { 
+                  if (!user) { setAuthOpen(true); } 
+                  else { setShowGamificationData(true); } 
+                  setShowToolsDrawer(false); 
+                }}
+              >
+                <span>🏆</span>
+                <span>My Rank & Stats</span>
+              </button>
+
+              <button 
+                className="tool-item"
+                onClick={() => { setShowFollowingFeedModal(true); setShowToolsDrawer(false); }}
+              >
+                <span>👥</span>
+                <span>Following Feed</span>
+              </button>
+
+              <button 
+                className="tool-item"
+                onClick={() => { 
+                  if (!user) { setAuthOpen(true); } 
+                  else { fetchWeeklyReport(); } 
+                  setShowToolsDrawer(false); 
+                }}
+              >
+                <span>📊</span>
+                <span>Weekly Summary Report</span>
+              </button>
+
+              <button 
+                className="tool-item"
+                onClick={() => { 
+                  if (!user) { setAuthOpen(true); } 
+                  else { setShowCostDashboard(true); } 
+                  setShowToolsDrawer(false); 
+                }}
+              >
+                <span>📈</span>
+                <span>Cost Dashboard</span>
+              </button>
+
+              <div className="h-px bg-gray-800 my-4"></div>
+
+              <div className="space-y-3">
+                 <button 
+                   className="tool-item border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 hover:border-emerald-500/40"
+                   onClick={() => { 
+                      if (!user) { setAuthOpen(true); } 
+                      else { handleShareSession(); } 
+                      setShowToolsDrawer(false); 
+                   }}
+                 >
+                   <span>🤝</span>
+                   <span>Collaborate (Share Session)</span>
+                 </button>
+
+                 <button 
+                   className="tool-item border-fuchsia-500/20 bg-fuchsia-500/5 hover:bg-fuchsia-500/10 hover:border-fuchsia-500/40"
+                   onClick={() => {
+                     if (!user) {
+                        setAuthOpen(true);
+                        setShowToolsDrawer(false);
+                        return;
+                     }
+                     // Trigger standard share
+                     if (chatHistory.length > 0) {
+                        const lastTurn = chatHistory[chatHistory.length - 1];
+                        setShareTitle(lastTurn.user_question || conversations.find(c => c.id === activeConversationId)?.title || '');
+                        const codeSnippets = chatHistory.filter(turn => turn.code_snippet).map(turn => turn.code_snippet).join('\n\n// ---\n\n');
+                        setShareCode(codeSnippets);
+                        setShareSolution(lastTurn.ai_response || '');
+                     }
+                     setShareOpen(true);
+                     setShowToolsDrawer(false);
+                   }}
+                 >
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                   </svg>
+                   <span>Share with Community</span>
+                 </button>
+              </div>
+              
+              {isCollabView && (
+                <div className="p-3 bg-pink-600/10 rounded-xl border border-pink-500/20 mt-4">
+                  <div className="flex items-center gap-2 text-pink-300 text-xs font-bold animate-pulse mb-2">
+                    <span className="w-2 h-2 rounded-full bg-pink-500"></span>
+                    LIVE: Shared by {collabOwner}
+                  </div>
+                  <div className="mb-3 rounded-lg border border-pink-400/20 bg-black/20 p-2.5">
+                    <div className="flex items-center justify-between text-[10px] text-pink-200 mb-2">
+                      <span>Review Status: {collabReview?.status || 'open'}</span>
+                      {collabReviewLoading && <span className="text-pink-300">sync...</span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 mb-2">
+                      <button
+                        onClick={() => updateCollabReviewStatus('open')}
+                        className="text-[10px] py-1 rounded bg-slate-700/60 hover:bg-slate-600 text-slate-100"
+                      >
+                        Open
+                      </button>
+                      <button
+                        onClick={() => updateCollabReviewStatus('revision_requested')}
+                        className="text-[10px] py-1 rounded bg-amber-700/40 hover:bg-amber-700/70 text-amber-100"
+                      >
+                        Request Rev
+                      </button>
+                      <button
+                        onClick={() => updateCollabReviewStatus('approved')}
+                        className="text-[10px] py-1 rounded bg-emerald-700/40 hover:bg-emerald-700/70 text-emerald-100"
+                      >
+                        Approve
+                      </button>
+                    </div>
+                    <div className="flex gap-1 mb-2">
+                      <input
+                        value={collabReviewComment}
+                        onChange={(e) => setCollabReviewComment(e.target.value)}
+                        placeholder="Add review comment"
+                        className="flex-1 bg-black/40 border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-200"
+                      />
+                      <button
+                        onClick={submitCollabReviewComment}
+                        className="px-2 py-1 text-[10px] rounded bg-cyan-700/50 hover:bg-cyan-600 text-cyan-100"
+                      >
+                        Send
+                      </button>
+                    </div>
+                    <div className="max-h-24 overflow-y-auto space-y-1">
+                      {(collabReview?.comments || []).slice(0, 6).map((c) => (
+                        <div key={c.id} className="text-[10px] text-pink-100/90 bg-black/20 border border-pink-400/10 rounded px-2 py-1">
+                          <span className="font-semibold">{c.author}:</span> {c.comment}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setIsCollabView(false);
+                      setCollabToken(null);
+                      window.history.pushState({}, '', window.location.pathname);
+                      fetchConversations();
+                      setShowToolsDrawer(false);
+                    }}
+                    className="w-full py-1.5 text-[10px] bg-pink-600/20 hover:bg-pink-600/40 text-pink-300 rounded-lg transition-colors border border-pink-500/30"
+                  >
+                    Disconnect Session
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-auto pt-4 border-t border-gray-800 flex flex-col gap-3">
+               {usageInfo && usageInfo.usage && (
+                 <div className="p-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5">
+                   <div className="text-[11px] text-cyan-200 font-semibold mb-1">
+                     Plan: {usageInfo.plan}
+                   </div>
+                   <div className="text-[10px] text-cyan-100/80">
+                     Daily: {usageInfo.usage.daily_requests_used}/{usageInfo.limits?.daily_requests}
+                   </div>
+                   <div className="text-[10px] text-cyan-100/80 mb-2">
+                     Monthly Tokens: {usageInfo.usage.monthly_tokens_used}/{usageInfo.limits?.monthly_tokens}
+                   </div>
+                   <div className="grid grid-cols-2 gap-2">
+                     <button
+                       onClick={() => switchSubscriptionPlan('free')}
+                       className="text-[10px] py-1 rounded bg-gray-700/70 hover:bg-gray-600 text-gray-100"
+                     >
+                       Free
+                     </button>
+                     <button
+                       onClick={() => switchSubscriptionPlan('premium')}
+                       className="text-[10px] py-1 rounded bg-fuchsia-700/70 hover:bg-fuchsia-600 text-fuchsia-100"
+                     >
+                       Premium
+                     </button>
+                   </div>
+                 </div>
+               )}
+               <div className="text-[10px] text-gray-500 text-center uppercase tracking-widest">
+                 System Version 2.5.0
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Theme Store Modal */}
+      {showThemeStore && user && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden shadow-2xl relative">
+            <div className="overflow-y-auto p-6 max-h-[85vh]">
+              <ThemeStore 
+                token={token}
+                userCoins={user?.coins || 0}
+                userXP={user?.xp || 0}
+                onThemeChange={(newTheme) => {
+                  setTheme(newTheme);
+                  // Optionally sync the new theme to local storage or external immediately handled by App.jsx useEffect
+                }}
+                onClose={() => setShowThemeStore(false)}
+                onRefreshCoins={(newCoins) => {
+                  if (user) {
+                    const u = { ...user, coins: newCoins };
+                    setUser(u);
+                    localStorage.setItem('codebrain_user', JSON.stringify(u));
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Gamification Toasts */}
+      <div className="fixed top-20 right-6 z-50 flex flex-col gap-3 pointer-events-none">
+        {gamificationToasts.map(toast => (
+          <div key={toast.id} className={`gamification-toast backdrop-blur-md rounded-xl p-4 shadow-2xl border pointer-events-auto transform transition-all duration-500 flex items-center gap-4 min-w-[300px] 
+            ${toast.type === 'level_up' 
+              ? 'bg-gradient-to-r from-purple-900/90 to-indigo-900/90 border-purple-500/50 shadow-purple-500/20' 
+              : 'bg-gradient-to-r from-amber-900/90 to-yellow-900/90 border-amber-500/50 shadow-amber-500/20'}`}>
+            
+            <div className={`text-3xl filter drop-shadow-lg ${toast.type === 'level_up' ? 'animate-bounce' : 'animate-spin-slow'}`}>
+              {toast.type === 'level_up' ? '🌟' : (toast.badge?.icon?.startsWith('fa-') ? <i className={`fas ${toast.badge.icon}`}></i> : toast.badge?.icon || '🏆')}
+            </div>
+            
+            <div className="flex-1">
+              <h4 className={`text-sm font-bold uppercase tracking-wider mb-1 ${toast.type === 'level_up' ? 'text-purple-300' : 'text-amber-300'}`}>
+                {toast.type === 'level_up' ? 'Level Up!' : 'New Badge Unlocked!'}
+              </h4>
+              <p className="text-white font-medium text-lg leading-tight">
+                {toast.message}
+              </p>
+            </div>
+            
+            <button 
+              onClick={() => setGamificationToasts(prev => prev.filter(t => t.id !== toast.id))}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,86 @@ class User(db.Model):
     preferences = db.Column(db.Text, nullable=True)  # AI Taste Profile (JSON)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Gamification Fields 🎮
+    xp = db.Column(db.Integer, default=0)  # Harcanan XP bu alanı etkileyebilir
+    total_xp_earned = db.Column(db.Integer, default=0)  # Toplam kazanılan XP (asla düşmez, level buna göre)
+    level = db.Column(db.Integer, default=1)  # total_xp_earned'e göre hesaplanır
+    coins = db.Column(db.Integer, default=0)  # Tema satın alımı için
+    streak_days = db.Column(db.Integer, default=0)
+    last_active_date = db.Column(db.Date, nullable=True)
+    longest_streak = db.Column(db.Integer, default=0)
+
+class XPEvent(db.Model):
+    """Per-event XP transaction log for analytics and auditing."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    amount = db.Column(db.Integer, nullable=False)
+    source = db.Column(db.String(50), nullable=False, default='generic', index=True)
+    reason = db.Column(db.String(255), nullable=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('xp_events', lazy='dynamic'))
+
+class UserBadge(db.Model):
+    """Kullanıcının kazandığı rozetler"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    badge_id = db.Column(db.String(50), nullable=False)  # 'first_question', '100_questions', vs.
+    earned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (db.UniqueConstraint('user_id', 'badge_id', name='_user_badge_uc'),)
+    user = db.relationship('User', backref=db.backref('badges', lazy='dynamic'))
+
+class UserTheme(db.Model):
+    """Kullanıcının aktif teması ve kilit açtığı temalar"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
+    active_theme = db.Column(db.String(50), default='dark')
+    unlocked_themes = db.Column(db.Text, default='["light", "dark"]') # JSON list
+
+    user = db.relationship('User', backref=db.backref('theme_prefs', uselist=False))
+
+class SharedSession(db.Model):
+    """Paylaşılan sohbet oturumu (Real-time Collaboration)"""
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    share_token = db.Column(db.String(64), unique=True, nullable=False)  # UUID token
+    is_active = db.Column(db.Boolean, default=True)
+    allow_chat = db.Column(db.Boolean, default=True)  # Katılımcılar mesaj gönderebilir mi
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=True)  # Opsiyonel süre sonu
+    
+    conversation = db.relationship('Conversation', backref=db.backref('shares', lazy='dynamic'))
+    owner = db.relationship('User', backref=db.backref('shared_sessions', lazy='dynamic'))
+
+
+class CollaborationReview(db.Model):
+    """Review state for a shared collaboration session."""
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey('shared_session.id'), nullable=False, unique=True)
+    status = db.Column(db.String(32), nullable=False, default='open')  # open|revision_requested|approved
+    updated_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    updated_by_name = db.Column(db.String(120), nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    session = db.relationship('SharedSession', backref=db.backref('review_state', uselist=False, lazy='joined'))
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by_user_id])
+
+
+class CollaborationComment(db.Model):
+    """Comment thread for shared collaboration review workflow."""
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey('shared_session.id'), nullable=False, index=True)
+    author_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    author_name = db.Column(db.String(120), nullable=False)
+    comment = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    session = db.relationship('SharedSession', backref=db.backref('review_comments', lazy='dynamic', cascade='all, delete'))
+    author_user = db.relationship('User', foreign_keys=[author_user_id])
+
 
 class Conversation(db.Model):
     id = db.Column(db.Integer, primary_key=True)

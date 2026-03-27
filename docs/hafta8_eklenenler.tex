@@ -1,0 +1,211 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{fontspec}
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{setspace}
+
+\geometry{a4paper, left=24mm, right=24mm, top=28mm, bottom=28mm}
+\onehalfspacing
+
+\definecolor{keywordblue}{rgb}{0.0,0.2,0.7}
+\titleformat{\section}{\large\bfseries\color{keywordblue}}{\thesection}{1em}{}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\title{CodeAlchemist -- 8. Hafta Eklenenler ve Uygulama Gunlugu}
+\author{Dila KEMER}
+\date{Mart 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Ama\c{c}}
+Bu belge, 8. hafta calismalarinda talep edilen dort ana gelistirmenin proje kod tabanina nasil eklendigini,
+hangi dosyalara dokunuldugunu ve basta belirlenen hedeften canliya alinabilir bir MVP'ye kadar olan sureci uctan uca kaydeder.
+
+\begin{enumerate}[leftmargin=*]
+  \item Baglam Optimizasyon Asistani
+  \item Patch Guvenlik Seviyesi
+  \item Paylasimda Canli Isbirligi (Yorum + Onay/Revizyon Dongusu)
+  \item Free/Premium Plan ve Kota Yonetimi
+\end{enumerate}
+
+\section{Baslangic Analizi ve Kapsamlama}
+\subsection{Incelenen Alanlar}
+Ilk adimda mevcut kod tabaninda entegrasyon noktalarini bulmak icin istemci ve sunucu dosyalari tarandi.
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/components/ChatInterface.jsx}: Context bar, prompt gonderim akisi, patch uygulama/undo
+  \item \texttt{client/src/App.jsx}: Ana \texttt{onAsk} akisi, collaboration paylasim akisi, arac cekmecesi
+  \item \texttt{server/app.py}: \texttt{/api/ask}, \texttt{/api/blend}, collaboration endpointleri
+  \item \texttt{server/models.py}: SharedSession ve ilgili veri modelleri
+\end{itemize}
+
+\subsection{MVP Siniri}
+8. hafta icin secilen strateji: mevcut davranisi bozmadan, yeni ozellikleri feature-level ek katman olarak sisteme almak.
+Bu sayede mevcut hafta 6/7 kazanimi korunurken yeni kabiliyetler devreye alindi.
+
+\section{Uygulanan Degisiklikler}
+
+\subsection{H8.1 -- Baglam Optimizasyon Asistani (Prompt Oncesi)}
+\textbf{Dosya:} \texttt{client/src/components/ChatInterface.jsx}
+
+Eklenenler:
+\begin{itemize}[leftmargin=*]
+  \item Prompt optimizasyonu icin yardimci fonksiyonlar:
+  \begin{itemize}[leftmargin=*]
+    \item tekrarli satir temizleme
+    \item gereksiz bosluklari sikistirma
+    \item token oncesi/sonrasi kestirimi
+  \end{itemize}
+  \item \texttt{Auto Optimize: ON/OFF} anahtari
+  \item Yuksek baglam baskisinda gonderim oncesi onerme karti
+  \item Uc aksiyon:
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{Apply Optimized Text}
+    \item \texttt{Send Optimized}
+    \item \texttt{Send Original}
+  \end{itemize}
+\end{itemize}
+
+Kazan\i m:
+\begin{itemize}[leftmargin=*]
+  \item Context bar yalnizca gosteren bir widget olmaktan cikti, aksiyon ureten bir yardimciya donustu.
+  \item Kullanici, promptu gondermeden once token tasarrufunu sayisal olarak gorebiliyor.
+\end{itemize}
+
+\subsection{H8.2 -- Patch Guvenlik Seviyesi}
+\textbf{Dosya:} \texttt{client/src/components/ChatInterface.jsx}
+
+Eklenenler:
+\begin{itemize}[leftmargin=*]
+  \item Patch risk skoru hesabi (0--100)
+  \item Skor girdileri:
+  \begin{itemize}[leftmargin=*]
+    \item satir farki
+    \item silinme orani
+    \item kritik anahtar kelime temasi (auth/token/secret/billing)
+    \item test sinyali
+    \item buyuk patch boyutu
+  \end{itemize}
+  \item Modlar:
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{safe}
+    \item \texttt{review}
+    \item \texttt{block}
+  \end{itemize}
+  \item Patch Safety modal:
+  \begin{itemize}[leftmargin=*]
+    \item risk gerekceleri listesi
+    \item review akisi icin kontrollu devam
+    \item block durumunda uygulamayi durdurma
+  \end{itemize}
+\end{itemize}
+
+Ek duzeltme:
+\begin{itemize}[leftmargin=*]
+  \item Model karsilastirma kutularindaki dogrudan \texttt{setCode} uygulamasi kaldirildi; tum patch akisi risk kapisindan gecirildi.
+\end{itemize}
+
+\subsection{H8.3 -- Free/Premium Plan ve Kota Yonetimi}
+\textbf{Dosyalar:} \texttt{server/app.py}, \texttt{client/src/App.jsx}
+
+Sunucu tarafi:
+\begin{itemize}[leftmargin=*]
+  \item Plan limitleri eklendi:
+  \begin{itemize}[leftmargin=*]
+    \item Free: gunluk istek + aylik token limiti
+    \item Premium: yuksek limit
+  \end{itemize}
+  \item Kota tuketim ve kontrol yardimcilari yazildi
+  \item \texttt{/api/ask} ve \texttt{/api/blend} icin kota kapisi eklendi
+  \item Yeni endpointler:
+  \begin{itemize}[leftmargin=*]
+    \item \texttt{GET /api/billing/usage}
+    \item \texttt{POST /api/billing/plan}
+  \end{itemize}
+\end{itemize}
+
+Istemci tarafi:
+\begin{itemize}[leftmargin=*]
+  \item Plan ve kullanim bilgisi cekme akisi
+  \item Tool drawer icinde plan karti
+  \item Free/Premium gecis butonlari (MVP simule plan gecisi)
+  \item Kota asiminda yukseltime yonlendiren hata mesaji
+\end{itemize}
+
+\subsection{H8.4 -- Canli Isbirligi: Yorum + Onay/Revizyon Dongusu}
+\textbf{Dosyalar:} \texttt{server/models.py}, \texttt{server/app.py}, \texttt{client/src/App.jsx}
+
+Veri modeli:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{CollaborationReview}: oturum review durumu
+  \item \texttt{CollaborationComment}: yorum akisi
+\end{itemize}
+
+API katmani:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{GET /api/collaboration/session/<token>/review}
+  \item \texttt{POST /api/collaboration/session/<token>/review/comment}
+  \item \texttt{POST /api/collaboration/session/<token>/review/status}
+\end{itemize}
+
+UI katmani:
+\begin{itemize}[leftmargin=*]
+  \item Canli collaboration paneline review status eklendi
+  \item Durum gecisleri: \texttt{open}, \texttt{revision\_requested}, \texttt{approved}
+  \item Inline yorum yazma ve son yorumlari gosterme
+\end{itemize}
+
+\section{Surec Gunlugu (Bastan Sona)}
+\begin{longtable}{@{} P{1.3cm} P{4.2cm} P{7.2cm} @{} }
+\toprule
+Adim & Islem & Sonuc \\
+\midrule
+1 & Kod tabani taramasi & Mevcut context, patch, collaboration, ask/blend akislari netlestirildi \\
+2 & Veri modeli genisletme & Isbirligi inceleme/yorum tablolari eklendi \\
+3 & Sunucu kota katmani & Plan bazli gunluk/aylik limit kontrolu aktif edildi \\
+4 & Ask/Blend entegrasyonu & Kota asiminda kontrollu 429 + yonlendirme mesaji \\
+5 & Chat optimizasyonu & Prompt oncesi optimize onerileri ve manuel/otomatik secenekler eklendi \\
+6 & Patch guvenlik kapisi & Risk skoru ve review/block modal mekanizmasi eklendi \\
+7 & Collaboration paneli & Canli yorum + onay/revizyon dongusu UI'a eklendi \\
+8 & Dogrulama & Degisen dosyalarda statik hata kontrolu temiz cikti \\
+\bottomrule
+\end{longtable}
+
+\section{Eklenen Endpoint Ozeti}
+\begin{itemize}[leftmargin=*]
+  \item \texttt{GET /api/billing/usage}
+  \item \texttt{POST /api/billing/plan}
+  \item \texttt{GET /api/collaboration/session/<token>/review}
+  \item \texttt{POST /api/collaboration/session/<token>/review/comment}
+  \item \texttt{POST /api/collaboration/session/<token>/review/status}
+\end{itemize}
+
+\section{Dogrulama Notu}
+Degistirilen ana dosyalar icin hata taramasi yapildi ve yeni sentaks/derleme hatasi tespit edilmedi.
+
+\section{Bilinen Sinirlar ve Sonraki Iterasyon}
+\begin{enumerate}[leftmargin=*]
+  \item Premium gecisi su an MVP seviyesinde (odeme entegrasyonu sonraki adim).
+  \item Prompt optimizasyonu kural tabanli; ileride model destekli semantic compression eklenebilir.
+  \item Patch risk skoru heuristic tabanli; dosya/AST tabanli analiz ile hassasiyet arttirilabilir.
+  \item Collaboration review paneli polling ile calisiyor; sonraki iterasyonda websocket/SSE ile gercek zamanli yapilabilir.
+\end{enumerate}
+
+\section{Sonuc}
+8. hafta implementasyonu ile sistem, \textit{gorunurluk} seviyesinden \textit{aksiyonlanabilir guvenlik ve maliyet kontrolu} seviyesine tasindi.
+Kullanici artik promptu optimize ederek gonderebiliyor, riskli patchleri kontrollu uygulatabiliyor,
+paylasilan oturumlarda yorum-onay dongusu yurutebiliyor ve plan/kota durumunu net olarak gorebiliyor.
+
+\end{document}
