@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from flask_socketio import SocketIO, join_room, leave_room, emit as socket_emit
+from werkzeug.exceptions import HTTPException
 from flask_jwt_extended import (
     JWTManager, create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request
 )
@@ -530,11 +531,17 @@ def expired_token_callback(jwt_header, jwt_payload):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    # Log the error
+    # Preserve HTTP errors like 404/405 instead of converting all of them to 500.
+    if isinstance(e, HTTPException):
+        return jsonify({
+            'error': e.name,
+            'details': e.description
+        }), e.code
+
+    # Log unexpected errors with traceback.
     print(f"🔥 GLOBAL ERROR: {str(e)}")
     import traceback
     traceback.print_exc()
-    # Return JSON instead of HTML for all errors
     return jsonify({
         'error': 'An internal server error occurred.',
         'details': str(e)
@@ -5352,6 +5359,7 @@ def get_community_feed():
 
 
 @app.route('/uploads/<filename>')
+@app.route('/api/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
@@ -6322,7 +6330,7 @@ def get_shared_session(token):
             'code_snippet': h.code_snippet,
             'selected_model': h.selected_model,
             'timestamp': h.timestamp.isoformat(),
-            'image_url': f"/api/uploads/{h.image_path}" if h.image_path else None
+            'image_url': f"/uploads/{h.image_path}" if h.image_path else None
         })
         
     return jsonify({
