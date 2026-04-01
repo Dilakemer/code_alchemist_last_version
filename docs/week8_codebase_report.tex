@@ -133,12 +133,13 @@
 
 \vspace{4mm}
 \begin{tcolorbox}[infobox, title={Yönetici Özeti}]
-Bu doküman, \textbf{8. hafta} kapsamında hayata alınan \textbf{4 ana özelliğin}
+Bu doküman, \textbf{8. hafta} kapsamında hayata alınan \textbf{5 ana özelliğin}
 tüm katmanlarını—ürün gereksinimi, mimari karar, kod entegrasyon noktaları, API sözleşmeleri,
 uygulama günlüğü, güvenlik değerlendirmesi ve bilinen sınırlar—tek bir referans kaynağında birleştirir.
 
 İçerik şunları kapsar: Özellik 1 için \textbf{12 kategorilik optimizasyon tablosu ve UI davranış tanımı};
 Özellik 4 için \textbf{gerçek plan limitleri, kota muhasebesi ve API sözleşmesi};
+Özellik 5 için \textbf{Mart 2026'da yayımlanan Gemini 3.1 Flash-Lite Preview model entegrasyonu};
 tüm özellikler için \textbf{Önce/Şimdi karşılaştırması}; backend smoke test ve frontend manuel test planı.
 \end{tcolorbox}
 \clearpage
@@ -174,6 +175,8 @@ Bu doküman iki temel amaca hizmet eder:
   Socket.io ile eş zamanlı AI token stream'i (Live Sync) ve takım içi inceleme döngüsü. \\[4pt]
 4 & Free/Premium Plan Ayrımı &
   İstek ve token kotası ile plan yönetimi; limit aşımında yönlendirme. \\
+5 & Gemini 3.1 Flash-Lite Preview Entegrasyonu &
+  Mart 2026 model güncellemesi ile yeni Gemini varyantının model seçim, fallback ve maliyet görünürlüğüne eklenmesi. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -994,6 +997,49 @@ Free/Premium geçiş butonları & 2630--2636 & MVP simüle plan geçişi, tool d
 \end{itemize}
 
 % ═══════════════════════════════════════════════════════════════════════════════
+\section{Özellik 5: Gemini 3.1 Flash-Lite Preview Entegrasyonu}
+% ═══════════════════════════════════════════════════════════════════════════════
+
+\subsection{Ürün Gereksinimi}
+
+Mart 2026'da Google tarafından duyurulan \texttt{gemini-3.1-flash-lite-preview}
+modelinin uygulama model seçeneklerine eklenmesi; quota veya servis sorunlarında
+mevcut fallback zinciriyle birlikte güvenli şekilde kullanılabilmesi.
+
+\subsection{Uygulama Kapsamı}
+
+\begin{itemize}[leftmargin=*, label=\textcolor{secondaryblue}{\textbullet}]
+  \item Model seçim arayüzlerine yeni seçenek eklendi (ana model seçici, model karşılaştırma, model blend, proje çalışma alanı).
+  \item Backend model eşleme ve Gemini fallback zinciri \texttt{gemini-3.1-flash-lite-preview} modelini deneyecek şekilde genişletildi.
+  \item Maliyet panelinde model adı tanımlanarak kullanım görünürlüğü sağlandı.
+\end{itemize}
+
+\subsection{Kod Entegrasyon Noktaları}
+
+\begin{center}
+\begin{tabular}{@{} P{6cm} C{2cm} P{6.5cm} @{}}
+\toprule
+\textbf{Dosya / Bileşen} & \textbf{Tip} & \textbf{Sorumluluk} \\
+\midrule
+\texttt{client/src/components/ModelSelector.jsx} & UI & Ana model dropdown seçeneği eklendi. \\[4pt]
+\texttt{client/src/components/ModelCompare.jsx} & UI & Karşılaştırma ekranı model listesine eklendi. \\[4pt]
+\texttt{client/src/components/ModelBlend.jsx} & UI & Multi-model blend seçeneklerine eklendi. \\[4pt]
+\texttt{client/src/components/ProjectWorkspace.jsx} & UI & Proje bazlı model seçimine eklendi. \\[4pt]
+\texttt{server/app.py} & Backend & \texttt{model\_mapping} ve fallback zinciri güncellendi. \\[4pt]
+\texttt{client/src/components/ModelCostDashboard.jsx} & UI/Analitik & Model maliyet sözlüğüne yeni anahtar eklendi. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Free Tier Kullanılabilirlik Notu}
+
+\begin{tcolorbox}[infobox, title={Operasyonel Not}]
+\texttt{gemini-3.1-flash-lite-preview} bir \textbf{preview} modelidir. Free tier'da
+kullanılabilir; ancak model bazlı RPM/RPD limitleri proje ve tier'e göre değişir.
+Bu nedenle uygulama fallback zinciri korunmuştur.
+\end{tcolorbox}
+
+% ═══════════════════════════════════════════════════════════════════════════════
 \section{Güvenlik Değerlendirmesi}
 % ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1089,7 +1135,9 @@ Aşağıdaki tablo, iki dokümanın birleştirilmesiyle oluşturulan uçtan uca 
   Risk skoru ve review/block modal mekanizması eklendi. \\[4pt]
 7 & Collaboration paneli &
   Canlı yorum + onay/revizyon döngüsü UI'a eklendi. \\[4pt]
-8 & Doğrulama &
+8 & Gemini 3.1 entegrasyonu &
+  Yeni model UI seçeneklerine ve backend fallback zincirine dahil edildi. \\[4pt]
+9 & Doğrulama &
   Değişen dosyalarda statik hata kontrolü temiz çıktı; yeni sözdizimi/derleme hatası tespit edilmedi. \\
 \bottomrule
 \end{longtable}
