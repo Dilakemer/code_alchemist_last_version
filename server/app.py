@@ -6254,17 +6254,10 @@ def send_to_session(token):
     sender_name = data.get('sender_name', 'Guest')
     client_nonce = data.get('client_nonce')
 
-    # Akıllı Yönlendirme ('auto')
-    if model_name == 'auto':
-        prefs = {}
-        intent = detect_intent(question, '')
-        detected_lang = language_detector.detect(question, '')
-        model_name, _ = model_router.route(detected_lang, intent, prefs)
-
     if not question:
         return jsonify({'error': 'Mesaj boş olamaz'}), 400
 
-    # Önce history kaydı oluştur (streaming sırasında güncellenecek)
+    # Önce history kaydı oluştur (eğer auto ise arka planda asıl model ile güncellenecek)
     history_entry = History(
         conversation_id=session.conversation_id,
         user_question=question,
@@ -6287,9 +6280,23 @@ def send_to_session(token):
 
     def _stream_ai_to_room(app_ctx, history_id, conversation_id, question, model_name, token):
         """Background thread: AI'dan stream, her chunk'ı socket.io ile yayınla."""
+        from models import History
         full_response = ''
         try:
             with app_ctx:
+                # Arka planda model yönlendirme (Lazy Routing)
+                if model_name == 'auto':
+                    prefs = {}
+                    intent = detect_intent(question, '')
+                    detected_lang = language_detector.detect(question, '')
+                    model_name, _ = model_router.route(detected_lang, intent, prefs)
+                    
+                    # Veritabanında (History) seçilen modeli güncelle
+                    h_entry = db.session.get(History, history_id)
+                    if h_entry:
+                        h_entry.selected_model = model_name
+                        db.session.commit()
+
                 # Gemini streaming
                 if 'gemini' in model_name.lower():
                     try:
