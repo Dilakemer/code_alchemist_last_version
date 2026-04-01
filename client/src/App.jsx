@@ -199,6 +199,25 @@ function App() {
     handleCollabHistoryRefresh
   );
 
+  // Optimistically add incoming collab questions to the chat history
+  useEffect(() => {
+    if (socketLastQuestion && isCollabView) {
+      setChatHistory(prev => {
+        // If it already exists, do nothing
+        if (prev.some(h => h.id === socketLastQuestion.historyId)) return prev;
+        
+        // Push the new question to the UI immediately
+        return [...prev, {
+          id: socketLastQuestion.historyId,
+          user_question: socketLastQuestion.question,
+          ai_response: '',
+          selected_model: 'Live Sync Session',
+          timestamp: new Date(socketLastQuestion.timestamp).toISOString(),
+          collab_sender: socketLastQuestion.sender
+        }];
+      });
+    }
+  }, [socketLastQuestion, isCollabView]);
 
   useEffect(() => {
     if (token) {
@@ -2037,6 +2056,9 @@ function App() {
                 setFeedbackHistoryId(id);
                 setShowFeedbackModal(true);
               }}
+              socketIsStreaming={socketIsStreaming}
+              liveStreamText={liveStreamText}
+              streamingHistoryId={streamingHistoryId}
             />
           </div>
 

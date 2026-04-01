@@ -519,19 +519,25 @@ const ChatInterface = ({
   setCode,
   user,
   onAuthRequired,
+  model,
   apiBase,
   authHeaders,
+  theme,
   onUpdate,
   image,
   setImage,
-  theme,
-  onSpeak,
-  currentlySpeakingId,
-  onShare,
+  isNewConversation,
   activeConversationId,
+  currentlySpeakingId,
+  onSpeak,
+  onShare,
   onShowCodeHealth,
   activeProject,
-  onFeedbackDetail
+  onFeedbackDetail,
+  // COLLAB PARAMS
+  socketIsStreaming = false,
+  liveStreamText = '',
+  streamingHistoryId = null
 }) => {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -1196,7 +1202,9 @@ const ChatInterface = ({
                     )}
                   </div>
                 )}
-                <div className="font-medium text-sm mb-1 text-fuchsia-400">You</div>
+                <div className="font-medium text-sm mb-1 text-fuchsia-400">
+                  {turn.collab_sender ? `${turn.collab_sender}` : 'You'}
+                </div>
                 <div className="whitespace-pre-wrap">{turn.user_question}</div>
                 {turn.code_snippet && (
                   <div className="mt-3 bg-black/50 rounded-lg overflow-hidden border border-gray-700">
@@ -1315,8 +1323,8 @@ const ChatInterface = ({
                   </p>
                   <div className="prose prose-invert prose-sm max-w-full w-full break-words overflow-x-auto">
                     <SmartMarkdown
-                      content={turn.ai_response}
-                      isStreaming={loading && index === history.length - 1}
+                      content={(turn.id === streamingHistoryId && socketIsStreaming) ? liveStreamText : turn.ai_response}
+                      isStreaming={(loading && index === history.length - 1) || (turn.id === streamingHistoryId && socketIsStreaming)}
                       syntaxTheme={syntaxTheme}
                       onCopyCode={copyCodeToClipboard}
                       copiedCodeId={copiedCodeId}

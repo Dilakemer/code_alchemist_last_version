@@ -1,6 +1,15 @@
 import os
 import uuid
 import sys
+
+# Eventlet monkey patch for Render.com (Must be before other imports)
+if sys.platform != 'win32' and os.environ.get('RENDER'):
+    import eventlet
+    eventlet.monkey_patch()
+    ASYNC_MODE = 'eventlet'
+else:
+    ASYNC_MODE = 'threading'
+
 import re
 import io
 import json
@@ -354,12 +363,12 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 db.init_app(app)
 jwt = JWTManager(app)
 
-# SocketIO — threading async_mode (Windows + Render.com uyumlu)
+# SocketIO — dinamik async_mode (Windows=threading, Render/Linux=eventlet)
 # WebSocket destekler; fallback olarak polling de çalışır
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
-    async_mode='threading',
+    async_mode=ASYNC_MODE,
     logger=False,
     engineio_logger=False,
     ping_timeout=60,
@@ -6213,6 +6222,13 @@ def send_to_session(token):
     model_name = data.get('model', 'gemini-2.5-flash-lite')
     sender_name = data.get('sender_name', 'Guest')
 
+    # Akıllı Yönlendirme ('auto')
+    if model_name == 'auto':
+        prefs = {}
+        intent = detect_intent(question, '')
+        detected_lang = language_detector.detect(question, '')
+        model_name, _ = model_router.route(detected_lang, intent, prefs)
+
     if not question:
         return jsonify({'error': 'Mesaj boş olamaz'}), 400
 
@@ -6335,14 +6351,17 @@ def send_to_session(token):
                 'error': True
             }, room=token)
 
-    # Background thread başlat
+    # Background task başlat (eventlet veya threading safe)
     app_ctx = app.app_context()
-    thread = threading.Thread(
-        target=_stream_ai_to_room,
-        args=(app_ctx, history_id, conversation_id, question, model_name, token),
-        daemon=True
+    socketio.start_background_task(
+        _stream_ai_to_room,
+        app_ctx, 
+        history_id, 
+        conversation_id, 
+        question, 
+        model_name, 
+        token
     )
-    thread.start()
 
     return jsonify({'status': 'streaming', 'history_id': history_id})
 
