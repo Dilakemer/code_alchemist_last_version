@@ -378,6 +378,34 @@ socketio = SocketIO(
     ping_interval=25,
 )
 
+# --- SOCKETIO EVENT HANDLERS ---
+@socketio.on('join_room')
+def handle_join_room(data):
+    token = data.get('token')
+    user_name = data.get('user_name', 'Guest')
+    if token:
+        join_room(token)
+        print(f"DEBUG: User {user_name} joined room {token}")
+        # Odaya katılan yeni kullanıcıyı diğerlerine duyur
+        socketio.emit('user_joined', {'user_name': user_name, 'token': token}, room=token)
+
+@socketio.on('leave_room')
+def handle_leave_room(data):
+    token = data.get('token')
+    user_name = data.get('user_name', 'Guest')
+    if token:
+        leave_room(token)
+        print(f"DEBUG: User {user_name} left room {token}")
+        socketio.emit('user_left', {'user_name': user_name, 'token': token}, room=token)
+
+@socketio.on('connect')
+def handle_connect():
+    print(f"DEBUG: Socket connected: {request.sid}")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f"DEBUG: Socket disconnected: {request.sid}")
+
 # Initialize database tables (Critical for Gunicorn/Render)
 with app.app_context():
     try:
