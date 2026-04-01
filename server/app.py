@@ -22,6 +22,7 @@ import datetime
 import math
 import smtplib
 import resend
+from types import SimpleNamespace
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import timedelta
@@ -33,7 +34,7 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request
 )
 from passlib.hash import pbkdf2_sha256
-from google import generativeai as genai
+from google import genai as google_genai
 from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment
 from anthropic import Anthropic, APIError
 from openai import OpenAI
@@ -41,6 +42,100 @@ from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
 from utils.github_parser import GitHubParser
+
+
+def _normalize_gemini_model_name(model_name):
+    if not model_name:
+        return model_name
+    return model_name.replace('models/', '', 1) if model_name.startswith('models/') else model_name
+
+
+def _extract_gemini_text(response_obj):
+    text = getattr(response_obj, 'text', None)
+    if isinstance(text, str) and text:
+        return text
+
+    # Best-effort fallback for non-text response shapes.
+    candidates = getattr(response_obj, 'candidates', None)
+    if candidates:
+        parts = getattr(getattr(candidates[0], 'content', None), 'parts', None)
+        if parts:
+            chunks = []
+            for part in parts:
+                ptext = getattr(part, 'text', None)
+                if ptext:
+                    chunks.append(ptext)
+            if chunks:
+                return ''.join(chunks)
+
+    return ''
+
+
+class _GeminiCompatModel:
+    def __init__(self, client, model_name):
+        self._client = client
+        self._model_name = _normalize_gemini_model_name(model_name)
+
+    def generate_content(self, contents, stream=False, request_options=None):
+        # request_options is accepted for backward compatibility with old SDK call sites.
+        if stream:
+            stream_iter = self._client.models.generate_content_stream(
+                model=self._model_name,
+                contents=contents,
+            )
+            for item in stream_iter:
+                yield SimpleNamespace(text=_extract_gemini_text(item))
+            return
+
+        response = self._client.models.generate_content(
+            model=self._model_name,
+            contents=contents,
+        )
+        text = _extract_gemini_text(response)
+        return SimpleNamespace(
+            text=text,
+            content=[SimpleNamespace(text=text)] if text else []
+        )
+
+
+class _GeminiCompat:
+    def __init__(self):
+        self._client = None
+
+    def configure(self, api_key=None):
+        if not api_key:
+            self._client = None
+            return
+        self._client = google_genai.Client(api_key=api_key)
+
+    def GenerativeModel(self, model_name):
+        if not self._client:
+            raise RuntimeError('Gemini client is not configured')
+        return _GeminiCompatModel(self._client, model_name)
+
+    def embed_content(self, model, content, task_type=None):
+        if not self._client:
+            raise RuntimeError('Gemini client is not configured')
+
+        config = {'task_type': task_type} if task_type else None
+        response = self._client.models.embed_content(
+            model=_normalize_gemini_model_name(model),
+            contents=content,
+            config=config,
+        )
+
+        # Keep old extraction logic compatible by returning dict with `embedding`.
+        embedding_values = None
+        if getattr(response, 'embeddings', None):
+            first = response.embeddings[0]
+            embedding_values = getattr(first, 'values', None) or getattr(first, 'embedding', None)
+        if embedding_values is None:
+            embedding_values = getattr(response, 'embedding', None)
+
+        return {'embedding': embedding_values or []}
+
+
+genai = _GeminiCompat()
 
 # Cache for AI responses to reduce quota usage
 health_narrative_cache = {}
@@ -604,8 +699,7 @@ def transcribe_audio_with_gemini(audio_path):
     try:
         if not GEMINI_API_KEY:
             return None
-            
-        import google.generativeai as genai
+
         import mimetypes
         
         mime_type, _ = mimetypes.guess_type(audio_path)

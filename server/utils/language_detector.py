@@ -1,6 +1,6 @@
 
 import os
-import google.generativeai as genai
+from google import genai as google_genai
 
 class LanguageDetector:
     """
@@ -32,8 +32,9 @@ class LanguageDetector:
 
     def __init__(self, gemini_api_key=None):
         self.gemini_api_key = gemini_api_key
+        self.client = None
         if self.gemini_api_key:
-            genai.configure(api_key=self.gemini_api_key)
+            self.client = google_genai.Client(api_key=self.gemini_api_key)
 
     def detect(self, text: str, code: str = "") -> str:
         """
@@ -70,7 +71,7 @@ class LanguageDetector:
         return self._detect_with_llm(content)
 
     def _detect_with_llm(self, content: str) -> str:
-        if not self.gemini_api_key:
+        if not self.gemini_api_key or not self.client:
             return "unknown"
             
         prompt = f"""
@@ -87,8 +88,10 @@ class LanguageDetector:
         # Strategy: Gemini 2.5 Flash Lite (10 RPM, highest quota) -> Gemini 2.5 Flash (5 RPM)
         for m_name in ['models/gemini-2.5-flash-lite', 'models/gemini-2.5-flash']:
             try:
-                model = genai.GenerativeModel(m_name)
-                result = model.generate_content(prompt)
+                result = self.client.models.generate_content(
+                    model=m_name.replace('models/', '', 1),
+                    contents=prompt
+                )
                 detected = getattr(result, "text", "unknown").strip().lower()
                 
                 # Clean up response
