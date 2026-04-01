@@ -13,6 +13,15 @@ import ConfirmationModal from './ConfirmationModal';
 import InteractiveMergeModal from './InteractiveMergeModal';
 
 
+const LoadingDots = () => (
+  <div className="flex gap-1 items-center justify-center h-4">
+    <div className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+    <div className="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+    <div className="w-1.5 h-1.5 bg-current rounded-full animate-bounce"></div>
+  </div>
+);
+
+
 const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId, onGenerateTests, generatingTestId, onApplyPatch }) => {
   const displayedText = useTypingEffect(content, isStreaming);
 
