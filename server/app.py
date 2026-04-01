@@ -1784,7 +1784,7 @@ def get_leaderboard():
         leaderboard.append({
             'user_id': u.id,
             'display_name': u.display_name,
-            'profile_image': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(u.profile_image)}" if u.profile_image else None,
+            'profile_image': f"/api/files/{os.path.basename(u.profile_image)}" if u.profile_image else None,
             'level': user_level,
             'total_xp': total_xp,
             'rank': idx + 1,
@@ -2205,7 +2205,7 @@ def serialize_history(item: History) -> dict:
         'summary': item.summary or "",
         'likes': item.likes or 0,
         'answer_count': item.answers.count() if hasattr(item, 'answers') else 0,
-        'image_url': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(item.image_path)}" if item.image_path else None,
+        'image_url': f"/api/files/{os.path.basename(item.image_path)}" if item.image_path else None,
         'author_name': author_name,
         'author_id': author_id,
         'author_image': author_image,
@@ -2251,7 +2251,7 @@ def serialize_answer(answer: Answer) -> dict:
         'body': answer.body,
         'code_snippet': answer.code_snippet,
         'likes': answer.likes or 0,
-        'image_url': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(answer.image_path)}" if answer.image_path else None,
+        'image_url': f"/api/files/{os.path.basename(answer.image_path)}" if answer.image_path else None,
         'created_at': answer.created_at.strftime('%Y-%m-%d %H:%M'),
     }
 
@@ -2268,7 +2268,7 @@ def serialize_user(user: User) -> dict:
         'email': user.email,
         'display_name': user.display_name,
         'is_admin': user.is_admin,
-        'profile_image': f"{request.host_url.rstrip('/')}/api/files/{os.path.basename(user.profile_image)}" if user.profile_image else None,
+        'profile_image': f"/api/files/{os.path.basename(user.profile_image)}" if user.profile_image else None,
         'created_at': user.created_at.strftime('%Y-%m-%d %H:%M'),
         'preferences': prefs,
         'xp': user.xp,
