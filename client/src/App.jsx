@@ -213,7 +213,8 @@ function App() {
           ai_response: '',
           selected_model: 'Live Sync Session',
           timestamp: new Date(socketLastQuestion.timestamp).toISOString(),
-          collab_sender: socketLastQuestion.sender
+          collab_sender: socketLastQuestion.sender,
+          isLiveStreaming: true
         }];
       });
     }
@@ -822,6 +823,18 @@ function App() {
     // Collaboration redirect — Live Socket yolu
     if (isCollabView && collabToken) {
       if (!effectiveQuestion.trim()) return;
+      
+      const tempId = Date.now();
+      const optimisticItem = {
+        id: tempId,
+        user_question: effectiveQuestion,
+        ai_response: '',
+        timestamp: new Date().toISOString(),
+        selected_model: model === 'auto' ? 'AI Alchemist' : model,
+        collab_sender: user?.display_name || 'You'
+      };
+      setChatHistory(prev => [...prev, optimisticItem]);
+
       setLoading(true);
       try {
         const resp = await fetch(`${API_BASE}/api/collaboration/session/${collabToken}/send`, {
@@ -834,16 +847,25 @@ function App() {
           })
         });
         if (resp.ok) {
+          const data = await resp.json();
+          // Update the temp ID with the real DB history ID so streaming works
+          if (data.history_id) {
+            setChatHistory(prev => prev.map(item => 
+              item.id === tempId ? { ...item, id: data.history_id } : item
+            ));
+          }
           setQuestion('');
           setCode('');
           setImage(null);
-          // Geçmişi YENILEME — Socket'ten stream_done sinyali gelince otomatik yenilenir
         } else {
           const derr = await resp.json().catch(() => ({}));
           handleShowAlert(derr.error || 'Mesaj gönderilemedi');
+          // Error occurred, remove from history
+          setChatHistory(prev => prev.filter(item => item.id !== tempId));
         }
       } catch (e) {
         handleShowAlert('Hata: ' + e.message);
+        setChatHistory(prev => prev.filter(item => item.id !== tempId));
       } finally {
         setLoading(false);
       }

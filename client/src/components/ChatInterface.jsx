@@ -1322,17 +1322,24 @@ const ChatInterface = ({
                     )}
                   </p>
                   <div className="prose prose-invert prose-sm max-w-full w-full break-words overflow-x-auto">
-                    <SmartMarkdown
-                      content={(turn.id === streamingHistoryId && socketIsStreaming) ? liveStreamText : turn.ai_response}
-                      isStreaming={(loading && index === history.length - 1) || (turn.id === streamingHistoryId && socketIsStreaming)}
-                      syntaxTheme={syntaxTheme}
-                      onCopyCode={copyCodeToClipboard}
-                      copiedCodeId={copiedCodeId}
-                      messageId={turn.id}
-                      onGenerateTests={handleGenerateTests}
-                      generatingTestId={generatingTestId}
-                      onApplyPatch={handleApplyPatchRequest}
-                    />
+                    {(turn.id === streamingHistoryId && socketIsStreaming && !liveStreamText) ? (
+                      <div className="flex items-center gap-2 py-2 text-gray-400">
+                        <LoadingDots />
+                        <span className="text-xs animate-pulse">Alchemy in progress...</span>
+                      </div>
+                    ) : (
+                      <SmartMarkdown
+                        content={(turn.id === streamingHistoryId && socketIsStreaming) ? liveStreamText : turn.ai_response}
+                        isStreaming={(loading && index === history.length - 1) || (turn.id === streamingHistoryId && socketIsStreaming)}
+                        syntaxTheme={syntaxTheme}
+                        onCopyCode={copyCodeToClipboard}
+                        copiedCodeId={copiedCodeId}
+                        messageId={turn.id}
+                        onGenerateTests={handleGenerateTests}
+                        generatingTestId={generatingTestId}
+                        onApplyPatch={handleApplyPatchRequest}
+                      />
+                    )}
                   </div>
 
                   {/* Semantic Context Visibility (Project chats only) */}
