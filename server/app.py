@@ -823,6 +823,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
     # Model Seçimi
     if requested_model and ('gemini' in requested_model or 'gemma' in requested_model):
         model_mapping = {
+            'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite-preview',
+            'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
             'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',  # 10 RPM
             'gemini-2.5-flash': 'gemini-2.5-flash',            # 5 RPM
         }
@@ -836,7 +838,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         fallback_chain.append(target_id)
         
         # 2. Kota sırasına göre yedek modeller (2.0 Flash ücretsiz planda 0 kota!)
-        for alt in ['gemini-2.5-flash-lite', 'gemini-2.5-flash']:
+        for alt in ['gemini-3.1-flash-lite-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']:
             if alt not in fallback_chain:
                 fallback_chain.append(alt)
 
@@ -855,7 +857,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             system_instruction += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
     else:
         # Varsayılan (Fallback zinciri ile - 2.0 Flash ücretsiz planda 0 kota)
-        fallback_chain = [GEMINI_MODEL, 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
+        fallback_chain = [GEMINI_MODEL, 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
 
     system_prompt = (
         "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "

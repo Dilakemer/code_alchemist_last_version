@@ -13,6 +13,7 @@ const MODEL_PRICING = {
   'gemini-1.5-flash': { input: 0.00, output: 0.00 }, // Free tier
   'gemini-2.0-flash': { input: 0.00, output: 0.00 }, // Free tier
   'gemini-2.5-flash': { input: 0.00, output: 0.00 }, // Free tier
+  'gemini-3.1-flash-lite-preview': { input: 0.00, output: 0.00 }, // Free tier (preview limits apply)
   'dall-e-3': { cost_per_img: 0.040 },
   'Unknown': { input: 0, output: 0 }
 };
