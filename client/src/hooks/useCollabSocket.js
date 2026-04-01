@@ -89,6 +89,7 @@ export function useCollabSocket(token, userName = 'Guest', onHistoryRefresh = nu
         sender: data.sender,
         historyId: data.history_id,
         timestamp: Date.now(),
+        clientNonce: data.client_nonce,
       });
       setStreamingHistoryId(data.history_id);
       setIsStreaming(true);

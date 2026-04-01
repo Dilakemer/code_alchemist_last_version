@@ -6224,6 +6224,7 @@ def send_to_session(token):
     question = data.get('question', '').strip()
     model_name = data.get('model', 'gemini-2.5-flash-lite')
     sender_name = data.get('sender_name', 'Guest')
+    client_nonce = data.get('client_nonce')
 
     # Akıllı Yönlendirme ('auto')
     if model_name == 'auto':
@@ -6252,7 +6253,8 @@ def send_to_session(token):
         'question': question,
         'sender': sender_name,
         'history_id': history_id,
-        'token': token
+        'token': token,
+        'client_nonce': client_nonce
     }, room=token)
 
     def _stream_ai_to_room(app_ctx, history_id, conversation_id, question, model_name, token):

@@ -203,10 +203,23 @@ function App() {
   useEffect(() => {
     if (socketLastQuestion && isCollabView) {
       setChatHistory(prev => {
-        // If it already exists, do nothing
+        // 1. Eğer historyId zaten varsa (diğer makinelerde veya yavaş bağlantıda), dokunma
         if (prev.some(h => h.id === socketLastQuestion.historyId)) return prev;
         
-        // Push the new question to the UI immediately
+        // 2. Eğer bu mesaj BENİM tarafımdan (optimistik olarak) zaten eklendiyse (nonce eşleşmesi)
+        // sadece ID'sini güncelle, mükerrer kayıt oluşturma.
+        const existingLocalIndex = prev.findIndex(h => h.id === socketLastQuestion.clientNonce);
+        if (existingLocalIndex !== -1) {
+          const newHistory = [...prev];
+          newHistory[existingLocalIndex] = {
+            ...newHistory[existingLocalIndex],
+            id: socketLastQuestion.historyId,
+            isLiveStreaming: true
+          };
+          return newHistory;
+        }
+
+        // 3. Mesaj tamamen yeniyse (başkası sorduysa), listeye ekle
         return [...prev, {
           id: socketLastQuestion.historyId,
           user_question: socketLastQuestion.question,
@@ -843,12 +856,13 @@ function App() {
           body: JSON.stringify({
             question: effectiveQuestion,
             model: model,
-            sender_name: user?.display_name || 'Guest'
+            sender_name: user?.display_name || 'Guest',
+            client_nonce: tempId // ID senkronizasyonu için
           })
         });
         if (resp.ok) {
           const data = await resp.json();
-          // Update the temp ID with the real DB history ID so streaming works
+          // POST cevabı geldiğinde ID'yi güncelle (Eğer socket henüz güncellemediyse)
           if (data.history_id) {
             setChatHistory(prev => prev.map(item => 
               item.id === tempId ? { ...item, id: data.history_id } : item
