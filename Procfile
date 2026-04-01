@@ -1,1 +1,1 @@
-web: cd server && gunicorn --bind 0.0.0.0:$PORT app:app
+web: cd server && gunicorn --bind 0.0.0.0:$PORT --worker-class gthread --threads 8 -w 1 --timeout 120 app:app

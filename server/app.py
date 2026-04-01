@@ -1,14 +1,7 @@
-# Eventlet monkey patch for Render.com (Must be the VERY FIRST thing)
 import os, sys
-if sys.platform != 'win32':
-    try:
-        import eventlet
-        eventlet.monkey_patch()
-        ASYNC_MODE = 'eventlet'
-    except ImportError:
-        ASYNC_MODE = 'threading'
-else:
-    ASYNC_MODE = 'threading'
+
+# Keep Socket.IO on threading mode to avoid deprecated/fragile eventlet runtime on Gunicorn.
+ASYNC_MODE = 'threading'
 
 import uuid
 import re
@@ -464,8 +457,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 db.init_app(app)
 jwt = JWTManager(app)
 
-# SocketIO — dinamik async_mode (Windows=threading, Render/Linux=eventlet)
-# WebSocket destekler; fallback olarak polling de çalışır
+# SocketIO async mode is pinned to threading for cross-platform stability.
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
