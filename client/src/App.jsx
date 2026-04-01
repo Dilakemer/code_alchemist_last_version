@@ -26,6 +26,7 @@ import ThemeStore from './components/ThemeStore';
 import WeeklyReport from './components/WeeklyReport';
 import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
 import { API_BASE } from './config';
+import { useCollabSocket } from './hooks/useCollabSocket';
 
 function App() {
   const [model, setModel] = useState('auto');
@@ -169,24 +170,35 @@ function App() {
     }
   }, [user]);
 
-  // Polling for collaboration
-  useEffect(() => {
-    let interval;
-    if (isCollabView && collabToken) {
-      interval = setInterval(() => {
-        fetch(`${API_BASE}/api/collaboration/session/${collabToken}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.history && data.history.length > chatHistory.length) {
-              setChatHistory(data.history);
-            }
-            fetchCollabReview(collabToken);
-          })
-          .catch(err => console.error("Polling error", err));
-      }, 5000);
+  // ---- Live Sync Collaboration (Socket.io) ----
+  const collabUserName = user?.display_name || 'Guest';
+
+  const handleCollabHistoryRefresh = () => {
+    // Socket'ten stream_done sinyali gelince chat history'yi yenile
+    if (collabToken) {
+      fetch(`${API_BASE}/api/collaboration/session/${collabToken}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.history) setChatHistory(data.history);
+        })
+        .catch(err => console.error('Collab history refresh error:', err));
     }
-    return () => clearInterval(interval);
-  }, [isCollabView, collabToken, chatHistory.length]);
+  };
+
+  const {
+    connected: socketConnected,
+    transportMode,
+    liveStreamText,
+    isStreaming: socketIsStreaming,
+    streamingHistoryId,
+    lastQuestion: socketLastQuestion,
+    activeUsers: socketActiveUsers,
+  } = useCollabSocket(
+    isCollabView ? collabToken : null,
+    collabUserName,
+    handleCollabHistoryRefresh
+  );
+
 
   useEffect(() => {
     if (token) {
@@ -788,7 +800,7 @@ function App() {
     const effectiveQuestion = opts.question !== undefined ? opts.question : question;
     const effectiveConversationId = opts.conversationId !== undefined ? opts.conversationId : activeConversationId;
     
-    // Collaboration redirect
+    // Collaboration redirect — Live Socket yolu
     if (isCollabView && collabToken) {
       if (!effectiveQuestion.trim()) return;
       setLoading(true);
@@ -796,13 +808,17 @@ function App() {
         const resp = await fetch(`${API_BASE}/api/collaboration/session/${collabToken}/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: effectiveQuestion, model: model })
+          body: JSON.stringify({
+            question: effectiveQuestion,
+            model: model,
+            sender_name: user?.display_name || 'Guest'
+          })
         });
         if (resp.ok) {
           setQuestion('');
           setCode('');
           setImage(null);
-          loadSharedSession(collabToken);
+          // Geçmişi YENILEME — Socket'ten stream_done sinyali gelince otomatik yenilenir
         } else {
           const derr = await resp.json().catch(() => ({}));
           handleShowAlert(derr.error || 'Mesaj gönderilemedi');
@@ -1688,7 +1704,7 @@ function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
         {activeProject ? (
           <ProjectWorkspace 
             project={activeProject}
@@ -1933,24 +1949,26 @@ function App() {
               )}
             </button>
 
-            {/* Export Button */}
-            <ExportButton
-              chatHistory={chatHistory}
-              conversationTitle={conversations.find(c => c.id === activeConversationId)?.title || 'Chat Export'}
-            />
+            {/* Export Button - Hidden on mobile */}
+            <div className="hidden sm:block">
+              <ExportButton
+                chatHistory={chatHistory}
+                conversationTitle={conversations.find(c => c.id === activeConversationId)?.title || 'Chat Export'}
+              />
+            </div>
 
-            <div className="h-6 w-px bg-gray-700 mx-2"></div>
+            <div className="hidden sm:block h-6 w-px bg-gray-700 mx-2"></div>
 
             <button
               onClick={() => {
                 setShowToolsDrawer(true);
                 refreshUserInfo();
               }}
-              className="flex items-center gap-2 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 text-purple-300 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border border-purple-500/30 group"
+              className="flex items-center gap-2 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 text-purple-300 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-purple-500/30 group"
               title="Magical Tools"
             >
-              <span className="text-sm group-hover:scale-110 transition-transform">✨</span>
-              <span>Magical Tools</span>
+              <span className="text-xs group-hover:scale-110 transition-transform">✨</span>
+              <span className="hidden xs:block">Magical Tools</span>
               {isCollabView && <span className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></span>}
             </button>
 
@@ -1959,10 +1977,10 @@ function App() {
                 setShowCommunityFeed(true);
                 fetchCommunityItems();
               }}
-              className="text-gray-400 hover:text-fuchsia-400 transition-colors ml-2"
+              className="text-gray-400 hover:text-fuchsia-400 transition-colors ml-1"
               title="Community Feed"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </button>
@@ -1972,7 +1990,7 @@ function App() {
         {/* Content Area */}
         <section className="flex-1 overflow-hidden relative flex">
           <div className="absolute inset-0 bg-gradient-to-b from-fuchsia-900/5 to-purple-900/5 pointer-events-none" />
-          <div className={`flex-1 min-w-0 h-full ${isNewConversation ? 'new-conversation-effect' : ''}`}>
+          <div className={`flex-1 min-w-0 flex flex-col min-h-0 ${isNewConversation ? 'new-conversation-effect' : ''}`}>
             <ChatInterface
               history={chatHistory}
               loading={loading}
@@ -2660,72 +2678,137 @@ function App() {
               </div>
               
               {isCollabView && (
-                <div className="p-3 bg-pink-600/10 rounded-xl border border-pink-500/20 mt-4">
-                  <div className="flex items-center gap-2 text-pink-300 text-xs font-bold animate-pulse mb-2">
-                    <span className="w-2 h-2 rounded-full bg-pink-500"></span>
-                    LIVE: Shared by {collabOwner}
+                <div className="mt-4 rounded-xl border border-pink-500/30 bg-gradient-to-b from-pink-950/30 to-purple-950/20 overflow-hidden">
+                  {/* Live Sync Header */}
+                  <div className="px-3 py-2 bg-pink-600/20 border-b border-pink-500/20 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${socketConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-bounce'}`}></span>
+                      <span className="text-[11px] font-bold text-pink-200 uppercase tracking-widest">
+                        {socketConnected ? 'Live Sync' : 'Connecting...'}
+                      </span>
+                    </div>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                      transportMode === 'websocket' 
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                        : transportMode === 'polling'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {transportMode === 'websocket' ? '⚡ WS' : transportMode === 'polling' ? '📡 Polling' : '···'}
+                    </span>
                   </div>
-                  <div className="mb-3 rounded-lg border border-pink-400/20 bg-black/20 p-2.5">
-                    <div className="flex items-center justify-between text-[10px] text-pink-200 mb-2">
-                      <span>Review Status: {collabReview?.status || 'open'}</span>
-                      {collabReviewLoading && <span className="text-pink-300">sync...</span>}
+
+                  <div className="p-3 space-y-3">
+                    {/* Owner info */}
+                    <div className="text-[11px] text-pink-300/80 font-medium">
+                      Oturum sahibi: <span className="text-pink-200 font-bold">{collabOwner}</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-1 mb-2">
-                      <button
-                        onClick={() => updateCollabReviewStatus('open')}
-                        className="text-[10px] py-1 rounded bg-slate-700/60 hover:bg-slate-600 text-slate-100"
-                      >
-                        Open
-                      </button>
-                      <button
-                        onClick={() => updateCollabReviewStatus('revision_requested')}
-                        className="text-[10px] py-1 rounded bg-amber-700/40 hover:bg-amber-700/70 text-amber-100"
-                      >
-                        Request Rev
-                      </button>
-                      <button
-                        onClick={() => updateCollabReviewStatus('approved')}
-                        className="text-[10px] py-1 rounded bg-emerald-700/40 hover:bg-emerald-700/70 text-emerald-100"
-                      >
-                        Approve
-                      </button>
-                    </div>
-                    <div className="flex gap-1 mb-2">
-                      <input
-                        value={collabReviewComment}
-                        onChange={(e) => setCollabReviewComment(e.target.value)}
-                        placeholder="Add review comment"
-                        className="flex-1 bg-black/40 border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-200"
-                      />
-                      <button
-                        onClick={submitCollabReviewComment}
-                        className="px-2 py-1 text-[10px] rounded bg-cyan-700/50 hover:bg-cyan-600 text-cyan-100"
-                      >
-                        Send
-                      </button>
-                    </div>
-                    <div className="max-h-24 overflow-y-auto space-y-1">
-                      {(collabReview?.comments || []).slice(0, 6).map((c) => (
-                        <div key={c.id} className="text-[10px] text-pink-100/90 bg-black/20 border border-pink-400/10 rounded px-2 py-1">
-                          <span className="font-semibold">{c.author}:</span> {c.comment}
+
+                    {/* Active Users */}
+                    {socketActiveUsers.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {socketActiveUsers.map((uname, i) => (
+                          <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-purple-600/30 border border-purple-500/30 text-purple-200 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                            {uname}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Live AI Streaming Indicator */}
+                    {socketIsStreaming && (
+                      <div className="rounded-lg border border-cyan-500/30 bg-cyan-950/30 p-2.5">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <div className="flex gap-0.5">
+                            <span className="w-1 h-3 bg-cyan-400 rounded-full animate-[bounce_0.8s_ease-in-out_infinite]"></span>
+                            <span className="w-1 h-3 bg-cyan-400 rounded-full animate-[bounce_0.8s_ease-in-out_0.15s_infinite]"></span>
+                            <span className="w-1 h-3 bg-cyan-400 rounded-full animate-[bounce_0.8s_ease-in-out_0.3s_infinite]"></span>
+                          </div>
+                          <span className="text-[10px] text-cyan-300 font-semibold">AI yanıtlıyor...</span>
                         </div>
-                      ))}
+                        {socketLastQuestion && (
+                          <div className="text-[10px] text-cyan-200/70 truncate">
+                            <span className="text-cyan-400 font-bold">{socketLastQuestion.sender}:</span> {socketLastQuestion.question}
+                          </div>
+                        )}
+                        <div className="mt-1.5 text-[10px] text-gray-300/80 max-h-16 overflow-y-auto leading-relaxed font-mono">
+                          {liveStreamText}<span className="inline-block w-0.5 h-3 bg-cyan-400 animate-pulse ml-0.5 align-middle"></span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Review sistemi */}
+                    <div className="rounded-lg border border-pink-400/20 bg-black/20 p-2.5">
+                      <div className="flex items-center justify-between text-[10px] text-pink-200 mb-2">
+                        <span>Review: <span className={`font-bold ${
+                          collabReview?.status === 'approved' ? 'text-emerald-400' 
+                          : collabReview?.status === 'revision_requested' ? 'text-amber-400' 
+                          : 'text-pink-300'
+                        }`}>{collabReview?.status || 'open'}</span></span>
+                        {collabReviewLoading && <span className="text-pink-300 animate-pulse">sync...</span>}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 mb-2">
+                        <button
+                          onClick={() => updateCollabReviewStatus('open')}
+                          className="text-[10px] py-1 rounded bg-slate-700/60 hover:bg-slate-600 text-slate-100 transition-colors"
+                        >
+                          Open
+                        </button>
+                        <button
+                          onClick={() => updateCollabReviewStatus('revision_requested')}
+                          className="text-[10px] py-1 rounded bg-amber-700/40 hover:bg-amber-700/70 text-amber-100 transition-colors"
+                        >
+                          Revise
+                        </button>
+                        <button
+                          onClick={() => updateCollabReviewStatus('approved')}
+                          className="text-[10px] py-1 rounded bg-emerald-700/40 hover:bg-emerald-700/70 text-emerald-100 transition-colors"
+                        >
+                          ✓ Approve
+                        </button>
+                      </div>
+                      <div className="flex gap-1 mb-2">
+                        <input
+                          value={collabReviewComment}
+                          onChange={(e) => setCollabReviewComment(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && submitCollabReviewComment()}
+                          placeholder="Yorum ekle..."
+                          className="flex-1 bg-black/40 border border-gray-700 rounded px-2 py-1 text-[10px] text-gray-200 focus:border-pink-500/50 outline-none"
+                        />
+                        <button
+                          onClick={submitCollabReviewComment}
+                          className="px-2 py-1 text-[10px] rounded bg-cyan-700/50 hover:bg-cyan-600 text-cyan-100 transition-colors"
+                        >
+                          Gönder
+                        </button>
+                      </div>
+                      <div className="max-h-20 overflow-y-auto space-y-1">
+                        {(collabReview?.comments || []).slice(0, 6).map((c) => (
+                          <div key={c.id} className="text-[10px] text-pink-100/90 bg-black/20 border border-pink-400/10 rounded px-2 py-1">
+                            <span className="font-semibold text-pink-300">{c.author}:</span> {c.comment}
+                          </div>
+                        ))}
+                      </div>
                     </div>
+
+                    {/* Disconnect */}
+                    <button 
+                      onClick={() => {
+                        setIsCollabView(false);
+                        setCollabToken(null);
+                        window.history.pushState({}, '', window.location.pathname);
+                        fetchConversations();
+                        setShowToolsDrawer(false);
+                      }}
+                      className="w-full py-1.5 text-[10px] bg-pink-600/20 hover:bg-pink-600/40 text-pink-300 rounded-lg transition-colors border border-pink-500/30"
+                    >
+                      Oturumu Kapat
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => {
-                      setIsCollabView(false);
-                      setCollabToken(null);
-                      window.history.pushState({}, '', window.location.pathname);
-                      fetchConversations();
-                      setShowToolsDrawer(false);
-                    }}
-                    className="w-full py-1.5 text-[10px] bg-pink-600/20 hover:bg-pink-600/40 text-pink-300 rounded-lg transition-colors border border-pink-500/30"
-                  >
-                    Disconnect Session
-                  </button>
                 </div>
               )}
+
             </div>
 
             <div className="mt-auto pt-4 border-t border-gray-800 flex flex-col gap-3">

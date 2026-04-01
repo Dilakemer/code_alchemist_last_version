@@ -16,6 +16,7 @@ from datetime import timedelta
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
+from flask_socketio import SocketIO, join_room, leave_room, emit as socket_emit
 from flask_jwt_extended import (
     JWTManager, create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request
 )
@@ -349,9 +350,21 @@ import mimetypes
 mimetypes.add_type('application/javascript', '.js')
 mimetypes.add_type('text/css', '.css')
 
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 db.init_app(app)
 jwt = JWTManager(app)
+
+# SocketIO — threading async_mode (Windows + Render.com uyumlu)
+# WebSocket destekler; fallback olarak polling de çalışır
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode='threading',
+    logger=False,
+    engineio_logger=False,
+    ping_timeout=60,
+    ping_interval=25,
+)
 
 # Initialize database tables (Critical for Gunicorn/Render)
 with app.app_context():
@@ -3233,8 +3246,10 @@ def ask():
         # Debug print
         print(f"DEBUG: Smart Routing -> Intent: {intent}, Lang: {detected_lang} -> {model}")
 
-    if not routing_reason:
-        routing_reason = f"🧭 **Responding Model**: `{model}` (manual selection)"
+    # Manual model selection: do NOT set a routing_reason.
+    # The AI Reasoning Layer should only appear when auto-routing,
+    # audio transcription, or image generation overrides the model.
+    # (routing_reason stays None for explicit user selections)
 
     answer = ""
 
@@ -6185,36 +6200,151 @@ def get_shared_session(token):
 
 @app.route('/api/collaboration/session/<token>/send', methods=['POST'])
 def send_to_session(token):
-    # ... (existing code for sending to session)
-    from models import SharedSession, History, User
-    
+    """Live Sync: Soruyu al, AI'dan stream et, her chunk'ı Socket.io ile yayınla."""
+    from models import SharedSession, History
+    import threading
+
     session = SharedSession.query.filter_by(share_token=token, is_active=True).first()
     if not session:
         return jsonify({'error': 'Geçersiz paylaşım linki'}), 404
-        
-    if not session.allow_chat:
-        return jsonify({'error': 'Bu oturumda mesaj gönderme yetkisi kapalı'}), 403
-        
+
     data = request.json or {}
-    question = data.get('question')
-    model_name = data.get('model', 'gemini-1.5-flash')
-    
+    question = data.get('question', '').strip()
+    model_name = data.get('model', 'gemini-2.5-flash-lite')
+    sender_name = data.get('sender_name', 'Guest')
+
     if not question:
         return jsonify({'error': 'Mesaj boş olamaz'}), 400
-        
-    user_msg = History(
+
+    # Önce history kaydı oluştur (streaming sırasında güncellenecek)
+    history_entry = History(
         conversation_id=session.conversation_id,
         user_question=question,
         selected_model=model_name,
-        ai_response="Simyacı hazırlanıyor... (Yanıt bekleniyor)"
+        ai_response=''
     )
-    db.session.add(user_msg)
+    db.session.add(history_entry)
     db.session.commit()
-    
-    return jsonify({
-        'status': 'success',
-        'message_id': user_msg.id
-    })
+    history_id = history_entry.id
+    conversation_id = session.conversation_id
+
+    # Oda'ya "soru gönderildi" bildirimi yap
+    socketio.emit('collab_question', {
+        'question': question,
+        'sender': sender_name,
+        'history_id': history_id,
+        'token': token
+    }, room=token)
+
+    def _stream_ai_to_room(app_ctx, history_id, conversation_id, question, model_name, token):
+        """Background thread: AI'dan stream, her chunk'ı socket.io ile yayınla."""
+        full_response = ''
+        try:
+            with app_ctx:
+                # Gemini streaming
+                if 'gemini' in model_name.lower():
+                    try:
+                        model_obj = genai.GenerativeModel(model_name)
+                        stream = model_obj.generate_content(question, stream=True)
+                        for chunk in stream:
+                            if chunk.text:
+                                full_response += chunk.text
+                                socketio.emit('collab_stream_chunk', {
+                                    'chunk': chunk.text,
+                                    'history_id': history_id,
+                                    'token': token
+                                }, room=token)
+                    except Exception as e:
+                        print(f'Gemini stream error in collab: {e}')
+                        # Fallback to non-streaming
+                        try:
+                            model_obj = genai.GenerativeModel('gemini-2.5-flash-lite')
+                            resp = model_obj.generate_content(question)
+                            full_response = resp.text or 'Yanıt üretilemedi'
+                            socketio.emit('collab_stream_chunk', {
+                                'chunk': full_response,
+                                'history_id': history_id,
+                                'token': token
+                            }, room=token)
+                        except Exception as e2:
+                            full_response = f'Hata: {str(e2)}'
+
+                # OpenAI streaming
+                elif 'gpt' in model_name.lower():
+                    try:
+                        openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY', ''))
+                        stream = openai_client.chat.completions.create(
+                            model=model_name,
+                            messages=[{'role': 'user', 'content': question}],
+                            stream=True
+                        )
+                        for chunk in stream:
+                            delta = chunk.choices[0].delta.content if chunk.choices else None
+                            if delta:
+                                full_response += delta
+                                socketio.emit('collab_stream_chunk', {
+                                    'chunk': delta,
+                                    'history_id': history_id,
+                                    'token': token
+                                }, room=token)
+                    except Exception as e:
+                        full_response = f'OpenAI Hata: {str(e)}'
+
+                # Claude streaming
+                elif 'claude' in model_name.lower():
+                    try:
+                        anthropic_client = Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY', ''))
+                        with anthropic_client.messages.stream(
+                            model=model_name,
+                            max_tokens=4096,
+                            messages=[{'role': 'user', 'content': question}]
+                        ) as stream:
+                            for text_chunk in stream.text_stream:
+                                full_response += text_chunk
+                                socketio.emit('collab_stream_chunk', {
+                                    'chunk': text_chunk,
+                                    'history_id': history_id,
+                                    'token': token
+                                }, room=token)
+                    except Exception as e:
+                        full_response = f'Claude Hata: {str(e)}'
+
+                else:
+                    # Default fallback
+                    full_response = 'Model desteklenmiyor. Lütfen Gemini, GPT veya Claude seçin.'
+
+                # DB'ye tam yanıtı kaydet
+                h = History.query.get(history_id)
+                if h:
+                    h.ai_response = full_response
+                    db.session.commit()
+
+                # Stream tamamlandı sinyali
+                socketio.emit('collab_stream_done', {
+                    'history_id': history_id,
+                    'full_response': full_response,
+                    'token': token
+                }, room=token)
+
+        except Exception as ex:
+            print(f'Collab stream thread error: {ex}')
+            socketio.emit('collab_stream_done', {
+                'history_id': history_id,
+                'full_response': f'Hata oluştu: {str(ex)}',
+                'token': token,
+                'error': True
+            }, room=token)
+
+    # Background thread başlat
+    app_ctx = app.app_context()
+    thread = threading.Thread(
+        target=_stream_ai_to_room,
+        args=(app_ctx, history_id, conversation_id, question, model_name, token),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({'status': 'streaming', 'history_id': history_id})
 
 
 @app.route('/api/collaboration/session/<token>/review', methods=['GET'])
@@ -6437,11 +6567,66 @@ def serve(path):
     else:
         return send_from_directory(app.static_folder, 'index.html')
 
+# ==========================================
+# SOCKET.IO EVENT HANDLERS — Live Collaboration
+# ==========================================
+
+@socketio.on('join_room')
+def handle_join_room(data):
+    """Kullanıcı, collab token'ı ile odaya katılıyor."""
+    from models import SharedSession
+    token = data.get('token', '')
+    user_name = data.get('user_name', 'Guest')
+    if not token:
+        return
+    with app.app_context():
+        session = SharedSession.query.filter_by(share_token=token, is_active=True).first()
+        if not session:
+            socket_emit('error', {'message': 'Geçersiz collaboration linki'})
+            return
+    join_room(token)
+    # Odadaki herkese bildirim
+    socket_emit('user_joined', {
+        'user_name': user_name,
+        'token': token
+    }, room=token)
+    print(f'[Socket] {user_name} joined room {token[:8]}...')
+
+
+@socketio.on('leave_room')
+def handle_leave_room(data):
+    """Kullanıcı odadan ayrılıyor."""
+    token = data.get('token', '')
+    user_name = data.get('user_name', 'Guest')
+    if token:
+        leave_room(token)
+        socket_emit('user_left', {
+            'user_name': user_name,
+            'token': token
+        }, room=token)
+        print(f'[Socket] {user_name} left room {token[:8]}...')
+
+
+@socketio.on('connect')
+def handle_connect():
+    print(f'[Socket] Client connected: {request.sid}')
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f'[Socket] Client disconnected: {request.sid}')
+
+
+# ==========================================
+# MAIN ENTRY POINT
+# ==========================================
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
 
     # Render uses the PORT environment variable
     port = int(os.environ.get("PORT", 5000))
-    # host='0.0.0.0' is REQUIRED for Render
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print(f'Starting SocketIO server (threading mode) on port {port}...')
+    # socketio.run() threading async_mode ile WebSocket destekler
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)

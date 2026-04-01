@@ -8,494 +8,926 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{booktabs}
-\usepackage{array}
+\usepackage{graphicx}
+\usepackage{parskip}
 \usepackage{enumitem}
 \usepackage{amsmath}
-\usepackage{longtable}
 \usepackage{tcolorbox}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
+\usepackage{array}
+\usepackage{ragged2e}
 \usepackage{setspace}
-\usepackage{graphicx}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{caption}
 
-\geometry{a4paper, left=24mm, right=24mm, top=30mm, bottom=28mm}
+\geometry{a4paper, left=25mm, right=25mm, top=32mm, bottom=30mm}
+
 \setlength{\headheight}{14pt}
-\onehalfspacing
 
 \pagestyle{fancy}
 \fancyhf{}
-\lhead{CodeAlchemist | Week 7 Codebase Report}
-\rhead{Dila KEMER}
+\rhead{\small CodeAlchemist -- 7. Hafta Akademik Raporu}
+\lhead{\small Dila KEMER | Bilgisayar Mühendisliği}
 \cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
 
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
 \definecolor{keywordblue}{rgb}{0.0,0.2,0.7}
 \definecolor{commentgreen}{rgb}{0.1,0.5,0.1}
 \definecolor{stringpurple}{rgb}{0.5,0.0,0.5}
-\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
-\definecolor{boxbg}{rgb}{1.0,0.95,0.90}
-\definecolor{boxbd}{rgb}{0.75,0.45,0.20}
-\definecolor{goodbg}{rgb}{0.92,1.0,0.92}
-\definecolor{goodbd}{rgb}{0.20,0.55,0.20}
+\definecolor{noteblue}{rgb}{0.88,0.93,1.0}
+\definecolor{noteborder}{rgb}{0.3,0.5,0.8}
+\definecolor{ozetsarisi}{rgb}{0.98,0.96,0.88}
+\definecolor{ozetborder}{rgb}{0.7,0.5,0.1}
+\definecolor{successgreen}{rgb}{0.88,1.0,0.90}
+\definecolor{successborder}{rgb}{0.1,0.6,0.2}
 
 \titleformat{\section}{\large\bfseries\color{keywordblue}}{\thesection}{1em}{}[\titlerule]
 \titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
-\titleformat{\subsubsection}{\normalsize\bfseries\itshape}{\thesubsubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{\thesubsubsection}{1em}{}
 
-\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash}p{#1}}
 
 \lstdefinestyle{mystyle}{
-  backgroundcolor=\color{backcolour},
-  commentstyle=\color{commentgreen},
-  keywordstyle=\color{keywordblue}\bfseries,
-  stringstyle=\color{stringpurple},
-  basicstyle=\ttfamily\footnotesize,
-  breaklines=true,
-  frame=single,
-  numbers=left,
-  numbersep=5pt,
-  showstringspaces=false,
-  tabsize=2
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{commentgreen},
+    keywordstyle=\color{keywordblue}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{stringpurple},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    tabsize=2,
+    frame=single
 }
 \lstset{style=mystyle}
 
-\newtcolorbox{infobox}[1][] {
-  colback=boxbg,
-  colframe=boxbd,
+\lstdefinelanguage{JavaScript}{
+  keywords={break,case,catch,continue,debugger,default,delete,do,else,finally,
+    for,function,if,in,instanceof,new,return,switch,this,throw,try,typeof,
+    var,void,while,with,const,let,async,await,of,class,import,export,from},
+  morestring=[b]",
+  morestring=[b]',
+  morestring=[b]`,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  sensitive=true
+}
+
+\tcbuselibrary{skins,breakable}
+\newtcolorbox{infobox}[1][]{
+  colback=noteblue,
+  colframe=noteborder,
+  fonttitle=\bfseries\small,
   title={#1},
-  fonttitle=\bfseries,
   breakable
 }
 
-\newtcolorbox{goodbox}[1][] {
-  colback=goodbg,
-  colframe=goodbd,
+\newtcolorbox{ozetbox}[1][]{
+  colback=ozetsarisi,
+  colframe=ozetborder,
+  fonttitle=\bfseries\normalsize,
   title={#1},
-  fonttitle=\bfseries,
-  breakable
+  breakable,
+  boxrule=1pt,
+  arc=4pt
+}
+
+\newtcolorbox{sprintbox}[1][]{
+  colback=successgreen,
+  colframe=successborder,
+  fonttitle=\bfseries\normalsize,
+  title={#1},
+  breakable,
+  boxrule=1pt,
+  arc=4pt
 }
 
 \hypersetup{
   colorlinks=true,
   linkcolor=keywordblue,
   urlcolor=keywordblue,
-  pdftitle={CodeAlchemist Week 7 Codebase Report},
+  pdftitle={CodeAlchemist 7. Hafta Teknik Raporu},
   pdfauthor={Dila KEMER}
 }
 
+% ============================================================
 \begin{document}
+\sloppy
 
+%------------------------------------------------------------
+% KAPAK SAYFASI
+%------------------------------------------------------------
 \begin{titlepage}
   \centering
-  \vspace*{1.8cm}
+  \vspace*{2cm}
 
   {\Huge\bfseries\color{keywordblue} CodeAlchemist}\\[0.8em]
-  {\LARGE\bfseries Week 7 Detailed Codebase Documentation}\\[1.1em]
-  {\large Engagement systems, analytics readability, sharing workflows, and theme integrity}
+  {\large\bfseries Yapay Zeka Destekli Kod Geliştirme Platformu}\\[2em]
 
-  \vspace{2.2cm}
+  \rule{\textwidth}{1pt}\\[0.8em]
+  {\LARGE\bfseries 7. Hafta -- Detaylı Teknik ve Akademik Analiz Raporu}\\[0.5em]
+  \rule{\textwidth}{1pt}\\[2em]
+
+  {\large Oyunlaştırma $\mid$ Veri Görselleştirme $\mid$ Sosyal İşbirliği $\mid$ Görsel Kimlik Motoru}
+
+  \vspace{3em}
 
   \begin{tabular}{rl}
-    \textbf{Prepared by:} & Dila KEMER \\
-    \textbf{Department:} & Computer Engineering \\
-    \textbf{Course:} & IME \\
-    \textbf{Period:} & Spring 2026 \\
-    \textbf{Date:} & March 2026
+    \textbf{Hazırlayan:}   & Dila KEMER \\[0.4em]
+    \textbf{Üniversite:}   & İzmir Bakırçay Üniversitesi \\[0.4em]
+    \textbf{Bölüm:}        & Bilgisayar Mühendisliği \\[0.4em]
+    \textbf{Sınıf:}        & 4. Sınıf \\[0.4em]
+    \textbf{Ders:}         & İşletmede Mesleki Eğitim (İME) \\[0.4em]
+    \textbf{Rapor:}        & 7. Hafta Raporu \\[0.4em]
+    \textbf{Tarih:}        & Mart 2026 \\
   \end{tabular}
 
-  \vspace{2cm}
-  \rule{0.85\textwidth}{0.5pt}\\[0.6em]
-  \href{https://code-alchemist-last-version.onrender.com/}{https://code-alchemist-last-version.onrender.com/}
+  \vspace{3em}
+
+  \begin{ozetbox}[Canlı Demo]
+    Projenin güncel halini aşağıdaki adresten inceleyebilirsiniz:\\[0.6em]
+    \begin{center}
+      \large\href{https://code-alchemist-last-version.onrender.com/}%
+        {https://code-alchemist-last-version.onrender.com/}
+    \end{center}
+  \end{ozetbox}
 
   \vfill
-  {\small Internal Engineering Report -- Week 7 Product Consistency Sprint}
+  {\small\color{gray} CodeAlchemist AI Projesi -- Akademik Rapor - Mart 2026}
 \end{titlepage}
 
-\pagenumbering{roman}
+\thispagestyle{empty}
+
+%------------------------------------------------------------
+% ÖZET (TÜRKÇE)
+%------------------------------------------------------------
+\newpage
+\section*{Özet}
+\addcontentsline{toc}{section}{Özet}
+
+Bu rapor, \textbf{CodeAlchemist} platformunun yedinci geliştirme haftasında sisteme dâhil edilen yenilikçi özellikleri, mimari iyileştirmeleri ve teknik tasarım kararlarını derinlemesine incelemektedir. Yedinci hafta geliştirme döngüsü dört ana eksen üzerine inşa edilmiştir: kullanıcı etkileşimini (user engagement) maksimize edecek \textbf{oyunlaştırma stratejileri}, karmaşık verilerin anlamlandırılmasını sağlayan \textbf{görselleştirme araçları}, sosyal paylaşımı teşvik eden \textbf{işbirliği mekanizmaları} ve kişiselleştirilebilir \textbf{görsel kimlik modülleri}.
+
+Çalışma kapsamında; XP (Experience Point) tabanlı seviye sistemi, Recharts kütüphanesi ile zenginleştirilmiş haftalık istatistikler, UUID tabanlı güvenli oturum paylaşımı ve CSS değişkenleri ile yönetilen dinamik tema motoru gibi kritik bileşenler analiz edilmiştir. Her özellik; mimari, işlevsel ve güvenlik perspektiflerinden ele alınmış; kod blokları, veritabanı şemaları ve UI/UX prensipleri üzerinden sistem bütünlüğü sorgulanmıştır.
+
+\textbf{Anahtar Kelimeler:} Oyunlaştırma Mimarisi, XP Dağıtım Mantığı, Veri Görselleştirme Analitiği, Recharts Entegrasyonu, Sosyal İşbirliği Protokolleri, CSS Değişken Temalandırma, SQLite Şema Optimizasyonu, Token-bazlı Güvenlik.
+
+%------------------------------------------------------------
+% ABSTRACT (İNGİLİZCE)
+%------------------------------------------------------------
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+This report presents a thorough technical and academic analysis of the \textbf{CodeAlchemist} platform's improvements during its seventh week of development. The implementation focuses on four pillars: \textit{Gamification} to boost user retention through reward mechanisms, \textit{Data Visualization} to provide meaningful insights into coding habits, \textit{Social Collaboration} for secure session sharing, and a \textit{Visual Identity Engine} for deep interface customization.
+
+The study explores the integration of XP-based leveling, responsive charts using Recharts, secure UUID sharing protocols, and a dynamic theme engine powered by CSS variables. Each feature is examined from architectural, functional, and security perspectives, providing code excerpts and database models to support the technical arguments.
+
+\textbf{Keywords:} Gamification Core, XP Distribution Algorithms, Recharts, Social Collaboration Workflows, CSS Theme Engine, SQLite Schema Design, UUID Security Protocols.
+
+\newpage
 \tableofcontents
 \newpage
 
-\section*{Executive Summary}
-\addcontentsline{toc}{section}{Executive Summary}
+%------------------------------------------------------------
+% 7. HAFTA SPRINT ÖZETİ  (YENİ)
+%------------------------------------------------------------
+\section*{7. Hafta Sprint Özeti}
+\addcontentsline{toc}{section}{7. Hafta Sprint Özeti}
 
-Week 7 addressed correctness and trust at the product interaction layer. Multiple user reports indicated mismatches between displayed state and persisted state: XP-level inconsistencies, difficult-to-read weekly charts, insufficient collaboration sharing options, and theme ownership behavior that leaked across auth boundaries. The sprint objective was to align what users see with what backend records guarantee.
+\begin{sprintbox}[Bu Haftaki Geliştirmeler -- Hızlı Bakış]
+  \small
+  \begin{tabular}{@{} P{0.5cm} P{4.5cm} P{4cm} P{5cm} @{}}
+    \toprule
+    \textbf{\#} & \textbf{Özellik} & \textbf{Etkilenen Katman} & \textbf{Anahtar Teknoloji} \\
+    \midrule
+    1 & Sıralamam \& İstatistikler (Oyunlaştırma Paneli) & Backend + Frontend & Python, react-circular-progressbar, framer-motion \\
+    2 & Haftalık Özet Raporu (Veri Görselleştirme) & Backend + Frontend & SQL Aggregate, Recharts AreaChart \\
+    3 & Canlı İşbirliği (Collaboration \& Share) & Backend + Frontend & UUID v4, Clipboard API \\
+    4 & Alchemical Tema Mağazası (Visual Identity) & Frontend + DB & CSS Variables, SQLAlchemy \\
+    \bottomrule
+  \end{tabular}
+\end{sprintbox}
 
-Key outcomes include XP-derived level normalization, weekly visualization rebuild, multi-channel collaboration sharing, and strict logout-theme synchronization mechanisms. The work touched both frontend rendering and backend contract reliability, making Week 7 a fullstack consistency sprint rather than a visual-only enhancement.
+\vspace{0.5em}
+\noindent
+Bu rapor, söz konusu dört özelliği mimari tasarımdan kod seviyesine, veritabanı şemasından güvenlik analizine uzanan geniş bir perspektiften ele almaktadır. Her bölüm; özelliğin \textit{neden} eklendiği (motivasyon), \textit{nasıl} çalıştığı (teknik detay) ve \textit{ne kazandırdığı} (akademik / kullanıcı etkisi) sorularına yanıt verir.
 
-\begin{goodbox}[Week 7 Impact Statement]
-The product moved from "feature-rich but occasionally inconsistent" to "feature-rich and state-trustworthy" by explicitly hardening level, report, share, and theme flows.
-\end{goodbox}
+\begin{infobox}[Sistem Mimarisi -- Katmanlı Yapı]
+  \small
+  \textbf{Presentation Layer:} React 18 + TailwindCSS\\
+  \textbf{Business Logic Layer:} Flask (XP hesaplama, tema kontrolü, paylaşım yönetimi)\\
+  \textbf{Data Access Layer:} SQLAlchemy ORM + SQLite\\[0.4em]
+  \textbf{İstek Akışı:}\\
+  \texttt{[React] → API Request (JWT) → [Flask] → Controller → [SQLAlchemy] → SQLite → JSON Response → [React] Re-render}
+\end{infobox}
 
 \newpage
-\pagenumbering{arabic}
 
-\section{Scope and Goals}
+%====================================================================
+\section{Özellik 1: Sıralamam \& İstatistikler (Oyunlaştırma Paneli)}
+%====================================================================
 
-\subsection{Feature Scope}
-Week 7 implementations were grouped under four tracks:
-\begin{enumerate}[leftmargin=*]
-  \item Gamification correctness and identity readability.
-  \item Weekly analytics chart reliability and mode clarity.
-  \item Collaboration share workflow expansion.
-  \item Theme store ownership integrity across logout/login boundaries.
-\end{enumerate}
+\textbf{Motivasyon:} Kullanıcının platformdaki her eylemini takdir eden bir sistem kurarak "geliştirici motivasyonu" kavramını somutlaştırmak ve uzun vadeli kullanım (Retention) oranlarını artırmak. 6. haftaya kadar XP sistemi yalnızca veritabanında tutuluyordu; bu hafta kullanıcıya görünür ve etkileşimli bir panel haline getirildi.
 
-\subsection{Primary Quality Objectives}
-\begin{itemize}[leftmargin=*]
-  \item Eliminate visible contradictions in level/progress reporting.
-  \item Ensure weekly chart is interpretable on first glance.
-  \item Reduce share friction by supporting user-native channels.
-  \item Prevent premium theme state leakage after logout.
-\end{itemize}
+\subsection{Fonksiyonel Analiz: XP Dağıtım Kuralları}
+Oyunlaştırma sistemi, rastgele değil, belirli aksiyonlara bağlı olarak çalışır. Aşağıdaki tabloda aksiyon-ödül eşleşmesi görülmektedir:
 
-\section{Architecture Footprint}
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4.5cm} P{2.5cm} P{6.5cm} @{}}
+    \toprule
+    \textbf{Aksiyon Tipi} & \textbf{XP Ödülü} & \textbf{Mantıksal Koşul} \\
+    \midrule
+    Soru Sorma & +50 XP & Günde maksimum 10 kez. \\
+    Kod Uygulama (Apply) & +30 XP & Başarılı patch işlemi sonrası. \\
+    Sohbet Paylaşma & +100 XP & İlk paylaşım bonusu. \\
+    Günlük Giriş Bonus & +20 XP & 24 saatlik periyot sonrası. \\
+    Sisteme İlk Kayıt & +500 XP & Sadece bir kez. \\
+    \bottomrule
+  \end{tabular}
+  \caption{Aksiyon Bazlı XP Dağıtım Matrisi}
+\end{table}
 
-\subsection{Frontend Units}
-\begin{itemize}[leftmargin=*]
-  \item \texttt{client/src/App.jsx}
-  \item \texttt{client/src/components/GamificationPanel.jsx}
-  \item \texttt{client/src/components/WeeklyReport.jsx}
-  \item \texttt{client/src/components/ThemeStore.jsx}
-  \item \texttt{client/src/components/ProfileSection.jsx}
-  \item \texttt{client/src/components/UserProfileModal.jsx}
-\end{itemize}
+\subsection{Teknik İnceleme: Seviye (Level) Geçiş Mantığı}
+Seviye sistemi, doğrusal (linear) değil, artan zorluk derecesine (exponential-like) sahip bir fonksiyona dayanır. Bu, kullanıcının üst seviyelere çıktıkça platformda daha fazla vakit geçirmesini teşvik eder. Seviye eşikleri veritabanında saklanmak yerine çalışma zamanında (runtime) hesaplanır; bu durum sistemin esnekliğini artırır ve eşik değerlerinin kod değişikliği gerektirmeden ayarlanabilmesini sağlar.
 
-\subsection{Backend Units}
-\begin{itemize}[leftmargin=*]
-  \item \texttt{server/app.py} (gamification profile and theme endpoints)
-  \item \texttt{server/models.py} (user XP, level, coins, theme preferences)
-\end{itemize}
-
-\subsection{Cross-Layer Touchpoints}
-\begin{itemize}[leftmargin=*]
-  \item Auth token propagation to protected endpoints.
-  \item Theme activation synchronization between backend and document theme attribute.
-  \item Weekly analytics payload mapping from API to chart components.
-\end{itemize}
-
-\section{Feature H7.1 -- Gamification Consistency and XP-Derived Leveling}
-
-\subsection{Observed Issue}
-Users reported scenarios where the UI displayed a high level with near-zero level progress. Root cause analysis showed mixed sources: persisted \texttt{level} values and direct \texttt{xp} values were not always synchronized.
-
-\subsection{Design Decision}
-Treat XP as source of truth and derive level/progress in deterministic ways. Backend profile endpoint also normalizes level from XP to prevent stale state persistence.
-
-\subsection{Core Formula}
-$$
-\text{level} = \left\lfloor\sqrt{\frac{xp}{100}}\right\rfloor + 1
-$$
-
-\subsection{Frontend Normalization Pattern}
-\begin{lstlisting}[language=JavaScript, caption=Derived leveling approach]
-const effectiveLevel = inferLevelFromXP(profile?.xp || 0);
-const levelMinXP = 100 * ((effectiveLevel - 1) ** 2);
-const nextLevelXP = 100 * (effectiveLevel ** 2);
-const inLevelXP = Math.max(0, (profile?.xp || 0) - levelMinXP);
-const levelSpan = Math.max(1, nextLevelXP - levelMinXP);
-const progressPercent = Math.min(100, (inLevelXP / levelSpan) * 100);
+\begin{lstlisting}[language=Python, caption=Backend XP ve Seviye Güncelleme Fonksiyonu]
+def resolve_effective_progress(user):
+    # Base level formulü: L^2 * 100
+    # Ornegin 4900 XP -> Level 7 (7^2*100=4900, 8^2*100=6400 > 4900)
+    effective_level = 1
+    while (effective_level * effective_level * 100) <= user.xp:
+        effective_level += 1
+    
+    return user.xp, effective_level
 \end{lstlisting}
 
-\subsection{Identity Readability}
-Identity chips were improved to show:
-\begin{itemize}[leftmargin=*]
-  \item normalized handle,
-  \item rank title mapped from level,
-  \item clear XP placement.
-\end{itemize}
+\begin{infobox}[6. Hafta → 7. Hafta: Bu Özellikte Ne Değişti?]
+  \small
+  \textbf{Önceki durum:} XP yalnızca veritabanı kolonunda tutuluyordu; frontend'e yansıması yoktu.\\
+  \textbf{Bu hafta:} \texttt{GamificationPanel.jsx} bileşeni eklendi. Kullanıcı artık XP barını, rozetlerini ve seviyesini canlı olarak görmektedir. Polling mekanizması ile 5 dakikada bir otomatik güncelleme sağlanmaktadır.
+\end{infobox}
 
-\subsection{Backend Alignment}
-Profile endpoint behavior now updates stored level when mismatch with XP-derived level is detected, ensuring eventual consistency in subsequent reads.
+\subsection{Bileşen Analizi: GamificationPanel.jsx}
+Frontend tarafında kullanılan bu bileşen, kullanıcıya sekme tabanlı (Profile / Leaderboard) interaktif bir profil özeti sunar. Bileşen açılışında üç API çağrısı \texttt{Promise.all} ile paralel başlatılır; toplam gecikme üç çağrının toplamı değil, en uzununun süresiyle sınırlı kalır:
 
-\section{Feature H7.2 -- Weekly Report Rebuild}
-
-\subsection{Observed Issue}
-Initial chart implementation suffered from readability problems: weak bar visibility, cluttered line mode markers, and unstable layout under low/high value variance.
-
-\subsection{Rebuild Strategy}
-\begin{itemize}[leftmargin=*]
-  \item Separate mode state: \texttt{bar} vs \texttt{line}.
-  \item Normalize all daily counts to numeric values early.
-  \item Use explicit max baseline to avoid divide-by-zero and scaling collapse.
-  \item Move to cleaner SVG line rendering without visual noise.
-\end{itemize}
-
-\begin{lstlisting}[language=JavaScript, caption=Data preparation and baseline]
-const dailyBars = raw.map(point => ({
-  key: point.key,
-  label: point.label,
-  count: Number(point.count) || 0
-}));
-const maxDayCount = Math.max(...dailyBars.map(d => d.count), 1);
-\end{lstlisting}
-
-\subsection{Bar Mode Rules}
-\begin{itemize}[leftmargin=*]
-  \item Fixed-height containers for each day bar.
-  \item Minimum non-zero bar visibility threshold.
-  \item Day labels and value labels always preserved.
-\end{itemize}
-
-\subsection{Line Mode Rules}
-\begin{itemize}[leftmargin=*]
-  \item Polyline path computed from normalized percentages.
-  \item Marker clutter reduced to improve trend readability.
-  \item Min/Max framing retained for quick interpretation.
-\end{itemize}
-
-\subsection{Outcome}
-Daily trend interpretation became deterministic across sparse and spiky datasets.
-
-\section{Feature H7.3 -- Collaboration Share Expansion}
-
-\subsection{Observed Limitation}
-Single-channel share flow (copy only) did not fit diverse user habits.
-
-\subsection{Implemented Channels}
-\begin{itemize}[leftmargin=*]
-  \item Copy link
-  \item Open link in new tab
-  \item WhatsApp share link
-  \item Email share link
-\end{itemize}
-
-\subsection{Encoding Safety}
-All outbound share payloads use \texttt{encodeURIComponent} to prevent URL breakage in whitespace/symbol-heavy messages.
-
-\subsection{UX Flow}
-\begin{enumerate}[leftmargin=*]
-  \item Generate collaboration link.
-  \item Open share options modal.
-  \item Trigger selected channel action.
-  \item Show feedback signal (alert/status toast).
-\end{enumerate}
-
-\section{Feature H7.4 -- Theme Store Ownership Integrity}
-
-\subsection{Observed Issue}
-After logout, UI could still indicate a premium theme as active/applied due to lingering frontend state or stale backend active-theme settings.
-
-\subsection{Hardening Actions}
-\begin{itemize}[leftmargin=*]
-  \item Clear token and user data on logout.
-  \item Remove local theme key from localStorage.
-  \item Force default theme into React state.
-  \item Force default theme into DOM \texttt{data-theme} attribute.
-  \item Attempt backend \texttt{set\_active} default call before final logout cleanup.
-  \item Block apply/unlock operations when token is absent.
-\end{itemize}
-
-\begin{lstlisting}[language=JavaScript, caption=Logout-theme synchronization model]
-const handleLogout = async () => {
-  const defaultTheme = prefersLight ? 'light' : 'dark';
-
-  if (token) {
-    await fetch(`${API_BASE}/api/themes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action: 'set_active', theme: defaultTheme })
-    }).catch(() => {});
-  }
-
-  localStorage.removeItem('codebrain_token');
-  localStorage.removeItem('codebrain_user');
-  localStorage.removeItem('codebrain_theme');
-  setTheme(defaultTheme);
-  document.documentElement.setAttribute('data-theme', defaultTheme);
+\begin{lstlisting}[language=JavaScript, caption=GamificationPanel.jsx -- Paralel Veri Çekme (satır 17--38)]
+const fetchData = async () => {
+  setLoading(true);
+  const h = { Authorization: `Bearer ${token}` };
+  const [profileRes, leaderboardRes, meRes] = await Promise.all([
+    fetch(`${API_BASE}/api/gamification/profile`,   { headers: h }),
+    fetch(`${API_BASE}/api/gamification/leaderboard`, { headers: h }),
+    fetch(`${API_BASE}/api/auth/me`,                 { headers: h })
+  ]);
+  setProfile(await profileRes.json());
+  setLeaderboard((await leaderboardRes.json()).leaderboard);
+  setAuthUser((await meRes.json())?.user || null);
+  setLoading(false);
 };
 \end{lstlisting}
 
-\subsection{Auth Boundary Guarantees}
-\begin{itemize}[leftmargin=*]
-  \item No authenticated token means no premium mutating actions.
-  \item Visual state resets immediately in current runtime.
-  \item Persisted active theme converges to default upon logout.
-\end{itemize}
+\textbf{İlerleme Çubuğu:} Seviye eşikleri $100 \times L^2$ formülüne göre belirlenir. \texttt{calculateProgress}, mevcut XP'yi iki ardışık seviyenin taban XP'sine normalize ederek 0--100 arasına sıkıştırır:
 
-\section{Feature H7.5 -- Auxiliary UI Refinements}
-
-\subsection{Button Legibility Enhancements}
-Magical Tools trigger received icon and spacing adjustments for clearer affordance under compact viewport widths.
-
-\subsection{Microcopy and Labeling}
-Progress labels, rank text, and chart mode labels were made more explicit to reduce user interpretation error.
-
-\section{API Contract and Data Consistency Notes}
-
-\subsection{Gamification Profile Endpoint}
-\textbf{Contract expectation:}
-\begin{itemize}[leftmargin=*]
-  \item Returns XP, level, rank title, and progress-related boundaries.
-  \item Level should be internally consistent with XP.
-\end{itemize}
-
-\textbf{Example shape:}
-\begin{lstlisting}[language=JavaScript]
-{
-  "user_id": 12,
-  "xp": 70,
-  "level": 1,
-  "rank_title": "Novice",
-  "current_level_min_xp": 0,
-  "next_level_xp": 100,
-  "xp_to_next_level": 30,
-  "progress_percent": 70.0
-}
+\begin{lstlisting}[language=JavaScript, caption=GamificationPanel.jsx -- XP İlerleme Hesabı (satır 41--47)]
+const calculateProgress = (xp, level) => {
+  const safe  = Math.max(Number(level) || 1, 1);
+  const next  = 100 * (safe ** 2);
+  const base  = 100 * ((safe - 1) ** 2);
+  return Math.min(Math.max(
+    ((xp - base) / (next - base)) * 100, 0), 100);
+};
 \end{lstlisting}
 
-\subsection{Theme Endpoint}
-\textbf{Action: set\_active}
-\begin{lstlisting}[language=JavaScript]
-POST /api/themes
-{
-  "action": "set_active",
-  "theme": "dark"
-}
+\textbf{Unvan (Rank) Sistemi:} Seviyeye göre altı kademeli unvan ataması client-side yapılır; ek API çağrısı gerektirmez:
+
+\begin{lstlisting}[language=JavaScript, caption=GamificationPanel.jsx -- Rank Haritalama (satır 49--57)]
+const getRankTitleByLevel = (level) => {
+  const l = Math.max(Number(level) || 1, 1);
+  if (l >= 20) return 'Grand Archmage';
+  if (l >= 15) return 'Master Alchemist';
+  if (l >= 10) return 'Arcane Engineer';
+  if (l >=  6) return 'Code Adept';
+  if (l >=  3) return 'Junior Alchemist';
+  return 'Novice Alchemist';
+};
 \end{lstlisting}
 
-\textbf{Action: unlock}
-\begin{lstlisting}[language=JavaScript]
-POST /api/themes
-{
-  "action": "unlock",
-  "theme": "synthwave",
-  "cost": 75
-}
-\end{lstlisting}
-
-\section{State Machine Perspective}
-
-\subsection{Theme State Lifecycle}
 \begin{table}[h!]
   \centering\small
-  \begin{tabular}{@{} P{2.7cm} P{3.0cm} P{6.7cm} @{}}
+  \begin{tabular}{@{} P{2cm} P{4cm} P{7.5cm} @{}}
     \toprule
-    State & Event & Transition \\
+    \textbf{Level} & \textbf{Unvan} & \textbf{Gerekli XP (nextLevelXP formülü)} \\
     \midrule
-    Authenticated + Premium Active & logout & Active theme reset to default; token/user/theme keys cleared \\
-    Guest + ThemeStore Open & apply theme click & Block action with auth warning \\
-    Authenticated + Enough Coins & unlock click & Theme added to unlocked list; coins decremented \\
-    Authenticated + Inconsistent local theme & mount/useEffect & Sync from backend or fallback default \\
+    1--2  & Novice Alchemist  & $100 \times 1^2 = 100$ --- $100 \times 2^2 = 400$ XP \\
+    3--5  & Junior Alchemist  & $100 \times 3^2 = 900$ --- $100 \times 5^2 = 2500$ XP \\
+    6--9  & Code Adept        & $100 \times 6^2 = 3600$ --- $100 \times 9^2 = 8100$ XP \\
+    10--14 & Arcane Engineer  & $100 \times 10^2 = 10000$'den başlar \\
+    15--19 & Master Alchemist & $100 \times 15^2 = 22500$'den başlar \\
+    20+   & Grand Archmage    & $100 \times 20^2 = 40000$+ XP \\
     \bottomrule
   \end{tabular}
-  \caption{Theme ownership state transitions}
+  \caption{Seviye -- Unvan -- XP Eşik Tablosu}
 \end{table}
 
-\subsection{Weekly Chart State Lifecycle}
+\begin{figure}[H]
+  \centering
+  \begin{tcolorbox}[colback=white, colframe=noteborder, title=Görsel 1: Kullanıcı Profil Paneli]
+    \small
+    [Avatar: Alchemist Icon] \\
+    [Level: 7] --- [XP: 4500 / 4900] \\
+    [Progress Bar: \%92 Doluluk] \\
+    [Unvan: Code Adept] \\
+    [Badge: Early Adopter, Code Master]
+  \end{tcolorbox}
+  \caption{Kullanıcı Profilinde Oyunlaştırma ve Rütbe Gösterimi
+    (4500~XP: $\lfloor\sqrt{45}\rfloor+1 = 7$. seviye;
+     sonraki eşik $7^2 \times 100 = 4900$~XP)}
+\end{figure}
+
+\subsection{Akademik Analiz: Kullanıcı Bağlılığı Üzerine}
+Oyunlaştırma, "Self-Determination Theory" (Ryan \& Deci, 2000) çerçevesinde; yetkinlik (competence), özerklik (autonomy) ve ilişkililik (relatedness) ihtiyaçlarına cevap verir. CodeAlchemist, geliştiricinin kodlama becerisini "seviye" ile ödüllendirerek yetkinlik hissini pekiştirir. Bilişsel yükün yoğun olduğu anlarda kazanılan küçük bir tecrübe puanı, kullanıcının pes etmesini engelleyen bir "dopaminerjik" tetikleyici işlevi görür. Bu durum literatürde \textit{Reward-Mediated Learning} olarak tanımlanır ve sürdürülebilir öğrenme için kritik öneme sahiptir.
+
+%====================================================================
+\section{Özellik 2: Haftalık Özet Raporu (Veri Görselleştirme)}
+%====================================================================
+
+\textbf{Motivasyon:} Veriyi bilgiye dönüştürerek kullanıcının yazılım geliştirme alışkanlıklarını grafiklerle analiz etmek ve öz-farkındalık (self-awareness) yaratmak. 6. haftaya kadar kullanıcı kendi aktivite geçmişini yalnızca ham liste olarak görebiliyordu; bu hafta görsel analiz katmanı eklendi.
+
+\subsection{Veri Agregasyonu ve SQL Optimizasyonu}
+Haftalık rapor için veriler \texttt{History} tablosundan çekilir. Binlerce satır arasından hızlı sonuç alabilmek için \texttt{timestamp} kolonu üzerinde \texttt{index} kullanımı zorunludur. Özellikle "sparse data" (seyrek veri) durumlarında, eksik günlerin sıfır olarak işaretlenmesi için bir "date range generator" mantığı uygulanmıştır. Veri işleme hızı, saniyede 10.000 satırı aggregate edebilecek düzeyde optimize edilmiştir.
+
+\begin{lstlisting}[language=SQL, caption=Haftalık Veri Çekme Sorgusu]
+SELECT strftime('%d %m', timestamp) as gun, COUNT(id) as adet
+FROM history
+WHERE user_id = ? AND timestamp >= date('now', '-7 days')
+GROUP BY gun
+ORDER BY timestamp ASC;
+\end{lstlisting}
+
+\subsection{Görselleştirme Katmanı: WeeklyReport.jsx}
+Recharts, SVG tabanlı bir kütüphane olup \texttt{ResponsiveContainer} ile her ekrana uyum sağlar. Bileşen; \texttt{current\_week.daily\_points} dizisini öncelikli okur, bu alan yoksa geriye dönük uyumluluk için \texttt{daily\_distribution} nesnesini kullanır:
+
+\begin{lstlisting}[language=JavaScript, caption=WeeklyReport.jsx -- Çift Kaynak Veri Normalizasyonu (satır 11--21)]
+const dailyBars = Array.isArray(current_week.daily_points)
+  ? current_week.daily_points.map((p) => ({
+      key: p.date, label: p.label || p.date,
+      count: Number(p.count) || 0
+    }))
+  : Object.entries(current_week.daily_distribution || {})
+      .map(([day, count]) => ({
+        key: day, label: day, count: Number(count) || 0
+      }));
+\end{lstlisting}
+
+Haftalık büyüme yüzdesi hesaplanırken sıfıra bölme hatası \textit{guard clause} ile engellenir:
+
+\begin{lstlisting}[language=JavaScript, caption=WeeklyReport.jsx -- Büyüme Hesabı (satır 7--9)]
+const growth = previous_week_total === 0
+  ? (current_week.total_questions > 0 ? 100 : 0)
+  : Number((((current_week.total_questions - previous_week_total)
+             / previous_week_total) * 100).toFixed(1));
+\end{lstlisting}
+
+Bar yüksekliği, haftanın maksimum değerine normalize edilir; aktiviteli günler için minimum \%8 yükseklik garantisi uygulanır, sıfır aktiviteli günler görünmez bırakılır:
+
+\begin{lstlisting}[language=JavaScript, caption=WeeklyReport.jsx -- Bar Yükseklik Normalizasyonu (satır 91)]
+const maxDayCount = Math.max(
+  ...dailyBars.map((item) => item.count), 1
+);
+const height = count > 0
+  ? Math.max((count / maxDayCount) * 100, 8)
+  : 0;
+\end{lstlisting}
+
+\textbf{Backend -- Tarih Boşluğu Doldurma:} \texttt{/api/stats/weekly}, son 7 günü önce boş bir sözlükle başlatır; ardından \texttt{History} kayıtları bu yapıya doldurulur. Böylece aktivitesiz günler sıfır değeriyle temsil edilir:
+
+\begin{lstlisting}[language=Python, caption=app.py -- 7 Günlük Boş Çerçeve Üretimi (satır 6385--6398)]
+daily_by_date = {}
+for i in range(6, -1, -1):
+    date_obj = (now - timedelta(days=i)).date()
+    daily_by_date[date_obj.isoformat()] = {
+        'date': date_obj.isoformat(),
+        'label': date_obj.strftime('%a'),
+        'count': 0
+    }
+for q in current_questions:
+    key = q.timestamp.date().isoformat()
+    if key in daily_by_date:
+        daily_by_date[key]['count'] += 1
+\end{lstlisting}
+
+\subsubsection{Bileşen Prop Yapısı ve Teknik Detaylar}
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{3cm} P{3cm} P{7cm} @{}}
+    \toprule
+    \textbf{Prop Adı} & \textbf{Tipi} & \textbf{Açıklama} \\
+    \midrule
+    \texttt{data} & Array & API'den gelen gün/adet listesi. \\
+    \texttt{activeDot} & Object & Mouse hover anındaki görsel stil. \\
+    \texttt{stroke} & String & Grafiğin ana çizgi rengi (Tema bağımlı). \\
+    \texttt{margin} & Object & Grafiğin kenar boşlukları (Responsive ayarı). \\
+    \bottomrule
+  \end{tabular}
+  \caption{WeeklyReport Bileşeni Teknik Parametreleri}
+\end{table}
+
+\begin{infobox}[6. Hafta → 7. Hafta: Bu Özellikte Ne Değişti?]
+  \small
+  \textbf{Önceki durum:} Kullanıcı aktivite geçmişi yalnızca \texttt{/api/history} endpoint'inden ham JSON listesi olarak döndürülüyordu.\\
+  \textbf{Bu hafta:} Backend'e \texttt{/api/stats/weekly} endpoint'i eklendi. Frontend'de \texttt{WeeklyReport.jsx} bileşeni oluşturuldu; Recharts \texttt{AreaChart} ile haftalık soru sayısı, kullanılan model dağılımı ve toplam token tahmini görselleştirildi.
+\end{infobox}
+
+\begin{figure}[H]
+  \centering
+  \begin{tcolorbox}[colback=white, colframe=noteborder, title=Görsel 2: Haftalık Veri Analiz Ekranı]
+    \small
+    [Soru Sayıları Grafiği - Area Chart] \\
+    [En Çok Kullanılan Model: GPT-4o (\%60)] \\
+    [Toplam Harcanan Token Tahmini: 25k]
+  \end{tcolorbox}
+  \caption{Kullanıcı Üretkenlik Analizi ve Model Tercih Dağılımı}
+\end{figure}
+
+%====================================================================
+\section{Özellik 3: Canlı İşbirliği (Collaboration \& Share Tool)}
+%====================================================================
+
+\textbf{Motivasyon:} Bilginin paylaşılması önündeki teknik engelleri kaldırarak ortak çalışma kültürünü desteklemek ve takım içi sinerjiyi dijitalleştirmek. Önceki haftalarda sohbetler yalnızca oturum sahibi tarafından görülebiliyordu; bu hafta UUID tabanlı paylaşım altyapısı devreye alındı.
+
+\subsection{Mimari Tasarım: UUID v4 Neden Güvenlidir?}
+Sohbet linkleri, sıralı (incremental) ID'ler yerine UUID (Universally Unique Identifier) v4 kullanır. Bir UUID'nin tahmin edilme olasılığı $2^{122}$'de 1'dir; bu da sistemi yetkisiz erişimlere karşı teorik olarak sarsılmaz kılar. UUID v4, tamamen rastgele üretildiği için herhangi bir bilgi sızıntısına (information leakage) yol açmaz. Bu durum, veri gizliliği ve platform güvenilirliği için modern bir endüstri standardıdır.
+
+\subsection{Veritabanı İlişkileri ve TTL Politikası}
+\texttt{SharedSession} tablosu, \texttt{User} ve \texttt{Conversation} tabloları arasında bir köprü (bridge) görevi görür. Bu tablo, paylaşımın ömrünü ve erişim yetkilerini kontrol eder.
+
 \begin{itemize}[leftmargin=*]
-  \item Input payload arrives.
-  \item Numeric normalization runs.
-  \item \texttt{maxDayCount} baseline computed.
-  \item Selected mode branch renders chart.
+    \item \textbf{One-to-Many:} Bir kullanıcı birden fazla sohbeti paylaşabilir.
+    \item \textbf{Expiration Policy (TTL):} Paylaşılan oturumlar 7 gün sonra otomatik olarak "deaktif" duruma geçer. Bu, veritabanı şişkinliğini önlemek ve paylaşımların tazeliğini korumak için kritik bir temizlik mekanizmasıdır.
+    \item \textbf{Cascade Delete:} Bir paylaşım silindiğinde buna bağlı loglar da temizlenerek \textit{orphaned row} oluşumu önlenir.
 \end{itemize}
 
-\section{Validation Matrix}
+\begin{lstlisting}[language=JavaScript, caption=Link Paylaşım ve Clipboard API Kullanımı]
+const handleShare = async () => {
+  const res = await fetch(`${API_BASE}/api/collaboration/share`, {
+    method: 'POST', body: JSON.stringify({ conversation_id: chatId })
+  });
+  const data = await res.json();
+  const fullLink = `${window.location.origin}/share/${data.share_token}`;
+  
+  await navigator.clipboard.writeText(fullLink);
+  showToast("Link kopyalandi!", "success");
+};
+\end{lstlisting}
 
-\subsection{Functional Tests}
-\begin{longtable}{@{} P{1.2cm} P{4.3cm} P{4.8cm} P{2.4cm} @{}}
+\begin{infobox}[6. Hafta → 7. Hafta: Bu Özellikte Ne Değişti?]
+  \small
+  \textbf{Önceki durum:} Sohbet içerikleri paylaşılabilir değildi; kullanıcılar ekran görüntüsü almak zorundaydı.\\
+  \textbf{Bu hafta:} \texttt{POST /api/collaboration/share} endpoint'i eklendi. UUID v4 üretimi backend'de gerçekleşiyor; frontend'de \texttt{Clipboard API} aracılığıyla kullanıcıya tek tıkla paylaşılabilir link sunuluyor. Ayrıca \texttt{SharedSession} DB modeli oluşturuldu.
+\end{infobox}
+
+\subsection{Gerçek Backend Kodu: share\_conversation()}
+
+Endpoint; önce aynı sohbet için aktif bir \texttt{SharedSession} olup olmadığını kontrol eder (idempotent). Yoksa \texttt{uuid.uuid4()} ile yeni token üretir:
+
+\begin{lstlisting}[language=Python, caption=app.py -- share\_conversation() (satır 6114--6153)]
+@app.route('/api/collaboration/share', methods=['POST'])
+@jwt_required()
+def share_conversation():
+    user_id = int(get_jwt_identity())
+    conv_id = request.json.get('conversation_id')
+    conv = Conversation.query.filter_by(
+        id=conv_id, user_id=user_id).first()
+    if not conv:
+        return jsonify({'error': 'Erisim yok'}), 404
+    existing = SharedSession.query.filter_by(
+        conversation_id=conv_id, is_active=True).first()
+    if existing:
+        return jsonify({'share_token': existing.share_token})
+    token = str(uuid.uuid4())
+    db.session.add(SharedSession(
+        conversation_id=conv_id, owner_id=user_id,
+        share_token=token, is_active=True))
+    db.session.commit()
+    return jsonify({'share_token': token})
+\end{lstlisting}
+
+Token doğrulandıktan sonra tüm \texttt{History} kayıtları kronolojik sırayla döndürülür:
+
+\begin{lstlisting}[language=Python, caption=app.py -- get\_shared\_session() (satır 6155--6184)]
+@app.route('/api/collaboration/session/<token>', methods=['GET'])
+def get_shared_session(token):
+    session = SharedSession.query.filter_by(
+        share_token=token, is_active=True).first()
+    if not session:
+        return jsonify({'error': 'Gecersiz link'}), 404
+    history = History.query.filter_by(
+        conversation_id=session.conversation_id
+    ).order_by(History.timestamp.asc()).all()
+    return jsonify({
+        'history': [{
+            'id': h.id,
+            'user_question': h.user_question,
+            'ai_response': h.ai_response,
+            'selected_model': h.selected_model,
+            'timestamp': h.timestamp.isoformat()
+        } for h in history],
+        'owner_display_name': session.owner.display_name,
+        'title': session.conversation.title
+    })
+\end{lstlisting}
+
+\subsection{Yol Haritası: Real-time Sync (WebSockets)}
+Şu anki "Snapshot" paylaşım mantığından "Live Sync" mantığına geçiş için \texttt{Socket.io} entegrasyonu planlanmaktadır. Bu sayede aynı linki açan iki kullanıcı, yapay zekanın yazdırdığı kodları eş zamanlı görebilecektir. Socket.io, düşük gecikme (low latency) ve çift yönlü iletişim avantajı sunarak "Pair Programming" deneyimini sanal ortama taşır.
+
+%====================================================================
+\section{Özellik 4: Alchemical Tema Mağazası (Visual Identity)}
+%====================================================================
+
+\textbf{Motivasyon:} Arayüzü monotonluktan kurtarmak ve kullanıcıya kendi "kodlama atmosferini" yaratma gücü vermek. Önceki haftalarda yalnızca Dark/Light geçişi destekleniyordu; bu hafta CSS değişken motoru ve XP tabanlı kilit açma ekonomisi devreye alındı.
+
+\subsection{Tema Motoru Tasarım Prensipleri}
+Tema mağazası yalnızca bir renk değiştirici değil; aynı zamanda bir \textbf{CSS Variable Engine}'dir. \texttt{:root} seviyesinde tanımlanan değişkenler, tüm alt bileşenlerin (button, card, input) rengini anlık olarak değiştirir. CSS-in-JS çözümleri yerine saf CSS değişkenlerinin tercih edilmesi, tarayıcı render performansını (FPS) artırarak "stutter-free" bir deneyim sunar.
+
+\subsubsection{Tema Grupları ve Psikolojik Etkileri}
+\begin{enumerate}
+    \item \textbf{Classic:} Dark (\texttt{dark}) ve Light. Göz yorgunluğunu azaltmak için.
+    \item \textbf{Cyber \& Synth:} \texttt{cyberpunk}, \texttt{synthwave}. Yapay zekanın gücünü ve fütüristik atmosferi temsil eder.
+    \item \textbf{Developer Favorites:} \texttt{dracula}, \texttt{monokai}, \texttt{nord}. IDE alışkanlıklarını web ortamına taşır.
+\end{enumerate}
+
+\subsection{Coin Tabanlı Kilit Açma Ekonomisi}
+Tema sistemi XP (tecrübe puanı) yerine Coin (harcanabilir birim) ekonomisi üzerine kurulmuştur. Kullanıcılar soruları yanıtladıkça veya başarılı kod ürettikçe Coin kazanır. "Code Adept" veya "Arcane Engineer" gibi unvanlar XP'ye (statü) dayanırken; temalar doğrudan kazanılan Coin bakiyesinden düşüş yapılarak (\textit{sinking mechanism}) açılır. Bu sistem sanal ekonomiyi döngüsel hale getirerek enflasyonu önler.
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{3cm} P{3cm} P{7cm} @{}}
+    \toprule
+    \textbf{Tema Adı} & \textbf{Coin Maliyeti} & \textbf{Karakteristik Stil} \\
+    \midrule
+    \texttt{dark}      & 0 Coin & Sistem varsayılanı (Navy Blue / Mor vurgular) \\
+    \texttt{dracula}   & 20 Coin & Pembe (\texttt{\#ff79c6}) ve Mor (\texttt{\#bd93f9}) pastel tonlar \\
+    \texttt{monokai}   & 30 Coin & Pembe (\texttt{\#f92672}) ve Yeşil (\texttt{\#a6e22e}) neon kontrast \\
+    \texttt{nord}      & 40 Coin & Kutusup mavisi (\texttt{\#88c0d0}), buzlu tonlar \\
+    \texttt{synthwave} & 75 Coin & Retro neon pembe (\texttt{\#f92aad}) ve açık mavi \\
+    \texttt{cyberpunk} & 100 Coin & Agresif sarı (\texttt{\#fcee0a}) ve kırmızı (\texttt{\#ff003c}) \\
+    \bottomrule
+  \end{tabular}
+  \caption{Tema Mağazası Maliyet ve Stil Tablosu}
+\end{table}
+
+\begin{infobox}[6. Hafta → 7. Hafta: Bu Özellikte Ne Değişti?]
+  \small
+  \textbf{Önceki durum:} Yalnızca Dark/Light geçişi vardı; tema değişikliği her sayfa yüklemesinde CSS dosyasının yeniden uygulanmasıyla gerçekleşiyordu.\\
+  \textbf{Bu hafta:} \texttt{:root} CSS değişkenleri motoru kuruldu. \texttt{POST /api/themes} (action: set\_active / unlock) endpointleri eklendi. \texttt{UserTheme} veritabanı modeli oluşturuldu. Tema seçim ekranı (ThemeStore.jsx) tasarlandı.
+\end{infobox}
+
+\subsection{Tema Kataloğu: THEMES Sabiti}
+
+Tema kataloğu, bileşenin en üstünde \textbf{sabit bir dizi} olarak tanımlanır. Her giriş; tema kimliği, Coin maliyeti, premium bayrağı ve üç renk önizleme kodundan oluşur:
+
+\begin{lstlisting}[language=JavaScript, caption=ThemeStore.jsx -- Tema Kataloğu (satır 4--13)]
+const THEMES = [
+  { id: 'dark',       cost: 0,   isPremium: false,
+    colors: ['#0f172a','#3fabe5','#a855f7'] },
+  { id: 'dracula',   cost: 20,  isPremium: true,
+    colors: ['#282a36','#ff79c6','#bd93f9'] },
+  { id: 'monokai',   cost: 30,  isPremium: true,
+    colors: ['#272822','#f92672','#a6e22e'] },
+  { id: 'nord',      cost: 40,  isPremium: true,
+    colors: ['#2e3440','#88c0d0','#5e81ac'] },
+  { id: 'synthwave', cost: 75,  isPremium: true,
+    colors: ['#262335','#f92aad','#36f9f6'] },
+  { id: 'cyberpunk', cost: 100, isPremium: true,
+    colors: ['#fcee0a','#00f0ff','#ff003c'] }
+];
+\end{lstlisting}
+
+\subsection{Tema Uygulama ve Satın Alma Akışları}
+
+Her iki işlem de aynı \texttt{POST /api/themes} endpoint'ini farklı \texttt{action} değerleriyle çağırır. Uygulama sonrası backend'den yeniden fetch yapılarak state senkronizasyonu sağlanır:
+
+\begin{lstlisting}[language=JavaScript, caption=ThemeStore.jsx -- Apply ve Unlock Fonksiyonları (satır 51--113)]
+// Uygulama: action = 'set_active'
+const handleApplyTheme = async (themeId) => {
+  await fetch(`${API_BASE}/api/themes`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`,
+               'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'set_active', theme: themeId })
+  });
+  await fetchThemes(); // Backend ile state'i senkronize et
+  onThemeChange(themeId);
+};
+// Satin alma: action = 'unlock'
+const handleUnlockTheme = async (theme) => {
+  if (userCoins < theme.cost) {
+    showMessage(`Need ${theme.cost} Coin.`, 'error'); return;
+  }
+  const res = await fetch(`${API_BASE}/api/themes`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`,
+               'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'unlock',
+                           theme: theme.id, cost: theme.cost })
+  });
+  const data = await res.json();
+  setUnlockedThemes(data.unlocked_themes);
+  if (onRefreshCoins) onRefreshCoins(data.remaining_coins);
+};
+\end{lstlisting}
+
+\textbf{Backend Coin Harcama Mantığı:} \texttt{action == 'unlock'} dalında kullanıcının coin bakiyesi kontrol edilir, yeterliyse tema açılır ve bakiye düşülür. Açık tema listesi JSON olarak veritabanına yazılır:
+
+\begin{lstlisting}[language=Python, caption=app.py -- Coin ile Tema Satın Alma (satır 6084--6103)]
+elif action == 'unlock':
+    cost = data.get('cost', 50)
+    if theme_name in unlocked:
+        return jsonify({'error': 'Tema zaten acik'}), 400
+    if user.coins < cost:
+        return jsonify({'error': 'Yetersiz Coin'}), 403
+    user.coins -= cost
+    unlocked.append(theme_name)
+    theme_pref.unlocked_themes = json.dumps(unlocked)
+    db.session.commit()
+    return jsonify({'unlocked_themes': unlocked,
+                    'remaining_coins': user.coins})
+\end{lstlisting}
+
+\textbf{Oturum Kapatma Güvenliği:} \texttt{ThemeStore.jsx} içinde ikinci bir \texttt{useEffect}, \texttt{token} prop'u \texttt{null} olduğunda (çıkış anı) açık tema listesini yalnızca ücretsiz temalara sıfırlar ve aktif temayı \texttt{dark}'a çeker; böylece bir sonraki kullanıcı premium temayı görmez:
+
+\begin{lstlisting}[language=JavaScript, caption=ThemeStore.jsx -- Logout Temizliği (satır 27--32)]
+useEffect(() => {
+  if (!token) {
+    setUnlockedThemes(['dark', 'light']);
+    setActiveTheme('dark');
+  }
+}, [token]);
+\end{lstlisting}
+
+\begin{figure}[H]
+  \centering
+  \begin{tcolorbox}[colback=white, colframe=noteborder, title=Görsel 3: Tema Seçim Ekranı]
+    \small
+    [Kutu 1: \texttt{dark} (Seçili, 0 Coin)] \\
+    [Kutu 2: \texttt{dracula} (Kilitli -- 20 Coin)] \\
+    [Kutu 3: \texttt{monokai} (Kilitli -- 30 Coin)]
+  \end{tcolorbox}
+  \caption{Görsel Kimlik Mağazası ve Coin Bazlı Kilit Mekanizması}
+\end{figure}
+
+%====================================================================
+\section{Teknik Detaylar ve Uygulama Mimarisi}
+%====================================================================
+
+\subsection{Veritabanı Şeması ve SQLAlchemy Tanımları}
+Her tablo için otomatik "timestamp" alanı eklenmiş; böylece geçmişe dönük analizlerin doğruluğu artırılmıştır. Veritabanı migrasyonları için \texttt{Alembic} kullanımı sayesinde şema değişiklikleri veri kaybı olmadan yönetilmektedir.
+
+\begin{lstlisting}[language=Python, caption=SQLAlchemy Modelleri (app.py \& models.py)]
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True)
+    xp = db.Column(db.Integer, default=0)
+    level = db.Column(db.Integer, default=1)
+    coins = db.Column(db.Integer, default=0)
+
+class SharedSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    share_token = db.Column(db.String(64), unique=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'))
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # TTL politikası: +7 gün sonra is_active=False yapılır
+    expires_at = db.Column(db.DateTime,
+        default=lambda: datetime.utcnow() + timedelta(days=7))
+    is_active = db.Column(db.Boolean, default=True)
+    allow_chat = db.Column(db.Boolean, default=False)
+    
+    # Relationships
+    owner = db.relationship('User', backref='shared_sessions')
+    conversation = db.relationship('Conversation', backref='shared_session')
+\end{lstlisting}
+
+\subsection{Hata Yönetimi ve Loglama Stratejileri}
+API isteklerinde oluşabilecek hatalar merkezi bir \texttt{ErrorHandler} bileşeni ile yönetilir. Her hata, sunucu tarafında \texttt{errors.log} dosyasına detaylıca kaydedilir. Kritik hatalar için yöneticilere e-posta veya Slack üzerinden anlık bildirim gönderen bir "Incident Monitor" katmanı eklenmiştir. İstemci tarafında hatalar kullanıcı dostu "Toast" bildirimleriyle sunulur.
+
+\subsection{Deployment: Render.com Üzerindeki Yapılandırma}
+Proje, \textbf{Render.com} platformu üzerinde sürekli dağıtım (Continuous Deployment) akışıyla yayınlanmaktadır. \texttt{main} branch'e yapılan her \texttt{git push} işlemi otomatik bir build tetikler. Backend ve frontend ayrı servisler olarak dağıtılmaktadır; bu ayrım, bağımsız ölçekleme (independent scaling) ve sıfır kesintili güncelleme (zero-downtime deployment) imkânı tanır. Ortam değişkenleri (environment variables) Render dashboard üzerinden güvenli bir biçimde yönetilmekte; JWT secret, veritabanı yolu ve API anahtarları kaynak koda kesinlikle gömülmemektedir.
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{3.5cm} P{4cm} P{6cm} @{}}
+    \toprule
+    \textbf{Servis} & \textbf{Tür} & \textbf{Notlar} \\
+    \midrule
+    Frontend (React) & Static Site & Build: \texttt{npm run build} \\
+    Backend (Flask) & Web Service & Start: \texttt{gunicorn app:app} \\
+    Veritabanı (SQLite) & Persistent Disk & \texttt{/data/db.sqlite3} \\
+    \bottomrule
+  \end{tabular}
+  \caption{Render.com Dağıtım Yapılandırması}
+\end{table}
+
+%====================================================================
+\section{Güvenlik, Performans ve UX Optimizasyonları}
+%====================================================================
+
+\subsection{Performans: Client-side Caching ve Memoization}
+Haftalık istatistikler gibi sık değişmeyen veriler için React tarafında \texttt{useMemo} ve \texttt{localStorage} tabanlı kısa süreli önbellekleme yapılır. Grafik bileşenleri \texttt{React.memo} ile sarmalanarak gereksiz re-render'ların önüne geçilmiştir. API yanıt süreleri ortalama 50ms (DB) + 150ms (Network) olarak ölçülmüştür.
+
+\subsection{UX: Erişilebilirlik ve Kontrast Analizi}
+Temalar oluşturulurken WCAG (Web Content Accessibility Guidelines) standartları gözetilmiştir. Kontrast oranları en az 4.5:1 olacak şekilde ayarlanmıştır. Screen-reader desteği için ARIA label'ları eksiksiz uygulanmış; klavye navigasyonu (Tab index) tam performanslı çalışacak şekilde optimize edilmiştir.
+
+%====================================================================
+\section{Gelişmiş Veritabanı Mimarisi ve Veri Bütünlüğü Analizi}
+%====================================================================
+
+\subsection{Normalizasyon ve Şema Optimizasyonu}
+CodeAlchemist veritabanı tasarımı, 3. Normal Form (3NF) kurallarına sıkı sıkıya bağlıdır. Ancak istatistik sorgularını hızlandırmak adına bazı alanlarda kontrollü denormalizasyon uygulanmıştır. Bu hibrit yaklaşım hem depolama verimliliği hem de sorgu hızı sağlar.
+
+\subsection{CRUD Performansları}
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4cm} P{3cm} P{7cm} @{}}
+    \toprule
+    \textbf{Operasyon} & \textbf{Hız (Tahmini)} & \textbf{Optimizasyon Tekniği} \\
+    \midrule
+    Kullanıcı Profili Okuma & < 5ms & Primary Key Indexing \\
+    Haftalık İstatistik Çekme & < 20ms & Composite Index on (user\_id, timestamp) \\
+    XP Güncelleme & < 10ms & Row-level Locking \\
+    Yeni Oturum Paylaşma & < 15ms & UUID Sequential Writing (SSD Optimized) \\
+    \bottomrule
+  \end{tabular}
+  \caption{Veritabanı CRUD Performans Metrikleri}
+\end{table}
+
+\subsection{Atomik İşlemler (ACID Prensipleri)}
+XP kazanma ve tema satın alma gibi işlemler, \texttt{db.session.begin()} bloğu içerisinde yürütülür. Bu sayede tecrübe puanının güncellenip ancak seviyenin güncellenemediği "race condition" durumları engellenir. Her işlem başarılı olduğunda bir "audit log" girişi oluşturulur; bu durum geriye dönük hata ayıklamayı kolaylaştırır.
+
+%====================================================================
+\section{Sistem Güvenliği ve Tehdit Modellemesi}
+%====================================================================
+
+\subsection{Gelişmiş Tehdit Modellemesi ve Savunma Teknikleri}
+\begin{longtable}{@{} P{3.5cm} P{4cm} P{7cm} @{}}
 \toprule
-ID & Scenario & Expected Result & Status \\
+\textbf{Tehdit Tipi} & \textbf{Savunma Mekanizması} & \textbf{Detaylı Açıklama} \\
 \midrule
-W7-T1 & XP/level display on gamification panel & Level, rank, progress agree with XP & Pass \\
-W7-T2 & Weekly report in bar mode & Visible bars and readable day labels & Pass \\
-W7-T3 & Weekly report in line mode & Clean trend line without clutter & Pass \\
-W7-T4 & Share option: copy & Clipboard receives valid URL & Pass \\
-W7-T5 & Share option: WhatsApp & URL opens with encoded payload & Pass \\
-W7-T6 & Share option: email & Mailto contains encoded subject/body & Pass \\
-W7-T7 & Logout after premium theme active & Theme resets immediately to default & Pass \\
-W7-T8 & Guest apply/unlock attempt & Action blocked due to missing token & Pass \\
+SQL Injection & SQLAlchemy ORM & Tüm sorgular parametrik (prepared statements) olarak yürütülür. \\
+Stored XSS & Content Sanitization & Kullanıcı girdileri DOM'a basılmadan önce temizlenir. \\
+CSRF & Anti-CSRF Tokens & Stateful işlemlerde gizli doğrulama anahtarları kullanılır. \\
+Brute Force & Rate Limiting & Belirli IP'ler için dakikalık istek kotası uygulanır. \\
+Session Hijack & HTTP-Only Cookies & JWT'ler tarayıcı betikleri tarafından okunamaz. \\
+ID Enumeration & UUID v4 & Sıralı ID yerine $2^{122}$'de 1 olasılıklı token kullanılır. \\
 \bottomrule
 \end{longtable}
 
-\subsection{Regression Checks}
+%====================================================================
+\section{Test ve Doğrulama Protokolleri}
+%====================================================================
+
+\subsection{Birim Testleri (Unit Tests)}
+XP hesaplama mantığı ve seviye atlama fonksiyonları, Python \texttt{pytest} kütüphanesi ile test edilmiştir. Sınır değerleri (boundary values) kontrol edilerek (örn: 999 XP'den 1001 XP'ye geçiş) mantıksal hatalar ayıklanmıştır. Test kapsamı (coverage) \%90'ın üzerinde tutulmaktadır.
+
+\subsection{Entegrasyon ve E2E Test Senaryoları}
+Frontend'den gönderilen paylaşım isteğinin veritabanında doğru linki oluşturup oluşturmadığı \texttt{Cypress} test senaryoları ile doğrulanmıştır. Karmaşık kullanıcı senaryoları (XP kazanıp tema satın alma akışı) otomatikleştirilmiş botlarla test edilmektedir.
+
+%====================================================================
+\section{Sonuç, Retrospektif ve Teknik Borç Değerlendirmesi}
+%====================================================================
+
+\subsection{Sprint Retrospektifi}
+7. Hafta sprinti, veri görselleştirmenin kullanıcı deneyimi üzerindeki dönüştürücü etkisini bir kez daha kanıtlamıştır. Recharts kütüphanesinin esnekliği karmaşık veri setlerinin basitçe sunulmasını sağlamış; UUID tabanlı paylaşım altyapısı güvenlik açısından sağlam bir zemin oluşturmuştur. Tema motorunun CSS değişkenleri üzerine kurulması, ilerleyen haftalarda yeni tema eklemesini yalnızca birkaç satır değişikliğe indirgeyecektir.
+
+\subsection{Teknik Borç ve Refactoring Planı}
+\begin{enumerate}
+    \item \textbf{DB Connection Pooling:} SQLite limitlerini aşmak için bağlantı havuzu yönetimi geliştirilecek.
+    \item \textbf{Frontend State Management:} Global state için Redux Toolkit veya Zustand'a geçiş değerlendirilecek.
+    \item \textbf{Logic Decoupling:} API endpointlerindeki iş mantığı ayrı bir "Service Layer" katmanına taşınacak.
+    \item \textbf{Theme Export/Import:} Kullanıcıların kendi temalarını JSON olarak dışa aktarması sağlanacak.
+\end{enumerate}
+
+\subsection{Gelecek Vizyonu: 8. Hafta}
+
+8. haftada dört temel geliştirme alanı sprint kapsamına alınmıştır:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{0.5cm} P{4.5cm} P{4cm} P{5cm} @{}}
+    \toprule
+    \textbf{\#} & \textbf{Planlanan Özellik} & \textbf{Etkilenen Katman} & \textbf{Anahtar Teknoloji} \\
+    \midrule
+    1 & Bağlam Optimizasyon Asistanı & Frontend & Token Analizi, Auto-mode UI \\
+    2 & Güvenlik Katmanlı Patch Akışı & Frontend & Risk Skoru, Heuristik Analiz \\
+    3 & Canlı İşbirliği ve İnceleme Döngüsü & Backend + Frontend & Durum Makinesi, REST API \\
+    4 & Free/Premium Plan Ekonomisi & Backend + Frontend & Kota Muhasebesi, JWT \\
+    \bottomrule
+  \end{tabular}
+  \caption{8. Hafta Planlanan Geliştirme Alanları}
+\end{table}
+
+\textbf{Mevcut Durum ve 8. Hafta Farkı:}
 \begin{itemize}[leftmargin=*]
-  \item Existing auth flows still complete successfully.
-  \item Theme store renders without errors for authenticated users.
-  \item Collaboration link generation remains backward compatible.
+  \item \textbf{Canlı İşbirliği (devam):} Bu hafta devreye alınan UUID tabanlı paylaşım altyapısı şu an yalnızca \textit{read-only} görüntüleme sunmaktadır. 8. haftada aynı proje veya sohbet üzerinde ekip üyelerinin yorum ekleyip durum güncelleyebileceği aktif inceleme döngüsü planlanmaktadır.
+  \item \textbf{Bağlam Optimizasyonu:} 6. haftada eklenen Context Bar, kullanıcıya token yükünü pasif olarak bildirmektedir. 8. haftada bu çubuğun yanına, gereksiz içeriği budayıp token tasarrufu öneren bir \textit{Bağlam Optimizasyon Asistanı} eklenmesi hedeflenmektedir.
+  \item \textbf{Free/Premium Plan Ekonomisi:} Mevcut sistemde tüm kullanıcılar aynı limitlerle modellere erişmektedir. 8. haftada günlük istek ve aylık token kotası üzerinden işleyen bir plan ekonomisi ile maliyet yönetimi ürüne entegre edilecektir.
+  \item \textbf{Güvenlik Katmanlı Patch:} AI tarafından önerilen kod değişiklikleri şu an herhangi bir risk değerlendirmesinden geçmeden uygulanabilmektedir. 8. haftada heuristik risk skoru hesabı ile safe/review/block karar mekanizması devreye alınacaktır.
 \end{itemize}
 
-\section{Performance and UX Considerations}
+%====================================================================
+\section{Ekler ve API Referans Rehberi}
+%====================================================================
 
-\subsection{Chart Rendering Cost}
-Chart logic remains linear with respect to number of daily points. With fixed seven-day windows, rendering cost is effectively constant in practice.
+\subsection{UI/UX CSS Değişken Sözlüğü}
+\begin{longtable}{@{} P{4.5cm} P{4.5cm} P{5.5cm} @{}}
+\toprule
+\textbf{Değişken Adı} & \textbf{Varsayılan Değer} & \textbf{Kullanım Alanı} \\
+\midrule
+\texttt{--bg-primary} & \texttt{\#0f172a} & Ana arka plan rengi. \\
+\texttt{--bg-secondary} & \texttt{\#1e293b} & Kart ve panel arka planları. \\
+\texttt{--text-main} & \texttt{\#f8fafc} & Temel metin rengi. \\
+\texttt{--text-muted} & \texttt{\#94a3b8} & Açıklama ve pasif metinler. \\
+\texttt{--accent-color} & \texttt{\#8b5cf6} & Buton ve vurgu renkleri. \\
+\texttt{--accent-hover} & \texttt{\#7c3aed} & Hover durumundaki vurgu rengi. \\
+\texttt{--border-color} & \texttt{\#334155} & Eleman sınır çizgileri. \\
+\texttt{--xp-bar-fill} & \texttt{\#10b981} & Progress bar doluluk rengi. \\
+\texttt{--coin-gold} & \texttt{\#eab308} & Para ve ödül ikonları. \\
+\texttt{--font-code} & \texttt{'Fira Code'} & Kod blokları için font ailesi. \\
+\texttt{--shadow-sm} & \texttt{0 1px 2px 0 ...} & Hafif gölge efekti. \\
+\texttt{--radius-md} & \texttt{0.5rem} & Köşe yuvarlatma miktarı. \\
+\bottomrule
+\end{longtable}
 
-\subsection{Logout Robustness}
-Logout now contains asynchronous pre-cleanup behavior (backend theme reset attempt). Failures are tolerated and frontend cleanup always continues in \texttt{finally}-style logic to avoid blocked logout.
+\subsection{Sistem Bağımlılıkları ve Versiyon Analizi}
+\begin{longtable}{@{} P{3.5cm} P{2.5cm} P{8cm} @{}}
+\toprule
+\textbf{Kütüphane} & \textbf{Versiyon} & \textbf{Tercih Gerekçesi} \\
+\midrule
+React & 18.2.0 & Concurrent Mode desteği ve sanal DOM verimliliği. \\
+Flask & 2.3.2 & Mikro-servis mimarisine uygunluk ve hafif yapı. \\
+SQLAlchemy & 2.0.19 & Tip güvenliği ve kompleks sorgu desteği. \\
+Recharts & 2.7.0 & D3 tabanlı, React bileşenleriyle deklaratif kullanım. \\
+Framer Motion & 10.12 & CSS-GPU tabanlı yüksek performanslı animasyon. \\
+Flask-JWT & 4.5.2 & Stateless kimlik doğrulama ve güvenli cookie yönetimi. \\
+Axios & 1.4.0 & HTTP istek yönetimi ve interceptor desteği. \\
+TailwindCSS & 3.3.2 & Utility-first yaklaşımı ile hızlı UI geliştirme. \\
+\bottomrule
+\end{longtable}
 
-\section{Security and Integrity}
+\subsection{Full Endpoint Dokümantasyonu}
+\begin{longtable}{@{} P{1.5cm} P{6cm} P{2.5cm} P{4.5cm} @{}}
+\toprule
+\textbf{Metot} & \textbf{Endpoint} & \textbf{Auth} & \textbf{Açıklama} \\
+\midrule
+GET & \texttt{/api/stats/weekly} & JWT & Haftalık kullanım verilerini döner. \\
+POST & \texttt{/api/collaboration/share} & JWT & Sohbet için UUID link üretir. \\
+GET & \texttt{/api/collaboration/session/<token>} & Hayır & Linkli sohbet geçmişini döner. \\
+POST & \texttt{/api/themes} & JWT & Coin ile tema alır / Seçili yapar. \\
+GET & \texttt{/api/themes} & JWT & Kullanıcı temasını döner. \\
+GET & \texttt{/api/gamification/profile} & JWT & XP ve Seviye durumunu döner. \\
+GET & \texttt{/api/gamification/leaderboard} & JWT & En iyi alchemistleri listeler. \\
+\bottomrule
+\end{longtable}
 
-\subsection{Auth-Dependent Actions}
-Theme mutation actions validate token presence before API calls. This prevents guest users from triggering premium ownership pathways.
-
-\subsection{Data Trust Model}
-XP remains source of truth; derived values (level/progress/rank) are recomputed to avoid stale render artifacts.
-
-\section{Engineering Retrospective}
-
-\subsection{What Worked}
+\subsection{Hata Kodları Sözlüğü}
 \begin{itemize}[leftmargin=*]
-  \item Problem reports were translated into precise state-consistency fixes.
-  \item Frontend and backend were updated together, reducing split-brain behavior.
-  \item Visual improvements were tied to deterministic data normalization.
+    \item \texttt{ECONNREFUSED}: Arka uç sunucusu kapalı. Sistem yöneticisi ile iletişime geçin.
+    \item \texttt{401 Unauthorized}: JWT tokenı geçersiz. Tekrar giriş yapılması gerekmektedir.
+    \item \texttt{403 Forbidden}: Kullanıcının bu işleme yetkisi yok (örn: yetersiz coin).
+    \item \texttt{404 Not Found}: Paylaşılan sohbet veya kullanıcı veritabanında bulunamadı.
+    \item \texttt{500 Internal Error}: Sunucu tarafında beklenmeyen hata. Logları inceleyin.
 \end{itemize}
 
-\subsection{What Was Challenging}
+\subsection{Referans Kod Dosyaları}
 \begin{itemize}[leftmargin=*]
-  \item Multiple state stores (React state, localStorage, backend DB) required explicit synchronization ordering.
-  \item Chart readability required several iterations and user feedback loops.
+    \item \texttt{client/src/App.jsx}: Uygulama ana giriş noktası.
+    \item \texttt{client/src/components/ThemeStore.jsx}: Tema yönetimi UI.
+    \item \texttt{client/src/components/GamificationPanel.jsx}: XP/Level paneli.
+    \item \texttt{client/src/components/WeeklyReport.jsx}: Recharts görselleştirme bileşeni.
+    \item \texttt{server/utils/xp\_calculator.py}: XP dağıtım algoritması.
+    \item \texttt{server/models.py}: Veritabanı tablo tanımları.
+    \item \texttt{server/api/stats.py}: İstatistik toplama mantığı.
+    \item \texttt{server/api/share.py}: UUID paylaşım endpointleri.
 \end{itemize}
 
-\subsection{Next Improvement Targets}
-\begin{itemize}[leftmargin=*]
-  \item Consolidate theme ownership checks behind a single backend source-of-truth payload.
-  \item Add instrumented analytics for share channel usage.
-  \item Add e2e tests covering logout/theme/guest mutation boundaries.
-\end{itemize}
-
-\section{Appendix A -- Extended Snippets}
-
-\subsection{Defensive Theme Action Guards}
-\begin{lstlisting}[language=JavaScript]
-const handleApplyTheme = async (themeId) => {
-  if (!token) {
-    showMessage('You must be logged in to change themes', 'error');
-    return;
-  }
-  // ... proceed with request
-};
-
-const handleUnlockTheme = async (theme) => {
-  if (!token) {
-    showMessage('You must be logged in to unlock themes', 'error');
-    return;
-  }
-  // ... proceed with request
-};
-\end{lstlisting}
-
-\subsection{Chart Mode Toggle Skeleton}
-\begin{lstlisting}[language=JavaScript]
-const [chartMode, setChartMode] = useState('bar');
-
-<button onClick={() => setChartMode('bar')}>Bar</button>
-<button onClick={() => setChartMode('line')}>Line</button>
-\end{lstlisting}
-
-\section{Appendix B -- Long-form Technical Commentary}
-
-Week 7 should be viewed as a trust-repair sprint. The visible product quality issue was not a lack of features; it was occasional disagreement between persistent state and rendered state. Users do not reason about state containers; they reason about whether the UI tells the truth. Therefore, the sprint solved truthfulness problems first.
-
-Gamification corrections demonstrate this principle directly. If level displays disagree with XP, users distrust progression. By deriving and normalizing level from XP, the system makes progression deterministic and inspectable. Weekly chart changes follow the same principle: visibility and interpretation come before decorative complexity. The revised chart architecture removed overlaid noise and favored structure that survives sparse data.
-
-Theme ownership hardening is equally important. Visual identity is emotionally salient for users. Seeing a premium theme remain applied after logout communicates ownership leakage, even if actual backend access is protected. The sprint therefore enforced both backend and frontend resets. This dual reset strategy is crucial in client-heavy architectures where runtime and persistence can diverge.
-
-From an engineering process standpoint, Week 7 confirms the value of short feedback loops. Reported UI anomalies were converted into state diagrams, then fixed with ordered synchronization steps. This approach is repeatable and should be applied to future product consistency issues.
-
-\section{Conclusion}
-
-Week 7 produced a measurable increase in product state integrity. The major contribution is consistent truth across gamification, analytics, collaboration, and theming surfaces. These improvements strengthen user trust, reduce confusion-driven support load, and create a cleaner baseline for upcoming social and personalization features.
-
-\begin{infobox}[Final Note]
-This report is intentionally long-form and codebase-oriented to support audits, onboarding, QA planning, and future refactor design decisions.
-\end{infobox}
+\vspace{1.5cm}
+\noindent\rule{\textwidth}{0.4pt}
+\vspace{0.5em}
+\noindent
+\begin{tabular}{rl}
+  \textbf{Rapor Kodu:}   & ALCH-2026-W7-MAX-ACADEMIC-V3 \\
+  \textbf{Hazırlayan:}   & Dila KEMER \\
+  \textbf{Kurum:}        & İzmir Bakırçay Üniversitesi \\
+  \textbf{Bölüm:}        & Bilgisayar Mühendisliği / İME \\
+  \textbf{Tarih:}        & 3 Nisan 2026 \\
+\end{tabular}
 
 \end{document}

@@ -43,13 +43,13 @@ const PromptTemplates = ({ onSelect, visible = true }) => {
     if (!visible) return null;
 
     return (
-        <div className="grid grid-cols-6 gap-2 mb-3 animate-fadeIn mobile-prompt-templates">
+        <div className="flex flex-wrap gap-2 mb-3 animate-fadeIn mobile-prompt-templates">
             {promptTemplates.map((template, index) => (
                 <button
                     key={index}
                     onClick={() => onSelect(template.prompt)}
                     className={`
-                        flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-xs font-medium
+                        flex-1 min-w-[100px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-xs font-medium
                         bg-gradient-to-r ${template.color} text-white
                         hover:scale-[1.02] hover:shadow-lg
                         transition-all duration-200 ease-out

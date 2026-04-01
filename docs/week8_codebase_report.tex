@@ -1,0 +1,733 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{fontspec}
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{array}
+\usepackage{ragged2e}
+\usepackage{setspace}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{caption}
+
+\geometry{a4paper, left=25mm, right=25mm, top=32mm, bottom=30mm}
+
+\setlength{\headheight}{14pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small CodeAlchemist -- 8. Hafta Akademik Raporu}
+\lhead{\small Dila KEMER | Bilgisayar Mühendisliği}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{keywordblue}{rgb}{0.0,0.2,0.7}
+\definecolor{commentgreen}{rgb}{0.1,0.5,0.1}
+\definecolor{stringpurple}{rgb}{0.5,0.0,0.5}
+\definecolor{noteblue}{rgb}{0.88,0.93,1.0}
+\definecolor{noteborder}{rgb}{0.3,0.5,0.8}
+\definecolor{ozetsarisi}{rgb}{0.98,0.96,0.88}
+\definecolor{ozetborder}{rgb}{0.7,0.5,0.1}
+\definecolor{successgreen}{rgb}{0.88,1.0,0.90}
+\definecolor{successborder}{rgb}{0.1,0.6,0.2}
+\definecolor{warnred}{rgb}{1.0,0.93,0.90}
+\definecolor{warnborder}{rgb}{0.8,0.2,0.1}
+
+\titleformat{\section}{\large\bfseries\color{keywordblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{\thesubsubsection}{1em}{}
+
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{commentgreen},
+    keywordstyle=\color{keywordblue}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{stringpurple},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    tabsize=2,
+    frame=single
+}
+\lstset{style=mystyle}
+
+\lstdefinelanguage{JavaScript}{
+  keywords={break,case,catch,continue,debugger,default,delete,do,else,finally,
+    for,function,if,in,instanceof,new,return,switch,this,throw,try,typeof,
+    var,void,while,with,const,let,async,await,of,class,import,export,from},
+  morestring=[b]",
+  morestring=[b]',
+  morestring=[b]`,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  sensitive=true
+}
+
+\tcbuselibrary{skins,breakable}
+\newtcolorbox{infobox}[1][]{
+  colback=noteblue,
+  colframe=noteborder,
+  fonttitle=\bfseries\small,
+  title={#1},
+  breakable
+}
+
+\newtcolorbox{ozetbox}[1][]{
+  colback=ozetsarisi,
+  colframe=ozetborder,
+  fonttitle=\bfseries\normalsize,
+  title={#1},
+  breakable,
+  boxrule=1pt,
+  arc=4pt
+}
+
+\newtcolorbox{sprintbox}[1][]{
+  colback=successgreen,
+  colframe=successborder,
+  fonttitle=\bfseries\normalsize,
+  title={#1},
+  breakable,
+  boxrule=1pt,
+  arc=4pt
+}
+
+\newtcolorbox{warnbox}[1][]{
+  colback=warnred,
+  colframe=warnborder,
+  fonttitle=\bfseries\normalsize,
+  title={#1},
+  breakable,
+  boxrule=1pt,
+  arc=4pt
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=keywordblue,
+  urlcolor=keywordblue,
+  pdftitle={CodeAlchemist 8. Hafta Teknik Raporu},
+  pdfauthor={Dila KEMER}
+}
+
+% ============================================================
+\begin{document}
+\sloppy
+
+%------------------------------------------------------------
+% KAPAK SAYFASI
+%------------------------------------------------------------
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+
+  {\Huge\bfseries\color{keywordblue} CodeAlchemist}\\[0.8em]
+  {\large\bfseries Yapay Zeka Destekli Kod Geliştirme Platformu}\\[2em]
+
+  \rule{\textwidth}{1pt}\\[0.8em]
+  {\LARGE\bfseries 8. Hafta -- Detaylı Teknik ve Akademik Analiz Raporu}\\[0.5em]
+  \rule{\textwidth}{1pt}\\[2em]
+
+  {\large Bağlam Optimizasyonu $\mid$ Güvenli Patch $\mid$ Canlı İşbirliği $\mid$ Plan Ekonomisi}
+
+  \vspace{3em}
+
+  \begin{tabular}{rl}
+    \textbf{Hazırlayan:}   & Dila KEMER \\[0.4em]
+    \textbf{Üniversite:}   & İzmir Bakırçay Üniversitesi \\[0.4em]
+    \textbf{Bölüm:}        & Bilgisayar Mühendisliği \\[0.4em]
+    \textbf{Sınıf:}        & 4. Sınıf \\[0.4em]
+    \textbf{Ders:}         & İşletmede Mesleki Eğitim (İME) \\[0.4em]
+    \textbf{Rapor:}        & 8. Hafta Raporu \\[0.4em]
+    \textbf{Tarih:}        & Nisan 2026 \\
+  \end{tabular}
+
+  \vspace{3em}
+
+  \begin{ozetbox}[Canlı Demo]
+    Projenin güncel halini aşağıdaki adresten inceleyebilirsiniz:\\[0.6em]
+    \begin{center}
+      \large\href{https://code-alchemist-last-version.onrender.com/}%
+        {https://code-alchemist-last-version.onrender.com/}
+    \end{center}
+  \end{ozetbox}
+
+  \vfill
+  {\small\color{gray} CodeAlchemist AI Projesi -- Akademik Rapor - Nisan 2026}
+\end{titlepage}
+
+\thispagestyle{empty}
+
+%------------------------------------------------------------
+% ÖZET (TÜRKÇE)
+%------------------------------------------------------------
+\newpage
+\section*{Özet}
+\addcontentsline{toc}{section}{Özet}
+
+Bu rapor, \textbf{CodeAlchemist} platformunun yedinci geliştirme haftası tamamlandıktan sonraki mevcut durumunu kapsamlı biçimde ortaya koymakta ve sekizinci haftaya yönelik planlanan teknik çalışmaları akademik bir çerçevede sunmaktadır. Yedinci hafta sonunda platform; XP tabanlı oyunlaştırma paneli, Recharts ile haftalık veri görselleştirme, UUID tabanlı sohbet paylaşımı ve CSS değişken motoruyla yönetilen tema mağazası gibi kritik özelliklere kavuşmuştur.
+
+Sekizinci haftada bu altyapı üzerine inşa edilmesi planlanan dört temel geliştirme alanı şunlardır: kullanıcının yapay zeka ile diyaloğa girmeden önce girdi kalitesini artırmasını sağlayacak \textbf{bağlam optimizasyon asistanı}; AI tarafından önerilen kod değişikliklerini sistematik bir risk matrisi üzerinden değerlendirecek \textbf{güvenlik katmanlı patch akışı}; sohbet paylaşımını pasif bir görüntülemeden aktif bir ekip inceleme sürecine taşıyacak \textbf{canlı işbirliği ve inceleme döngüsü}; ve platform sürdürülebilirliği için kritik öneme sahip \textbf{Free/Premium plan ekonomisi}.
+
+\textbf{Anahtar Kelimeler:} Bağlam Optimizasyonu, Prompt Mühendisliği, Patch Risk Matrisi, Canlı İşbirliği Protokolü, Durum Makinesi, Plan Ekonomisi, Kota Yönetimi, Token Muhasebesi.
+
+%------------------------------------------------------------
+% ABSTRACT (İNGİLİZCE)
+%------------------------------------------------------------
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+This report presents a comprehensive analysis of the \textbf{CodeAlchemist} platform's current state at the end of its seventh development week, alongside the planned technical work for the eighth week. By the end of Week 7, the platform had incorporated an XP-based gamification panel, weekly data visualization via Recharts, UUID-based session sharing, and a dynamic CSS variable theme engine.
+
+The eighth week development plan focuses on four pillars: a \textit{Context Optimization Assistant} to improve prompt quality prior to AI interaction; a \textit{Security-Layered Patch Workflow} that evaluates AI-suggested code changes through a systematic risk matrix; a \textit{Live Collaboration and Review Loop} to transform passive session sharing into an active team review cycle; and a \textit{Free/Premium Plan Economy} to ensure platform sustainability through quota management.
+
+\textbf{Keywords:} Context Optimization, Prompt Engineering, Patch Risk Matrix, Live Collaboration Protocol, State Machine, Plan Economy, Quota Management, Token Accounting.
+
+\newpage
+\tableofcontents
+\newpage
+
+%------------------------------------------------------------
+% 8. HAFTA SPRINT ÖZETİ
+%------------------------------------------------------------
+\section*{8. Hafta Sprint Planı -- Hızlı Bakış}
+\addcontentsline{toc}{section}{8. Hafta Sprint Planı -- Hızlı Bakış}
+
+\begin{sprintbox}[Bu Haftaki Planlanan Geliştirmeler]
+  \small
+  \begin{tabular}{@{} P{0.5cm} P{4.5cm} P{4cm} P{5cm} @{}}
+    \toprule
+    \textbf{\#} & \textbf{Özellik} & \textbf{Etkilenen Katman} & \textbf{Anahtar Teknoloji} \\
+    \midrule
+    1 & Bağlam Optimizasyon Asistanı & Frontend & Token Analizi, Auto-mode UI \\
+    2 & Güvenlik Katmanlı Patch Akışı & Frontend & Risk Skoru, Heuristik Analiz \\
+    3 & Canlı İşbirliği ve İnceleme Döngüsü & Backend + Frontend & Durum Makinesi, REST API \\
+    4 & Free/Premium Plan Ekonomisi & Backend + Frontend & Kota Muhasebesi, JWT \\
+    \bottomrule
+  \end{tabular}
+\end{sprintbox}
+
+\vspace{0.5em}
+\noindent
+Bu rapor, söz konusu dört planı; \textit{neden gerekli oldukları} (motivasyon), \textit{nasıl tasarlanacakları} (teknik strateji) ve \textit{ne kazandıracakları} (akademik / kullanıcı etkisi) sorularına yanıt vererek detaylandırmaktadır.
+
+\begin{infobox}[Mevcut Sistem Durumu -- 7. Hafta Sonu]
+  \small
+  \textbf{Presentation Layer:} React 18 + TailwindCSS\\
+  \textbf{Business Logic Layer:} Flask (XP hesaplama, tema kontrolü, paylaşım yönetimi)\\
+  \textbf{Data Access Layer:} SQLAlchemy ORM + SQLite\\[0.4em]
+  \textbf{Aktif Özellikler:} GamificationPanel, WeeklyReport (Recharts), SharedSession (UUID), ThemeStore (CSS Variables)
+\end{infobox}
+
+\begin{warnbox}[8. Hafta Öncesi Tespit Edilen Boşluklar]
+  \small
+  \begin{itemize}[leftmargin=*]
+    \item Bağlam çubuğu (Context Bar) bilgi vermektedir; ancak kullanıcıyı aktif olarak yönlendirmemektedir.
+    \item Patch işlemi herhangi bir risk değerlendirmesi yapılmadan tek tıkla uygulanabilmektedir.
+    \item Sohbet paylaşımı yalnızca pasif görüntüleme düzeyinde kalmaktadır; ekip inceleme döngüsü yoktur.
+    \item Yoğun kullanımda maliyet kontrolü ürün tarafında görünür ve sınırlandırıcı değildir.
+  \end{itemize}
+\end{warnbox}
+
+\newpage
+
+%====================================================================
+\section{Mevcut Durum Analizi: 7. Hafta Çıktıları}
+%====================================================================
+
+\textbf{Motivasyon:} 8. haftanın planlanabilmesi için öncelikle yedinci hafta sonunda platformun hangi yeteneklere sahip olduğunu, hangi teknik borçların biriktiğini ve hangi kullanıcı ihtiyaçlarının karşılanamadığını anlamak gerekmektedir.
+
+\subsection{7. Hafta Özellikleri: Mevcut İşlevler}
+
+Yedinci haftanın sonunda CodeAlchemist aşağıdaki dört ana özelliği tam işlevsel olarak sunmaktadır:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Sıralamam \& İstatistikler (Oyunlaştırma Paneli):} XP tabanlı seviye sistemi, \texttt{GamificationPanel.jsx} bileşeni aracılığıyla kullanıcıya görünür hale getirilmiştir. \texttt{react-circular-progressbar} ile görselleştirilen bir ilerleme çubuğu, \texttt{framer-motion} ile animasyonlu rozet gösterimi ve 5 dakikalık polling döngüsüyle gerçek zamanlı güncelleme sağlanmaktadır. XP formülü \(\text{level} = \lfloor\sqrt{xp/100}\rfloor + 1\) ile hesaplanmakta, seviye tutarsızlıkları giderilmiş durumdadır.
+
+  \item \textbf{Haftalık Özet Raporu (Veri Görselleştirme):} \texttt{WeeklyReport.jsx} bileşeni, Recharts \texttt{AreaChart} ve çubuk grafik modlarını desteklemektedir. \texttt{GET /api/stats/weekly} endpoint'i, \texttt{History} tablosundan zaman damgasına dayalı aggregate sorgularla veri çekerek minimum yükseklik kuralları ve boyut etiketleri ile grafik okunabilirliğini optimize etmiştir. Seyrek veri durumlarında sıfır dolgu mantığı uygulanmaktadır.
+
+  \item \textbf{Canlı İşbirliği (Collaboration \& Share):} Sohbetler UUID v4 tabanlı paylaşım tokeni üretilerek link, yeni sekme, WhatsApp ve e-posta kanallarından paylaşılabilmektedir. \texttt{SharedSession} veritabanı modeli 7 günlük TTL (Time-To-Live) ve cascade delete politikasıyla yönetilmekte; paylaşım işlemi \texttt{POST /api/share/session} endpoint'i üzerinden gerçekleştirilmektedir. Ancak bu aşamada paylaşım \textit{pasif görüntüleme} düzeyinde kalmaktadır.
+
+  \item \textbf{Alchemical Tema Mağazası (Visual Identity):} CSS \texttt{:root} değişkenleri motoru üzerine inşa edilmiş tema sistemi; XP eşiklerine bağlı kilit açma mekanizması (Nebula, Mercury, Forest, Amber, Quantum) ve \texttt{POST /api/themes/unlock} + \texttt{POST /api/themes/set} endpoint'leriyle çalışmaktadır. Oturum kapatma sırasında tema temizliği zorunlu hale getirilmiş, token kesintiyi önleyecek şekilde safeguard eklenmiştir.
+\end{enumerate}
+
+\subsection{Birikmiş Teknik Borç}
+
+7. hafta retrospektifinde aşağıdaki teknik borçlar kayıt altına alınmıştır:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4cm} P{4cm} P{6cm} @{}}
+    \toprule
+    \textbf{Borç Kalemi} & \textbf{Etki Alanı} & \textbf{8. Haftada Ele Alınış Stratejisi} \\
+    \midrule
+    SQLite bağlantı sınırı & Eşzamanlı istek yönetimi & Kota katmanı ile istek sayısının kontrol altına alınması \\
+    Frontend State dağınıklığı & GamificationPanel, ThemeStore & Bağlam optimizasyonu ile RE-render sayısı azaltma \\
+    Pasif paylaşım yapısı & Collaboration modülü & Yorum + durum makinesi ile aktif review döngüsüne geçiş \\
+    Sınırsız model erişimi & Maliyet yönetimi & Free/Premium plan ayrımı ve gunlük/aylık kota \\
+    \bottomrule
+  \end{tabular}
+  \caption{7. Hafta Birikmiş Teknik Borç Özeti}
+\end{table}
+
+\newpage
+
+%====================================================================
+\section{Özellik 1 (Planlanan): Bağlam Optimizasyon Asistanı}
+%====================================================================
+
+\textbf{Motivasyon:} 6. haftada devreye alınan Context Bar, kullanıcıya prompt ile kodun toplam token yükünü göstermektedir. Ancak bu bilgi, yalnızca pasif bir uyarı niteliğindedir. 8. haftada bu mekanizma, kullanıcıyı \textit{aktif olarak yönlendiren} bir asistan katmanına dönüştürülecektir. Yapay zeka ile iletişim kurulmadan önce girdi kalitesinin artırılması, hem model performansını iyileştirir hem de token maliyetlerini azaltır.
+
+\subsection{Mevcut Durum ve Tespit Edilen Yetersizlik}
+
+\begin{infobox}[7. Hafta Sonu -- Bağlam Yönetimi Mevcut Durumu]
+  \small
+  \textbf{Mevcut:} \texttt{ContextBar} bileşeni, kullanıcıya tahminî token yükünü yüzde ve renk kodu olarak göstermektedir.\\
+  \textbf{Yetersizlik:} Kullanıcıya yalnızca ``dikkat'' sinyali verilmektedir; optimizasyon önerisi, gereksiz bağlam budaması veya otomatik düzeltme mekanizması bulunmamaktadır.\\
+  \textbf{Etki:} Kullanıcılar sıklıkla tekrarlı paragraflar, gereksiz log satırları ve çoklu hedef barındıran uzun promptlar göndermeye devam etmektedir.
+\end{infobox}
+
+\subsection{Planlanan Teknik Yaklaşım}
+
+Bağlam optimizasyonu iki kademeli çalışacaktır:
+
+\textbf{Kademe 1 -- Analiz ve Raporlama:} Kullanıcı prompt yazarken sistem, gönderim öncesinde bir optimizasyon raporu üretecektir. Bu rapor; before/after token tahmini, tespit edilen tekrarlı içerik yüzdesi ve iyileştirme önerileri içerecektir.
+
+\textbf{Kademe 2 -- Auto Mode:} Kullanıcı ``Auto Optimize'' modunu etkinleştirdiğinde, sistem raporu otomatik olarak uygulayacak ve optimize edilmiş metni gönderecektir. Kullanıcı dilerse orijinal metni tercih etme seçeneğini koruyacaktır.
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4cm} P{4cm} P{6cm} @{}}
+    \toprule
+    \textbf{Optimizasyon Türü} & \textbf{Uygulama Yöntemi} & \textbf{Beklenen Kazanım} \\
+    \midrule
+    Tekrar tespiti & n-gram karşılaştırması & Token sayısında \%15--30 azalma \\
+    Amaç netleştirme & Çok hedef tespiti & Daha odaklı model yanıtı \\
+    Çıktı formatı standardizasyonu & Formatsız prompt tespiti & Tutarlı ve ayrıştırılabilir çıktı \\
+    Rol ve hedef kitle uyumu & Bağlam yokluğu tespiti & Soyutlama düzeyi uyumu \\
+    Belirsizlik tespiti & Hata mesajı yokluğu & Daha az geri-dönüş (re-prompt) \\
+    \bottomrule
+  \end{tabular}
+  \caption{Planlanan Optimizasyon Türleri ve Beklenen Kazanımlar}
+\end{table}
+
+\subsection{UI Tasarım Hedefi}
+
+Optimize öneri kartı, kullanıcıya aşağıdaki üç aksiyonu sunacaktır:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Apply Optimized Text:} Optimize edilmiş metni prompt alanına yükler, kullanıcı gözden geçirebilir.
+  \item \textbf{Send Optimized:} Optimize metni doğrudan gönderir.
+  \item \textbf{Send Original:} Orijinal prompt değiştirilmeden gönderilir.
+\end{itemize}
+
+\subsection{Akademik Analiz: Prompt Mühendisliği ve Bilişsel Yük}
+
+Prompt kalitesi, büyük ölçüde «Cognitive Load Theory» (Sweller, 1988) bağlamında ele alınabilir. Gereksiz bilgi içeren promptlar, modelin dikkatini hedef görevden uzaklaştırarak \textit{extraneous cognitive load} yaratır. Bağlam optimizasyon asistanı, bu yükü kullanıcı tarafında görünür ve azaltılabilir kılarak model verimliliğini artırmayı hedefler. Literatürde «prompt compression» olarak adlandırılan bu alan, özellikle büyük ölçekli dil modellerinde (LLM) bağlam penceresinin sınırlı olduğu durumlarda kritik maliyet ve kalite avantajı sağlamaktadır (Jiang et al., 2023).
+
+\newpage
+
+%====================================================================
+\section{Özellik 2 (Planlanan): Güvenlik Katmanlı Patch Akışı}
+%====================================================================
+
+\textbf{Motivasyon:} 6. haftada devreye alınan Apply Patch özelliği, AI tarafından önerilen kodun editöre tek tıkla uygulanmasını mümkün kılmaktadır. Ancak bu akış, değişiklikler büyük veya kritik dosyaları etkileyen durumlarda güvenlik riski oluşturmaktadır. 8. haftada her patch, sistematik bir risk matrisi üzerinden değerlendirilecek ve buna göre üç farklı karar yoluna yönlendirilecektir.
+
+\subsection{Mevcut Durum ve Tespit Edilen Güvenlik Açığı}
+
+\begin{infobox}[7. Hafta Sonu -- Patch Uygulama Mevcut Durumu]
+  \small
+  \textbf{Mevcut:} Patch işlemi, \texttt{InteractiveMergeModal.jsx} üzerinden kullanıcı onayıyla anchor almakta; snapshot tabanlı undo mekanizması mevcuttur.\\
+  \textbf{Yetersizlik:} Değişiklik büyüklüğü, silinen satır oranı veya kritik anahtar kelimelerin varlığı değerlendirilmemektedir. Büyük bir patch tek tıkla uygulanabilmekte, kritik dosya etkisi sonradan fark edilebilmektedir.\\
+  \textbf{Etki:} Üretim ortamını etkileyen veya güvenlik açığı içerebilecek değişikliklerin kontrolsüz uygulanması riski.
+\end{infobox}
+
+\subsection{Planlanan Risk Skoru Matrisi}
+
+Patch güvenlik sistemi, dört faktörün ağırlıklı toplamına dayanan bir skor üretecektir:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4cm} P{3cm} P{7cm} @{}}
+    \toprule
+    \textbf{Risk Faktörü} & \textbf{Ağırlık} & \textbf{Hesaplama Yöntemi} \\
+    \midrule
+    Değişim büyüklüğü & 30 puan & Değişen satır sayısı / toplam satır sayısı (\%) \\
+    Silinen satır oranı & 25 puan & Silinen satır / eklenen satır oranı \\
+    Kritik anahtar kelimeler & 30 puan & \texttt{auth, token, secret, billing, delete} vb. eşleşme \\
+    Test etkisi sinyali & 15 puan & Test dosyası değişimi veya test import tespiti \\
+    \bottomrule
+  \end{tabular}
+  \caption{Patch Risk Skoru Ağırlık Matrisi}
+\end{table}
+
+\subsection{Üç Kademeli Karar Mekanizması}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Düşük Risk (0--39 puan):} Patch doğrudan ve güvenle uygulanır. Kullanıcıya kısa bir onay bildirimi verilir.
+  \item \textbf{Orta Risk (40--69 puan):} ``Patch Safety Check'' modalı açılır. Risk gerekçeleri listelenir; kullanıcı bilinçli bir kararla devam edebilir veya iptal edebilir.
+  \item \textbf{Yüksek Risk (70--100 puan):} Patch otomatik olarak bloklanır. Kullanıcıya değişikliğin neden riskli olduğu açıklanır ve diff görünümü sunulur.
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption=Planlanan Risk Skoru Hesaplama Mantığı (Yalın Gösterim)]
+def evaluate_patch_risk(current_code, incoming_code):
+    score = 0
+    lines_changed = abs(len(incoming_code) - len(current_code))
+    score += min(30, lines_changed // 10)
+
+    critical_keywords = ["auth", "token", "secret", "billing", "delete"]
+    for kw in critical_keywords:
+        if kw in incoming_code.lower():
+            score += 10  # Maksimum 30 puan
+
+    deletion_ratio = count_deletions(current_code, incoming_code)
+    score += min(25, deletion_ratio * 25)
+
+    if affects_test_files(incoming_code):
+        score += 15
+
+    return min(score, 100)
+\end{lstlisting}
+
+\subsection{Akademik Analiz: Yazılım Güvenliği ve Heuristik Karar Sistemleri}
+
+Heuristik tabanlı karar sistemleri, NP-hard optimizasyon problemlerinde yaklaşık çözümler üretmek için yaygın olarak kullanılır (Pearl, 1984). Patch risk değerlendirmesi bu paradigmaya örnek gösterilebilir: mükemmel bir statik analiz, Abstract Syntax Tree (AST) tabanlı karşılaştırma gerektirirken; önerilen heuristik yaklaşım, pratik bir risk uyarısı üretmek için yeterli doğrulukta çalışmaktadır. İleride AST ve test bağımlılık grafı ile zenginleştirilerek bu sistem daha yüksek bir güvenilirlik seviyesine taşınabilir.
+
+\newpage
+
+%====================================================================
+\section{Özellik 3 (Planlanan): Canlı İşbirliği ve İnceleme Döngüsü}
+%====================================================================
+
+\textbf{Motivasyon:} 7. haftada UUID tabanlı paylaşım altyapısı devreye alınmıştır. Ancak bu altyapı, yalnızca pasif içerik görüntüleme imkânı sunmaktadır. 8. haftada paylaşılan sohbet; ekip üyelerinin yorum yazabildiği, inceleme durumunu değiştirebildiği ve revizyon talep edebildiği aktif bir ortak çalışma alanına dönüştürülecektir.
+
+\subsection{Mevcut Durum ve İşbirliği Boşluğu}
+
+\begin{infobox}[7. Hafta Sonu -- İşbirliği Mevcut Durumu]
+  \small
+  \textbf{Mevcut:} \texttt{SharedSession} modeli; UUID token, conversation\_id, oluşturma zamanı ve aktiflik bayrağı içermektedir. Paylaşım link, new-tab, WhatsApp ve e-posta kanallarından dağıtılabilmektedir.\\
+  \textbf{Yetersizlik:} Paylaşım alıcısı yalnızca içeriği okuyabilmektedir. Yorum ekleme, durum güncelleme veya revizyon talep etme mekanizması bulunmamaktadır.\\
+  \textbf{Etki:} Ekip içi kod inceleme süreçleri (code review) platforma taşınamamaktadır.
+\end{infobox}
+
+\subsection{Planlanan Veri Modeli Genişletmesi}
+
+Mevcut \texttt{SharedSession} modeline ek olarak iki yeni tablo planlanmaktadır:
+
+\begin{lstlisting}[language=Python, caption=Planlanan Yeni Veritabanı Modelleri]
+class CollaborationReview(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    session_token = db.Column(db.String(64), db.ForeignKey('shared_session.share_token'))
+    status = db.Column(db.String(32), default='open')
+    # 'open' | 'revision_requested' | 'approved'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+
+class CollaborationComment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    review_id = db.Column(db.Integer, db.ForeignKey('collaboration_review.id'))
+    author = db.Column(db.String(80))
+    content = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+\end{lstlisting}
+
+\subsection{Planlanan API Endpoint'leri}
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{1.5cm} P{6cm} P{6cm} @{}}
+    \toprule
+    \textbf{Metot} & \textbf{Endpoint} & \textbf{Sorumluluk} \\
+    \midrule
+    GET  & \texttt{/api/collaboration/session/<token>/review} & Mevcut inceleme ve yorumları döner \\
+    POST & \texttt{/api/collaboration/session/<token>/review/comment} & Yeni yorum ekler \\
+    POST & \texttt{/api/collaboration/session/<token>/review/status} & Durum günceller \\
+    \bottomrule
+  \end{tabular}
+  \caption{Planlanan İşbirliği API Endpoint'leri}
+\end{table}
+
+\subsection{Durum Makinesi Tasarımı}
+
+Her paylaşım oturumu için bir \texttt{CollaborationReview} kaydı oluşturulacak ve aşağıdaki durum geçişleri yönetilecektir:
+
+\[
+  \texttt{open} \xrightarrow{\text{revizyon talebi}} \texttt{revision\_requested} \xrightarrow{\text{onay}} \texttt{approved}
+\]
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{open:} Paylaşım yapıldı, inceleme başladı. Yorumlar eklenebilir.
+  \item \textbf{revision\_requested:} Ekip üyesi değişiklik talep etti. Sahip, içeriği revize edebilir.
+  \item \textbf{approved:} Tüm taraflar içeriği onayladı. Salt okunur duruma geçer.
+\end{itemize}
+
+\subsection{Akademik Analiz: Asenkron İşbirliği ve Sosyo-Teknik Sistemler}
+
+Sosyo-teknik sistemler teorisi (Trist \& Bamforth, 1951), teknik ve sosyal bileşenlerin eş zamanlı optimizasyonunu savunur. CodeAlchemist'in işbirliği modülü, bu teorik çerçevede; yazılım geliştirme sürecindeki sosyal koordinasyonu (yorum, onay, revizyon) teknik altyapıyla (durum makinesi, API, veri modeli) entegre ederek asenkron ``Pair Programming'' deneyimini sanal ortama taşımaktadır. Araştırmalar, yapılandırılmış inceleme döngülerine sahip kod paylaşım sistemlerinin hata tespitini \%60'a kadar artırabileceğini göstermektedir (Fagan, 1976).
+
+\newpage
+
+%====================================================================
+\section{Özellik 4 (Planlanan): Free/Premium Plan Ekonomisi}
+%====================================================================
+
+\textbf{Motivasyon:} Platform, yedinci hafta sonunda tüm kullanıcılara sınırsız model erişimi sunmaktadır. Bu durum, altyapı maliyetlerinin kontrolsüz büyümesine ve yoğun kullanıcıların sistemi aşırı yüklemesine zemin hazırlamaktadır. 8. haftada günlük istek ve aylık token kotasına dayalı Free/Premium plan ayrımı hayata geçirilecektir. Bu adım, platformun sürdürülebilir ekonomik modele geçişindeki kritik mihenk taşını oluşturmaktadır.
+
+\subsection{Mevcut Durum ve Maliyet Riski}
+
+\begin{infobox}[7. Hafta Sonu -- Kullanım Kontrolü Mevcut Durumu]
+  \small
+  \textbf{Mevcut:} Kullanıcılar dilediği kadar \texttt{/api/ask} ve \texttt{/api/blend} endpoint'lerine istek gönderebilmektedir. Model maliyet paneli tahminî tüketimi göstermektedir; ancak herhangi bir sınırlandırma mekanizması bulunmamaktadır.\\
+  \textbf{Yetersizlik:} Yoğun kullanıcılar, platforma orantısız bir maliyet yükü bindirmektedir. ``Blend'' özelliğinde (çoklu model) token tüketimi kat kat artmaktadır.\\
+  \textbf{Risk:} Kontrolsüz API kullanımı, artan ölçekte öngörülemeyen operasyonel maliyete dönüşmektedir.
+\end{infobox}
+
+\subsection{Planlanan Plan Modeli}
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4cm} P{3cm} P{3cm} P{4cm} @{}}
+    \toprule
+    \textbf{Kota Türü} & \textbf{Free Plan} & \textbf{Premium Plan} & \textbf{Yenileme Periyodu} \\
+    \midrule
+    Günlük İstek Sayısı & 30 istek/gün & 250 istek/gün & Gece yarısı (UTC) sıfırlanır \\
+    Aylık Token Kotası & 120.000 token & 1.200.000 token & Her ayın 1. günü sıfırlanır \\
+    \bottomrule
+  \end{tabular}
+  \caption{Planlanan Free/Premium Plan Sınırları}
+\end{table}
+
+\subsection{Kota Muhasebesi Akışı}
+
+Kota sistemi, her API isteğinde şu adımları izleyecektir:
+
+\begin{enumerate}[leftmargin=*]
+  \item Kullanıcının \texttt{preferences} alanından plan bilgisi okunur.
+  \item Tarih bazlı günlük sayaç ve ay bazlı token sayacı kontrol edilir; gün/ay geçişinde otomatik sıfırlama yapılır.
+  \item İstek için tahmini token hesaplanır: $\text{estimated\_tokens} \approx \text{karakter\_sayısı} / 4$
+  \item \texttt{consume\_plan\_quota()} fonksiyonu, tahmini değerleri limitlerle karşılaştırır.
+  \item Limit aşılmıyorsa sayaçlar commit edilir ve istek işleme alınır.
+  \item Limit aşılıyorsa \texttt{HTTP 429} döndürülür; payload'a sebep kodu ve yükseltme bildirimi eklenir.
+\end{enumerate}
+
+\subsection{Çok Modelli Akışlarda Ağırlıklı Maliyet}
+
+\texttt{/api/blend} endpoint'i birden fazla modele eş zamanlı istek gönderdiğinden, kota tüketimi model sayısıyla orantılı artacaktır:
+
+\begin{lstlisting}[language=Python, caption=Planlanan Ağırlıklı Token Hesaplama]
+def estimate_blend_weight(model_count, base_tokens):
+    # Blend en az 2 request_weight olarak sayilir
+    weight = max(2, model_count)
+    return base_tokens * weight
+\end{lstlisting}
+
+\subsection{Kullanıcı Deneyimi Tasarımı}
+
+Kota sınırına ulaşan kullanıcıya teknik bir hata mesajı yerine yönlendirici bir deneyim sunulacaktır:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Tool Drawer'da Plan Kartı:} Günlük kalan istek, aylık kalan token ve aktif plan bilgisi gerçek zamanlı gösterilecektir.
+  \item \textbf{Limit Aşımı Mesajı:} ``Günlük limitinize ulaştınız. Daha fazlası için Premium'a geçin.'' şeklinde yönlendirici ve motivasyonel bir bildiri sunulacaktır.
+  \item \textbf{Anlık Plan Değiştirme:} Kullanıcı tool drawer üzerinden planını değiştirdiğinde, kullanım kartı anında güncellenecektir.
+\end{itemize}
+
+\subsection{Akademik Analiz: Fiyatlandırma Psikolojisi ve Freemium Modeli}
+
+Freemium iş modeli, Anderson (2009) tarafından dijital hizmetlerde sürdürülebilir büyüme için kritik bir strateji olarak tanımlanmaktadır. Ücretsiz katmanın sunduğu değer, kullanıcının platforma yatırım yapmasını sağlarken; premium katmanın sağladığı ekstra kapasite ve özellikler, premium geçiş motivasyonu üretir. Kota sınırlaması, ``loss aversion'' (Kahneman \& Tversky, 1979) psikolojik mekanizmasını tetikleyerek kullanıcıyı premium plana yönlendiren doğal bir teşvik unsuru görevi görür. Belirlenen Free limitleri (\%10 oranında premium kapasitesi), SaaS endüstrisindeki \%2--5 dönüşüm oranı hedefleriyle uyumludur.
+
+\newpage
+
+%====================================================================
+\section{Mimari Hazırlık ve Teknik Ön Koşullar}
+%====================================================================
+
+\subsection{Backend Genişleme Planı}
+
+8. hafta geliştirmeleri için aşağıdaki backend bileşenlerinin oluşturulması planlanmaktadır:
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4cm} P{4cm} P{6cm} @{}}
+    \toprule
+    \textbf{Bileşen} & \textbf{Dosya} & \textbf{Sorumluluk} \\
+    \midrule
+    Plan kota motoru & \texttt{server/app.py} & \texttt{consume\_plan\_quota()} fonksiyonu \\
+    Billing endpoint'leri & \texttt{server/app.py} & \texttt{GET /api/billing/usage}, \texttt{POST /api/billing/plan} \\
+    Review veri modeli & \texttt{server/models.py} & \texttt{CollaborationReview}, \texttt{CollaborationComment} \\
+    İşbirliği endpoint'leri & \texttt{server/app.py} & Review getir, yorum ekle, durum güncelle \\
+    \bottomrule
+  \end{tabular}
+  \caption{Planlanan Backend Bileşen Listesi}
+\end{table}
+
+\subsection{Frontend Genişleme Planı}
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{4cm} P{4cm} P{6cm} @{}}
+    \toprule
+    \textbf{Bileşen} & \textbf{Dosya} & \textbf{Sorumluluk} \\
+    \midrule
+    Optimize öneri kartı & \texttt{ChatInterface.jsx} & Token raporu ve aksiyon butonları \\
+    Auto Optimize toggle & \texttt{ChatInterface.jsx} & Otomatik mod açma/kapama kontrolü \\
+    Patch Safety Check modal & \texttt{ChatInterface.jsx} & Risk skoru ve karar arayüzü \\
+    Plan yönetim kartı & \texttt{App.jsx} & Kullanım gösterimi ve plan değiştirme \\
+    İşbirliği inceleme paneli & \texttt{App.jsx} & Yorum listesi ve durum butonları \\
+    \bottomrule
+  \end{tabular}
+  \caption{Planlanan Frontend Bileşen Listesi}
+\end{table}
+
+\subsection{Veritabanı Şema Değişiklikleri}
+
+Mevcut şemaya eklenecek tablolar ve sütunlar:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Yeni tablo -- \texttt{collaboration\_review}:} session\_token (FK), status, created\_at, updated\_at
+  \item \textbf{Yeni tablo -- \texttt{collaboration\_comment}:} review\_id (FK), author, content, created\_at
+  \item \textbf{Mevcut tablo genişletme -- \texttt{user}:} \texttt{plan} (default: 'free'), \texttt{preferences} JSON alanına plan kota sayaçları eklenmesi
+\end{itemize}
+
+\newpage
+
+%====================================================================
+\section{Risk Analizi ve Azaltma Stratejileri}
+%====================================================================
+
+\begin{table}[h!]
+  \centering\small
+  \begin{tabular}{@{} P{3.5cm} P{2cm} P{4cm} P{4cm} @{}}
+    \toprule
+    \textbf{Risk} & \textbf{Olasılık} & \textbf{Etki} & \textbf{Azaltma Stratejisi} \\
+    \midrule
+    Kota sayacı yarış koşulu & Orta & Yanlış limit hesabı & Atomik DB işlemi (\texttt{db.session.begin()}) \\
+    Optimizasyon false positive & Düşük & Kullanıcı kaybı & Orijinal seçenek her zaman mevcut tutulur \\
+    Review polling performansı & Orta & Gecikmiş güncelleme & İleride WebSocket/SSE; şimdi 30s polling \\
+    Plan geçişinde UI tutarsızlığı & Düşük & Yanlış limit gösterimi & Plan değişimi sonrası force-reload \\
+    \bottomrule
+  \end{tabular}
+  \caption{8. Hafta Teknik Riskleri ve Azaltma Stratejileri}
+\end{table}
+
+%====================================================================
+\section{Test ve Doğrulama Planı}
+%====================================================================
+
+\subsection{Birim Test Senaryoları}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Kota Motoru:} Sınır değer testleri -- günlük 29. istek (geçer), 30. istek (geçer), 31. istek (HTTP 429 döner). Aylık token sınırı için büyük prompt gönderimleri test edilir.
+  \item \textbf{Risk Skoru:} Kimlik doğrulama kodu içeren bir patch (yüksek skor), yorum satırı değişikliği (düşük skor), eksik içerik (orta skor) senaryoları.
+  \item \textbf{Durum Makinesi:} Geçresiz geçiş kombinasyonları (örn: \texttt{approved}'dan \texttt{open}'a geri dönme) reddedilmeli.
+\end{enumerate}
+
+\subsection{Entegrasyon Test Planı}
+
+\begin{enumerate}[leftmargin=*]
+  \item Kullanıcı kaydı → \texttt{GET /api/billing/usage} → \texttt{free} planı doğrulama
+  \item Plan \texttt{premium}'a yükseltme → kota limitlerinin güncellendiğinin doğrulanması
+  \item Büyük prompt gönderimi → \texttt{HTTP 429} + \texttt{reason=monthly\_tokens\_exceeded} + \texttt{upgrade\_required=true} doğrulama
+  \item Sohbet paylaşımı → \texttt{GET review} (open) → yorum ekleme → durum approved güncelleme → final kontrol
+\end{enumerate}
+
+%====================================================================
+\section{Sonuç ve Retrospektif Perspektifi}
+%====================================================================
+
+\subsection{Sprint Perspektifi}
+
+8. hafta planı, yedinci haftada açılan dört teknik alanı somut ürün değerine dönüştürmek üzere tasarlanmıştır:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Bağlam görünürlüğünden optimizasyona:} Context Bar pasif uyarıdan aktif asistana evrilecektir.
+  \item \textbf{Patch uygulamadan güvenli patch'e:} Her değişiklik, risk skoruyla karar mekanizmasından geçecektir.
+  \item \textbf{Tek yönlü paylaşımdan ekip incelemesine:} Sohbet paylaşımı, yorum ve durum döngüsüyle genişleyecektir.
+  \item \textbf{Sınırsız erişimden plan ekonomisine:} Sürdürülebilir büyüme için kota mekanizması devreye girecektir.
+\end{itemize}
+
+\subsection{Teknik Borç Yönetimi}
+
+8. haftada ele alınan planlama, aynı zamanda yedinci haftadan devreden dört kritik teknik borç kalemini kapatmaktadır: sınırsız erişim riski, pasif paylaşım yapısı, güvensiz patch akışı ve yönlendirici olmayan bağlam uyarısı. Bu yaklaşım, «Teknik Borcun Kontrollü Erimesi» (Cunningham, 1992) prensibini hayata geçirmektedir.
+
+\subsection{Gelecek Vizyon: 9. Hafta}
+
+9. haftada planlanan geliştirmeler şunlardır:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Gerçek Zamanlı Paylaşım:} WebSocket entegrasyonu ile işbirliği panelinin canlı güncellenmesi.
+  \item \textbf{Ödeme Altyapısı Entegrasyonu:} Premium plan geçişinin gerçek ödeme akışına bağlanması (Stripe / Paddle).
+  \item \textbf{AST Tabanlı Patch Analizi:} Heuristik risk skorunun soyut söz dizim ağacı analizi ile güçlendirilmesi.
+  \item \textbf{Topluluk Paylaşımları (Global Feed):} Kullanıcıların çözümlerini platformda yayınlayabileceği ve oylayabileceği genel akış.
+\end{enumerate}
+
+%====================================================================
+\section{Ekler ve Referanslar}
+%====================================================================
+
+\subsection{Planlanan Endpoint Sözlüğü}
+
+\begin{longtable}{@{} P{1.5cm} P{5cm} P{3cm} P{4cm} @{}}
+\toprule
+\textbf{Metot} & \textbf{Endpoint} & \textbf{Auth} & \textbf{Açıklama} \\
+\midrule
+GET  & \texttt{/api/billing/usage} & JWT & Plan, limit ve kullanım bilgisi döner \\
+POST & \texttt{/api/billing/plan}  & JWT & Planı free/premium olarak günceller \\
+GET  & \texttt{/api/collaboration/session/<token>/review} & Opsiyonel & İnceleme ve yorumları döner \\
+POST & \texttt{/api/collaboration/session/<token>/review/comment} & JWT & Yorum ekler \\
+POST & \texttt{/api/collaboration/session/<token>/review/status} & JWT & Durumu günceller \\
+\bottomrule
+\end{longtable}
+
+\subsection{Akademik Kaynaklar}
+
+\begin{itemize}[leftmargin=*]
+  \item Anderson, C. (2009). \textit{Free: The Future of a Radical Price}. Hyperion.
+  \item Cunningham, W. (1992). The WyCash portfolio management system. \textit{OOPSLA '92 Experience Report}.
+  \item Fagan, M. E. (1976). Design and code inspections to reduce errors in program development. \textit{IBM Systems Journal}, 15(3).
+  \item Jiang, H. et al. (2023). LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models. \textit{EMNLP 2023}.
+  \item Kahneman, D., \& Tversky, A. (1979). Prospect theory: An analysis of decision under risk. \textit{Econometrica}, 47(2).
+  \item Pearl, J. (1984). \textit{Heuristics: Intelligent Search Strategies for Computer Problem Solving}. Addison-Wesley.
+  \item Sweller, J. (1988). Cognitive load during problem solving. \textit{Cognitive Science}, 12(2).
+  \item Trist, E., \& Bamforth, K. (1951). Some social and psychological consequences of the Longwall method of coal-getting. \textit{Human Relations}, 4(1).
+\end{itemize}
+
+\subsection{Etkilenen Kaynak Dosyalar (Planlanan)}
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{client/src/components/ChatInterface.jsx}: Optimize öneri kartı, Auto Optimize toggle, Patch Safety Check modal
+  \item \texttt{client/src/App.jsx}: Plan değiştirme, kullanım gösterimi, inceleme paneli
+  \item \texttt{server/app.py}: Kota motoru, billing endpoint'leri, işbirliği endpoint'leri
+  \item \texttt{server/models.py}: CollaborationReview, CollaborationComment, User plan alanı
+\end{itemize}
+
+\vspace{1.5cm}
+\noindent\rule{\textwidth}{0.4pt}
+\vspace{0.5em}
+\noindent
+\begin{tabular}{rl}
+  \textbf{Rapor Kodu:}   & ALCH-2026-W8-PLAN-ACADEMIC-V1 \\
+  \textbf{Hazırlayan:}   & Dila KEMER \\
+  \textbf{Kurum:}        & İzmir Bakırçay Üniversitesi \\
+  \textbf{Bölüm:}        & Bilgisayar Mühendisliği / İME \\
+  \textbf{Tarih:}        & Nisan 2026 \\
+\end{tabular}
+
+\end{document}

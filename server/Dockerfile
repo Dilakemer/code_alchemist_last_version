@@ -34,4 +34,4 @@ COPY --from=frontend-builder /client/dist ./static/
 ENV PORT=5000
 EXPOSE $PORT
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT app:app --timeout 120"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --worker-class eventlet -w 1 --timeout 120 app:app"]

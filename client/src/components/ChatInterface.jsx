@@ -1691,11 +1691,11 @@ const ChatInterface = ({
             </div>
             
             {/* COMPACT CONTEXT BAR MOVED HERE */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 context-bar">
               <button
                 type="button"
                 onClick={() => setAutoOptimizeEnabled(v => !v)}
-                className={`text-[10px] px-2 py-1 rounded-full border transition-colors ${
+                className={`text-[10px] px-2 py-1 rounded-full border transition-colors whitespace-nowrap ${
                   autoOptimizeEnabled
                     ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
                     : 'border-gray-700 bg-gray-900/50 text-gray-400'
@@ -1773,9 +1773,9 @@ const ChatInterface = ({
             )}
 
             {/* Bottom Action Bar */}
-            <div className="flex items-center justify-between px-3 pb-3">
+            <div className="flex items-center justify-between flex-wrap gap-y-2 px-3 pb-3">
               {/* Left Actions */}
-              <div className="flex items-center gap-1">
+              <div className="flex items-center flex-wrap gap-1">
                 <input
                   type="file"
                   accept="image/*,audio/*,.pdf,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m"
@@ -1820,7 +1820,7 @@ const ChatInterface = ({
                 {/* GitHub Integration */}
                 <button
                   onClick={() => setShowGithubModal(true)}
-                  className={`p-2 rounded-xl transition-all ${linkedRepo ? 'text-blue-400 bg-blue-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                  className={`p-2 rounded-xl transition-all flex-shrink-0 ${linkedRepo ? 'text-blue-400 bg-blue-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
                   title="Link GitHub Repository"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -1830,7 +1830,7 @@ const ChatInterface = ({
               </div>
 
               {/* Right Actions: Send / Fix */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 {isMagicFix ? (
                   <button
                     onClick={() => handleAskRequest('auto')}
@@ -1851,14 +1851,14 @@ const ChatInterface = ({
                   <button
                     onClick={() => handleAskRequest('auto')}
                     disabled={loading || (!question.trim() && !image)}
-                    className="p-2 px-3 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-xl transition-all shadow-lg shadow-fuchsia-900/20 group"
+                    className="flex-shrink-0 p-2 px-4 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-xl transition-all shadow-lg shadow-fuchsia-900/20 group min-w-[60px] h-[40px] flex items-center justify-center"
                   >
                     {loading ? (
                       <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     ) : (
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium mr-1 hidden sm:block">Send</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 rotate-90 group-hover:translate-x-1 group-active:translate-y-1 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                        <span className="text-sm font-medium hidden sm:block">Send</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 rotate-90 group-hover:translate-x-1 group-active:translate-y-1 transition-transform" viewBox="0 0 20 20" fill="currentColor">
                           <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
                         </svg>
                       </div>
