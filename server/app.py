@@ -1,14 +1,17 @@
-import os
-import uuid
-import sys
-
-# Eventlet monkey patch for Render.com (Must be before other imports)
-if sys.platform != 'win32' and os.environ.get('RENDER'):
-    import eventlet
-    eventlet.monkey_patch()
-    ASYNC_MODE = 'eventlet'
+# Eventlet monkey patch for Render.com (Must be the VERY FIRST thing)
+import os, sys
+if sys.platform != 'win32':
+    try:
+        import eventlet
+        eventlet.monkey_patch()
+        ASYNC_MODE = 'eventlet'
+    except ImportError:
+        ASYNC_MODE = 'threading'
 else:
     ASYNC_MODE = 'threading'
+
+import uuid
+import re
 
 import re
 import io
