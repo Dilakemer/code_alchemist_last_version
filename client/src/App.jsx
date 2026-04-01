@@ -850,16 +850,38 @@ function App() {
 
       setLoading(true);
       try {
-        const resp = await fetch(`${API_BASE}/api/collaboration/session/${collabToken}/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            question: effectiveQuestion,
-            model: model,
-            sender_name: user?.display_name || 'Guest',
-            client_nonce: tempId // ID senkronizasyonu için
-          })
-        });
+        const sendPayload = {
+          question: effectiveQuestion,
+          model: model,
+          sender_name: user?.display_name || 'Guest',
+          client_nonce: tempId // ID senkronizasyonu için
+        };
+
+        // Render cold-start / transient network errors can surface as "Load failed".
+        // Retry a couple of times before surfacing an error to the user.
+        let resp;
+        let lastErr = null;
+        const collabUrl = `${API_BASE}/api/collaboration/session/${encodeURIComponent(collabToken)}/send`;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            resp = await fetch(collabUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(sendPayload)
+            });
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (attempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, 600 * (attempt + 1)));
+            }
+          }
+        }
+
+        if (!resp && lastErr) {
+          throw lastErr;
+        }
+
         if (resp.ok) {
           const data = await resp.json();
           // POST cevabı geldiğinde ID'yi güncelle (Eğer socket henüz güncellemediyse)
@@ -878,7 +900,10 @@ function App() {
           setChatHistory(prev => prev.filter(item => item.id !== tempId));
         }
       } catch (e) {
-        handleShowAlert('Hata: ' + e.message);
+        const msg = (e?.message || '').toLowerCase().includes('load failed')
+          ? 'Ağ bağlantısı geçici olarak kesildi. Lütfen tekrar deneyin.'
+          : ('Hata: ' + e.message);
+        handleShowAlert(msg);
         setChatHistory(prev => prev.filter(item => item.id !== tempId));
       } finally {
         setLoading(false);
@@ -2087,6 +2112,8 @@ function App() {
                 setShareOpen(true);
               }}
               onShowCodeHealth={() => setShowCodeHealth(true)}
+              linkedRepoProp={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.linked_repo : preLinkedRepo}
+              linkedBranchProp={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.repo_branch : preLinkedBranch}
               activeProject={activeProject}
               onFeedbackDetail={(id) => {
                 setFeedbackHistoryId(id);

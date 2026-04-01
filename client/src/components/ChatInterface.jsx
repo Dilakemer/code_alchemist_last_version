@@ -541,6 +541,8 @@ const ChatInterface = ({
   onSpeak,
   onShare,
   onShowCodeHealth,
+  linkedRepoProp = null,
+  linkedBranchProp = 'main',
   activeProject,
   onFeedbackDetail,
   // COLLAB PARAMS
@@ -572,6 +574,8 @@ const ChatInterface = ({
   const [githubBranchInput, setGithubBranchInput] = useState('main');
   const [isLinkingRepo, setIsLinkingRepo] = useState(false);
   const [linkedRepo, setLinkedRepo] = useState(null);
+  const effectiveLinkedRepo = linkedRepo || linkedRepoProp;
+  const effectiveLinkedBranch = linkedBranchProp || githubBranchInput || 'main';
 
   // Graph State
   const [showGraph, setShowGraph] = useState(false);
@@ -659,8 +663,15 @@ const ChatInterface = ({
     }
   };
 
+  useEffect(() => {
+    if (!linkedRepoProp) return;
+    setLinkedRepo(`${linkedRepoProp} (${linkedBranchProp || 'main'})`);
+    setGithubRepoInput(linkedRepoProp);
+    setGithubBranchInput(linkedBranchProp || 'main');
+  }, [linkedRepoProp, linkedBranchProp]);
+
   const handleShowCodeHealthClick = () => {
-    if (!linkedRepo) {
+    if (!effectiveLinkedRepo) {
       showToast("Please link a repository first to view System Health.", "error");
       return;
     }
@@ -668,7 +679,7 @@ const ChatInterface = ({
   };
 
   const handleShowGraphClick = () => {
-    if (!linkedRepo) {
+    if (!effectiveLinkedRepo) {
       showToast("Please link a repository first to view Graph View.", "error");
       return;
     }
@@ -1971,8 +1982,8 @@ const ChatInterface = ({
       {/* GitHub Graph Modal */}
       {showGraph && (
         <GitHubGraph
-          repo={linkedRepo ? linkedRepo.split(' (')[0] : null}
-          branch={githubBranchInput || 'main'}
+          repo={effectiveLinkedRepo ? effectiveLinkedRepo.split(' (')[0] : null}
+          branch={effectiveLinkedBranch}
           conversationId={activeConversationId}
           onClose={() => setShowGraph(false)}
           apiBase={apiBase}

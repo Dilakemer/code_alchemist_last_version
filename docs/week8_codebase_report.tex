@@ -571,43 +571,99 @@ birbirlerinin aktif durumlarını (online avatar/indikatör) görebilirler.
 
 \textbf{Dosya:} \texttt{server/app.py} ve \texttt{client/src/hooks/useCollabSocket.js}
 
+Collaboration özelliği, REST API (paylaşım, review) ile Socket.io (Live Sync) katmanlarının birleşimidir.
+
+\subsubsection{REST API Endpoints}
+
 \begin{center}
-\begin{tabular}{@{} P{2.5cm} P{7.5cm} P{4.5cm} @{}}
+\begin{tabular}{@{} P{2.5cm} P{5cm} P{5.5cm} @{}}
 \toprule
-\textbf{Protokol} & \textbf{Endpoint / Event} & \textbf{Sorumluluk} \\
+\textbf{Metod} & \textbf{Endpoint} & \textbf{Açıklama} \\
 \midrule
-\texttt{REST GET} &
-  \texttt{.../review} &
-  Review verisini döndürür. \\[4pt]
-\texttt{REST POST} &
-  \texttt{.../review/status} &
-  Review durumunu değiştirir. \\[4pt]
-\texttt{TCP Socket} &
-  \texttt{join\_room} / \texttt{leave\_room} &
-  Odaya katılım/ayrılış ve aktif kullanıcı yönetimi. \\[4pt]
-\texttt{TCP Socket} &
-  \texttt{collab\_stream\_chunk} &
-  AI'dan gelen token'ları odaya canlı yayınlar (Live Sync). \\
+\texttt{POST} &
+  \texttt{/api/collaboration/share} &
+  Konuşma için UUID paylaşım token'ı oluştur; ownership kontrolü ile (JWT gerekli). \\[4pt]
+\texttt{GET} &
+  \texttt{/api/collaboration/session/<token>} &
+  Token'a ait konuşmanın history'sini ve owner bilgisini döndür. \\[4pt]
+\texttt{POST} &
+  \texttt{/api/collaboration/session/<token>/send} &
+  Soruyu gönderi, background thread başlat, Live Sync stream başlat. \\[4pt]
+\texttt{GET} &
+  \texttt{/api/collaboration/session/<token>/review} &
+  Review durumunu ve yorum listesini döndür. \\[4pt]
+\texttt{POST} &
+  \texttt{/api/collaboration/session/<token>/review/comment} &
+  Review'a yorum ekle. \\[4pt]
+\texttt{POST} &
+  \texttt{/api/collaboration/session/<token>/review/status} &
+  Review durumunu (open/revision\_requested/approved) değiştir. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Socket.io Events (Real-Time)}
+
+\begin{center}
+\begin{tabular}{@{} P{3cm} P{7.5cm} @{}}
+\toprule
+\textbf{Event} & \textbf{Açıklama ve Payload} \\
+\midrule
+\texttt{join\_room} &
+  Frontend üzerinden backend Session.io room'una giriş; \texttt{token} ile room adı tanımlanır. \\[4pt]
+\texttt{leave\_room} &
+  Oturumdan ayrılış; socketio otomatik clean-up yapar. \\[4pt]
+\texttt{collab\_question} &
+  Yeni soru gönderildiğinde emit; \texttt{\{question, sender, history\_id, token, client\_nonce\}}. \\[4pt]
+\texttt{collab\_stream\_chunk} &
+  AI yanıtının her token'ı canlı yayınlanır; \texttt{\{chunk: string, history\_id, token\}}. \\[4pt]
+\texttt{collab\_stream\_done} &
+  Stream tamamlandığında; full response ve metadata yayınlanır. \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \subsection{Frontend Entegrasyonu}
 
-\textbf{Dosya:} \texttt{client/src/App.jsx}
+\textbf{Dosya:} \texttt{client/src/App.jsx} ve \texttt{client/src/hooks/useCollabSocket.js}
+
+\subsubsection{Ana Akış (App.jsx)}
 
 \begin{center}
 \begin{tabular}{@{} P{5.5cm} C{2.5cm} P{7cm} @{}}
 \toprule
-\textbf{Fonksiyon / UI} & \textbf{Satır} & \textbf{Sorumluluk} \\
+\textbf{Fonksiyon / UI Parçası} & \textbf{Satır} & \textbf{Sorumluluk} \\
 \midrule
-\texttt{fetchCollabReview} & 254 & Review verisini çeker. \\[4pt]
-\texttt{submitCollabReviewComment} & 269 & Yorum gönderir. \\[4pt]
-\texttt{updateCollabReviewStatus} & 293 & Durum günceller. \\[4pt]
-Durum butonları (UI) & 2560--2572 & \texttt{open / revision\_requested / approved} geçiş kontrolleri. \\
+\texttt{handleShareSession} & 376 & POST \texttt{/api/collaboration/share} ile link oluştur. \\[4pt]
+\texttt{loadSharedSession} & 247 & Token'dan session yükle; \texttt{isCollabView} aktif et. \\[4pt]
+\texttt{handleAsk} (collab mod) & 833 & Collaboration oturumunda soru gönderi; Socket yayınını bekle. \\[4pt]
+\texttt{useCollabSocket} (hook) & — & Socket.io bağlantısını yönet; stream chunk'ları topla, optimize et. \\[4pt]
+Share Butonları (UI) & 2720 & Collaborate butonları ve paylaşım medyaları (WhatsApp, Email vb). \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\subsubsection{Live Sync Implementation Detayları}
+
+Collaboration oturumunda kullanıcı soru göndertiğinde şu adımlar gerçekleşir:
+
+\begin{enumerate}[leftmargin=*, label=\textbf{Adım \arabic{enumi}:}]
+  \item \textbf{Optimistic UI Update} — Soru hemen chat history'ye eklenir (optimistic render).
+  \item \textbf{3-Attempt Retry Loop} — Render cold-start ve transient ağ hatalarına karşı dayanıklılık (600ms + 1200ms delay ile exponential backoff).
+  \item \textbf{HTTP POST to /send} — Payload: \texttt{\{question, model, sender\_name, client\_nonce\}}.
+  \item \textbf{Backend Session Oluşturma} — History kaydı yaratılır; response olarak \texttt{history\_id} döner.
+  \item \textbf{Background Thread Başlatma} — ServerSocket.io emit için background thread başlar.
+  \item \textbf{Stream Token Akışı} — Backend, seçilen modele göre stream başlar:
+  \begin{itemize}[leftmargin=*, label=—]
+    \item \textbf{Gemini:} \texttt{genai.GenerativeModel(...).generate\_content(stream=True)} ile iter.
+    \item \textbf{GPT:} OpenAI SDK ile stream completions.
+    \item \textbf{Claude:} Anthropic SDK ile messages.stream loop.
+  \end{itemize}
+  \item \textbf{Socket Emit (Per Chunk)} — Her alınan chunk, Socket.io ile room'a broadcast edilir: \texttt{collab\_stream\_chunk}.
+  \item \textbf{Frontend Socket Listener} — \texttt{useCollabSocket} hook, chunk'ları local state'e toplar; React UI otomatik güncellenmelidir.
+  \item \textbf{Stream Tamamlanma} — \texttt{collab\_stream\_done} event ile full response ve metadata gönderilir.
+  \item \textbf{Database Persist} — Backend, stream tamamlandıktan sonra full response'u History kaydında commit eder.
+\end{enumerate}
 
 \subsection{Durum Makinesi}
 
@@ -657,7 +713,128 @@ Durum butonları (UI) & 2560--2572 & \texttt{open / revision\_requested / approv
         Sonraki iterasyonda reviewer kimlik doğrulaması eklenmesi önerilir.
 \end{itemize}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+\subsection{Teknik İyileştirmeler (Hafta 8 Yapımı)}
+
+Bu bölüm, Collaboration özelliğinin production hazırlığı sırasında yapılan yazılım İyileştirmelerini belgeler.
+
+\subsubsection{1. Gemini SDK Modernizasyonu}
+
+\textbf{Problem:} Deprecated \texttt{google-generativeai} paketi FutureWarning üretiyordu; Render deployment loglarında sürekli uyarı mesajları.
+
+\textbf{Çözüm:} Tamamen \texttt{google-genai} 1.10.0+ SDK'ya migrate edildi. Backward compatibility wrapper oluşturuldu:
+
+\begin{tcolorbox}[codebox, title={Compat Layer (app.py Satırlar 47--104)}]
+\begin{itemize}[leftmargin=*, nosep]
+  \item \texttt{\_GeminiCompat} sınıfı: eski \texttt{genai.configure()} API'sini yeni Client API'ye çevirir.
+  \item \texttt{\_GeminiCompatModel.generate\_content()}: Stream/non-stream branching düzgün yönetir.
+  \item Tüm mevcut call sites gitti aylaştırılmadı; backward-compatible.
+\end{itemize}
+\end{tcolorbox}
+
+\textbf{Dosyalar değişen:}
+\begin{itemize}[leftmargin=*, label=—]
+  \item \texttt{server/app.py}: Compat wrapper + session/send endpoint'lerdeki Gemini calls.
+  \item \texttt{server/utils/language\_detector.py}: \texttt{google\_genai.Client()} ile re-init.
+  \item \texttt{server/requirements.txt}: \texttt{google-generativeai} → \texttt{google-genai>=1.10.0}.
+\end{itemize}
+
+\textbf{Sonuç:} ✅ FutureWarning eliminasyonu; Render deploy logları temiz.
+
+\subsubsection{2. Generator Response Type Bug Fix}
+
+\textbf{Problem:} Collaboration mesaj gönderimi sırasında "Hata: 'generator' object has no attribute 'text'" hatası ortaya çıkıyordu.
+
+\textbf{Root Cause:} Compat wrapper'daki \texttt{generate\_content()} metodunda \texttt{yield} statement'i non-stream modunda da generator döndürüyordu:
+
+\begin{lstlisting}[language=Python, caption={Eski (Hatalı) Kod}]
+def generate_content(self, prompt, stream=False):
+    # HATA: yield statement'i HER YOLDA generator'ı tetikliyor
+    for chunk in self.client.models.generate_content(prompt, stream=True):
+        yield chunk
+    
+    # Non-stream istekler de generator döner → property access hataları
+\end{lstlisting}
+
+\textbf{Çözüm:} Stream iterator'ü inner generator function'a wrap edildi:
+
+\begin{lstlisting}[language=Python, caption={Yeni (Sabit) Kod}]
+def generate_content(self, prompt, stream=False):
+    if stream:
+        def _iter_stream():
+            for chunk in self.client.models.generate_content(prompt, stream=True):
+                yield chunk
+        return _iter_stream()
+    else:
+        # Non-stream: normal response döner, yield yok
+        return self.client.models.generate_content(prompt, stream=False)
+\end{lstlisting}
+
+\textbf{Dosya:} \texttt{server/app.py}, satırlar 80--91.
+
+\textbf{Sonuç:} ✅ Collaboration mesajları başarıyla streaming; response attribute access hataları çözüldü.
+
+\subsubsection{3. Transient Network Resilience (Retry Loop)}
+
+\textbf{Problem:} Render cold-start ve DNS gecikmeleri sırasında collaboration mesaj gönderimi başarısız oluyordu; kullanıcı "Load failed" hatasıyla karşılaşıyordu.
+
+\textbf{Çözüm:} Frontend'de 3-attempt retry loop with exponential backoff (600ms, 1200ms):
+
+\begin{lstlisting}[language=JavaScript, caption={client/src/App.jsx Satırlar 857--885}]
+const collabUrl = `/api/collaboration/session/${collabToken}/send`;
+for (let attempt = 0; attempt < 3; attempt += 1) {
+  try {
+    resp = await fetch(collabUrl, { method: 'POST', ... });
+    break; // Success
+  } catch (err) {
+    lastErr = err;
+    if (attempt < 2) {
+      // 600ms (attempt 1), 1200ms (attempt 2)
+      await new Promise(resolve => 
+        setTimeout(resolve, 600 * (attempt + 1))
+      );
+    }
+  }
+}
+\end{lstlisting}
+
+\textbf{Sonuç:} ✅ Transient ağ hataları otomatik kurtarılır; UX düzeltilmiş.
+
+\subsubsection{4. Global Exception Handler HTTP Status Preservation}
+
+\textbf{Problem:} Flask global exception handler, tüm HTTP errors'ları 500'e dönüştürüyordu; 404 hataları ürün tarafında 500 olarak görünüyordu.
+
+\textbf{Çözüm:} Exception handler'a HTTPException check'i eklendi (app.py satırlar 532--547):
+
+\begin{lstlisting}[language=Python]
+@app.errorhandler(Exception)
+def handle_exception(e):
+    from werkzeug.exceptions import HTTPException
+    
+    if isinstance(e, HTTPException):
+        # Preserve orginal status code
+        return jsonify({'error': str(e.description)}), e.code
+    else:
+        # Only non-HTTP exceptions become 500
+        return jsonify({'error': 'Internal server error'}), 500
+\end{lstlisting}
+
+\textbf{Sonuç:} ✅ HTTP 404/405 properly returned; error logging accurate.
+
+\subsubsection{5. NPM Vulnerability Remediation}
+
+\textbf{Problem:} npm audit 10 vulnerabilité buldu: 1 critical (jsPDF), 4 high, 5 moderate.
+
+\textbf{Çözüm:}
+\begin{itemize}[leftmargin=*, label=—]
+  \item \texttt{npm audit fix} → Otomatik patchable vulnerability'ler düzeltildi.
+  \item Forced upgrade: \texttt{jspdf@^4.2.1} (critical LFI/DoS fixes).
+  \item Override: \texttt{dompurify@^3.3.3} (XSS mitigation).
+\end{itemize}
+
+\textbf{Sonuç:} ✅ 0 vulnerabilities (audit clean); production deployment güvenli.
+
+%═══════════════════════════════════════════════════════════════════════════════
+
 \section{Özellik 4: Free/Premium Plan Ayrımı}
 % ═══════════════════════════════════════════════════════════════════════════════
 
