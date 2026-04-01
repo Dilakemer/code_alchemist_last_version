@@ -80,13 +80,15 @@ class _GeminiCompatModel:
     def generate_content(self, contents, stream=False, request_options=None):
         # request_options is accepted for backward compatibility with old SDK call sites.
         if stream:
-            stream_iter = self._client.models.generate_content_stream(
-                model=self._model_name,
-                contents=contents,
-            )
-            for item in stream_iter:
-                yield SimpleNamespace(text=_extract_gemini_text(item))
-            return
+            def _iter_stream():
+                stream_iter = self._client.models.generate_content_stream(
+                    model=self._model_name,
+                    contents=contents,
+                )
+                for item in stream_iter:
+                    yield SimpleNamespace(text=_extract_gemini_text(item))
+
+            return _iter_stream()
 
         response = self._client.models.generate_content(
             model=self._model_name,
