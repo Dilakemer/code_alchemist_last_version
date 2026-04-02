@@ -1478,6 +1478,13 @@ BADGES = {
     'level_10': {'icon': '👑', 'name': 'Usta', 'desc': '10. Seviyeye ulaştın'}
 }
 
+XP_REWARDS = {
+    'ask_question': 50,
+    'share_solution': 30,
+    'community_post': 100,
+    'daily_login': 20,
+}
+
 def calculate_level(xp):
     """XP'ye göre seviye hesaplar (Seviye = Kök(XP/100) + 1)
     Not: total_xp_earned kullanılarak level hiçbir zaman düşmez"""
@@ -1529,9 +1536,10 @@ def check_and_award_badges(user):
     
     stats = {
         'questions': History.query.join(Conversation).filter(Conversation.user_id == user.id).count(),
-        'shares': History.query.filter_by(conversation_id=None).filter(History.id.in_(
-            db.session.query(History.id).join(Conversation, isouter=True).filter(Conversation.user_id == user.id)
-        )).count(), # Çok detaylı değil, sadece fikir vermesi için (TODO: Daha iyi paylaşım sayımı)
+        'shares': XPEvent.query.filter(
+            XPEvent.user_id == user.id,
+            XPEvent.source.in_(['share_solution', 'community_post'])
+        ).count(),
         'answers': Answer.query.filter_by(author_id=user.id).count(),
         'likes': db.session.query(db.func.sum(History.likes)).join(Conversation).filter(Conversation.user_id == user.id).scalar() or 0
     }
@@ -1547,6 +1555,12 @@ def check_and_award_badges(user):
     # Cevap Badge'i
     if stats['answers'] >= 1 and 'first_answer' not in existing_badges:
         new_badges.append('first_answer')
+
+    # Paylaşım Badge'leri
+    if stats['shares'] >= 1 and 'first_share' not in existing_badges:
+        new_badges.append('first_share')
+    if stats['shares'] >= 10 and '10_shares' not in existing_badges:
+        new_badges.append('10_shares')
         
     # Beğeni Badge'i
     if stats['likes'] >= 10 and '10_likes' not in existing_badges:
@@ -1581,9 +1595,14 @@ def check_and_award_badges(user):
         
     return new_badges
 
-def update_streak(user):
+def update_streak(user, activity_date=None):
     """Kullanıcının streak (seri) günlerini günceller."""
-    today = datetime.datetime.utcnow().date()
+    if isinstance(activity_date, datetime.date):
+        today = activity_date
+    elif isinstance(activity_date, str) and activity_date:
+        today = datetime.datetime.strptime(activity_date[:10], '%Y-%m-%d').date()
+    else:
+        today = datetime.datetime.utcnow().date()
     
     if user.last_active_date == today:
         return False # Bugün zaten güncellenmiş
@@ -1601,7 +1620,7 @@ def update_streak(user):
     user.last_active_date = today
     return True
 
-def award_xp(user_id, amount, reason="", source="generic", metadata=None):
+def award_xp(user_id, amount, reason="", source="generic", metadata=None, activity_date=None):
     """Kullanıcıya XP verir ve seviyesini günceller.
     Not: total_xp_earned her zaman artar, xp harcama mekanizmalarından etkilenmez."""
     user = db.session.get(User, user_id)
@@ -1627,7 +1646,7 @@ def award_xp(user_id, amount, reason="", source="generic", metadata=None):
     ))
     
     # Streak güncellemesi
-    streak_updated = update_streak(user)
+    streak_updated = update_streak(user, activity_date=activity_date)
     if streak_updated and user.streak_days > 1:
         streak_bonus = 20
         user.xp += streak_bonus # Streak bonusu
@@ -1804,9 +1823,26 @@ def sync_gamification():
     user = get_current_user()
     if not user:
          return jsonify({'error': 'User not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    activity_date = data.get('activity_date')
+
+    if XPEvent.query.filter(
+        XPEvent.user_id == user.id,
+        XPEvent.source == 'daily_login',
+        XPEvent.reason == 'Daily Login',
+        db.func.date(XPEvent.created_at) == (activity_date[:10] if isinstance(activity_date, str) and activity_date else datetime.datetime.utcnow().date().isoformat())
+    ).first():
+        return jsonify({'status': 'noop', 'message': 'Daily login already synced today.'})
          
     # update_streak zaten award_xp içinde çalışıyor
-    result = award_xp(user.id, 5, "Daily Login", source='daily_login')
+    result = award_xp(
+        user.id,
+        XP_REWARDS['daily_login'],
+        "Daily Login",
+        source='daily_login',
+        activity_date=activity_date
+    )
     
     return jsonify(result)
 
@@ -2274,6 +2310,8 @@ def serialize_user(user: User) -> dict:
         'created_at': user.created_at.strftime('%Y-%m-%d %H:%M'),
         'preferences': prefs,
         'xp': user.xp,
+        'total_xp_earned': user.total_xp_earned,
+        'coins': user.coins,
         'level': user.level,
         'streak_days': user.streak_days,
         'last_active_date': user.last_active_date.strftime('%Y-%m-%d %H:%M') if user.last_active_date else None,
@@ -3500,7 +3538,7 @@ def ask():
 
                     # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa)
                     if user and current_conv:
-                        xp_result = award_xp(user.id, 10, "Asking a Question", source='ask_question')
+                        xp_result = award_xp(user.id, XP_REWARDS['ask_question'], "Asking a Question", source='ask_question')
                         if xp_result:
                             final_data['xp_awarded'] = xp_result
                 except Exception as save_err:
@@ -3617,6 +3655,7 @@ def blend_models():
     
     def generate_blend_stream():
         model_responses = {}
+        xp_result = None
         
         # 1. Paralel olarak tüm modellerden yanıt al
         yield f"data: {json.dumps({'status': 'fetching', 'message': 'Sending query to selected models...'})}\n\n"
@@ -3778,6 +3817,9 @@ Provide a clear reasoning/justification for why this blended response was chosen
                 
                 # Update Taste Profile
                 update_user_taste(user, "blend", blended_response, question)
+
+                # Keep blend and ask flows consistent for gamification rewards.
+                xp_result = award_xp(user.id, XP_REWARDS['ask_question'], "Asking a Question", source='ask_question')
             except Exception as db_err:
                 print(f"Database save error (blend): {db_err}")
         
@@ -3792,6 +3834,8 @@ Provide a clear reasoning/justification for why this blended response was chosen
             'persona': persona,
             'routing_reason': f"Blended {', '.join(models)} for enhanced accuracy"
         }
+        if xp_result:
+            final_data['xp_awarded'] = xp_result
         yield f"data: {json.dumps(final_data)}\n\n"
     
     return Response(stream_with_context(generate_blend_stream()), mimetype='text/event-stream')
@@ -5208,7 +5252,7 @@ def create_answer(history_id: int):
         
         
         # Çözüm paylaşan kişiye XP ver
-        award_xp(user.id, 15, "Sharing a Solution", source='share_solution')
+        award_xp(user.id, XP_REWARDS['share_solution'], "Sharing a Solution", source='share_solution')
         
         db.session.commit()
         return jsonify({'answer': serialize_answer(answer)}), 201
@@ -5306,7 +5350,7 @@ def create_community_post():
         db.session.commit()
 
     # Toplulukta paylaşım yapan kişiye XP ver
-    award_xp(user.id, 15, "Creating a Community Post", source='community_post')
+    award_xp(user.id, XP_REWARDS['community_post'], "Creating a Community Post", source='community_post')
 
     return jsonify({
         'status': 'success',
