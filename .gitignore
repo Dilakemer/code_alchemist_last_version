@@ -56,8 +56,8 @@ lines.txt
 
 # Generated Assets
 server/static/generated/
-server/static/assets/
-test_graph.py
+# server/static/assets/
+# test_graph.py
 manual_test_routing.py
 
 resend
