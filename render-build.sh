@@ -1,26 +1,14 @@
 #!/bin/bash
-set -e
+# set -e # Derleme hatasında durmasını istemiyoruz çünkü hazır dosyaları kullanacağız
 
-# Build Frontend
-echo "Building Frontend..."
-cd client
-# Run ci instead of install, and limit memory to avoid OOM
-npm ci || npm install
-NODE_OPTIONS=--max_old_space_size=400 npm run build
+# Build Frontend - Render Ücretsiz Sürümde Hafıza Yetersizliği Nedeniyle Devre Dışı Bırakıldı
+# Biz yerelde derleyip (prepare_deploy.py) Github'a gönderdiğimiz için burada derlemeye gerek yok.
+echo "Skipping Frontend Build on Render (Using pre-built assets from repository)..."
 
-# If build succeeded, copy to static folder
-if [ -d "dist" ]; then
-    echo "Copying built assets to Flask..."
-    cd ..
-    mkdir -p server/static
-    # Only remove index.html and assets directory to not break generated/
-    rm -rf server/static/assets
-    rm -f server/static/index.html
-    cp -r client/dist/* server/static/
-else
-    echo "Frontend build skipped or failed to output to dist."
-    cd ..
-fi
+# cd client
+# npm ci || npm install
+# NODE_OPTIONS=--max_old_space_size=400 npm run build
+# cd ..
 
 # Install Backend Dependencies
 echo "Installing Backend Dependencies..."
@@ -28,4 +16,4 @@ cd server
 pip install -r requirements.txt
 cd ..
 
-echo "Build complete!"
+echo "Build complete using pre-built assets!"
