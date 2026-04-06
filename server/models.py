@@ -312,3 +312,89 @@ class ProjectFile(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+# ============================================================
+# 💰 TOKEN EKONOMİSİ MODELLERİ (Hafta 2 — SaaS Dönüşüm)
+# ============================================================
+
+class TokenBalance(db.Model):
+    """Kullanıcının token cüzdanı — her kullanıcı için tek kayıt."""
+    __tablename__ = 'token_balance'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    balance = db.Column(db.Integer, default=100, nullable=False)     # Kalan token
+    total_spent = db.Column(db.Integer, default=0, nullable=False)   # Toplam harcanan (azalmaz)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('token_balance', uselist=False))
+
+    def __repr__(self):
+        return f'<TokenBalance user_id={self.user_id} balance={self.balance}>'
+
+
+class TokenTransaction(db.Model):
+    """Her token hareketinin değişmez kaydı (audit log)."""
+    __tablename__ = 'token_transaction'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    # Pozitif = kazanç/satın alma, Negatif = harcama
+    amount = db.Column(db.Integer, nullable=False)
+    # 'purchase' | 'usage' | 'refund' | 'bonus' | 'signup_grant'
+    type = db.Column(db.String(20), nullable=False, index=True)
+    description = db.Column(db.String(255), nullable=True)
+    # Stripe payment_intent_id veya history_id referansı
+    reference_id = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('token_transactions', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<TokenTransaction user_id={self.user_id} amount={self.amount} type={self.type}>'
+
+
+class TokenPackage(db.Model):
+    """Admin tarafından yönetilen satılabilir token paketleri."""
+    __tablename__ = 'token_package'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)         # "Starter", "Pro", "Enterprise"
+    description = db.Column(db.String(255), nullable=True)
+    tokens = db.Column(db.Integer, nullable=False)           # Verilen token miktarı
+    price_usd = db.Column(db.Float, nullable=False)          # USD fiyat
+    stripe_price_id = db.Column(db.String(100), nullable=True)  # Stripe ile entegrasyon (Hafta 3)
+    is_active = db.Column(db.Boolean, default=True)
+    bonus_pct = db.Column(db.Integer, default=0)             # Örn: 20 → %20 bonus token
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    purchases = db.relationship('TokenPurchase', backref='token_package', lazy='dynamic')
+
+    def __repr__(self):
+        return f'<TokenPackage {self.name} tokens={self.tokens} price=${self.price_usd}>'
+
+
+class TokenPurchase(db.Model):
+    """Stripe checkout sonucu oluşan token satın alma kaydı."""
+    __tablename__ = 'token_purchase'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    package_id = db.Column(db.Integer, db.ForeignKey('token_package.id'), nullable=True, index=True)
+    package_name = db.Column(db.String(100), nullable=True)
+    tokens_granted = db.Column(db.Integer, nullable=False)
+    amount_cents = db.Column(db.Integer, nullable=False)
+    currency = db.Column(db.String(12), default='usd', nullable=False)
+    stripe_checkout_session_id = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    stripe_payment_intent_id = db.Column(db.String(128), unique=True, nullable=True, index=True)
+    stripe_customer_id = db.Column(db.String(128), nullable=True, index=True)
+    status = db.Column(db.String(32), default='pending', index=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    user = db.relationship('User', backref=db.backref('token_purchases', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<TokenPurchase user_id={self.user_id} session={self.stripe_checkout_session_id} status={self.status}>'
+

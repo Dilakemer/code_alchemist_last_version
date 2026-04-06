@@ -1,0 +1,110 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{fontspec}
+\setmainfont{DejaVu Serif}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
+
+\usepackage{geometry}
+\geometry{left=24mm,right=24mm,top=28mm,bottom=28mm}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{hyperref}
+
+\definecolor{primaryblue}{RGB}{0,51,179}
+\definecolor{secondaryblue}{RGB}{0,102,204}
+\definecolor{successgreen}{RGB}{0,128,80}
+\definecolor{warningorange}{RGB}{200,100,0}
+
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\title{\LARGE\textbf{CodeAlchemist}\\[4pt]
+\large Week 9 Codebased Addendum\\[2pt]
+\normalsize Chat Bazlı Operasyon ve Hata Günlüğü}
+\author{CodeAlchemist Team}
+\date{Nisan 2026}
+
+\begin{document}
+\maketitle
+
+\begin{tcolorbox}[colback=blue!5,colframe=primaryblue,title={Kapsam}]
+Bu doküman, bu sohbet oturumunda Week 9 kapsamındaki token/billing geliştirmeleri
+sırasında uygulanan teknik adımları, karşılaşılan hataları ve çözüm doğrulamalarını
+tekil bir codebased günlüğü olarak özetler.
+\end{tcolorbox}
+
+\section{Operasyon Günlüğü}
+
+\begin{longtable}{@{} P{0.7cm} P{4.4cm} P{4.2cm} P{4.1cm} @{} }
+\toprule
+\textbf{\#} & \textbf{Belirti} & \textbf{Kök Neden} & \textbf{Aksiyon ve Sonuç} \\
+\midrule
+\endhead
+1 & Usage ledger içinde internal server error. &
+\texttt{token\_package} tablosunda \texttt{description} kolonu eksikti. &
+Şema migration script'i yazıldı ve çalıştırıldı;
+kolon + \texttt{token\_purchase} tablosu doğrulandı. \\
+
+2 & Token dashboard modal ekran taşması. &
+Responsive kırılımlarda modal viewport'a göre sınırlanmıyordu. &
+Modal konteyneri, grid kırılımı ve scroll davranışı güncellendi;
+frontend build başarılı. \\
+
+3 & Stripe configured değil uyarısı. &
+Çalışan backend'in okuduğu kaydedilmiş \texttt{.env} içeriğinde
+Stripe satırları eksikti. &
+\texttt{server/.env} Stripe bloklarıyla güncellendi;
+\texttt{/api/billing/config} yanıtında \texttt{enabled=true} doğrulandı. \\
+
+4 & Stripe package is not installed. &
+Aktif çalışma ortamında \texttt{stripe} modülü kurulu değildi. &
+\texttt{.venv-win} ortamına \texttt{pip install stripe} uygulandı;
+import testi geçti. \\
+
+5 & GitHub push güvenliği sorusu. &
+Secret yönetimi ve takip edilen dosyalar netleştirilmeliydi. &
+\texttt{server/.env} ignore/do-not-track kontrolü yapıldı,
+izlenen dosyalarda secret paterni tarandı. \\
+\bottomrule
+\end{longtable}
+
+\section{Dosya Bazlı Değişiklik Özeti}
+
+\begin{itemize}[leftmargin=*, label=\textbullet]
+	\item \texttt{server/migrate\_token\_billing\_schema.py} (yeni):
+	token billing şema tamamlama.
+	\item \texttt{server/app.py}: env fallback ve billing config doğrulama akışı iyileştirmeleri.
+	\item \texttt{client/src/components/TokenDashboardModal.jsx}:
+	responsive uyum, viewport limitleri, grid kırılımları.
+	\item \texttt{server/.env}: Stripe değişkenleri runtime için tamamlandı
+	(git ignore kapsamında tutuldu).
+\end{itemize}
+
+\section{Doğrulama Çıktıları}
+
+\begin{tcolorbox}[colback=green!5,colframe=successgreen,title={Başarılı Kontroller}]
+\begin{itemize}[leftmargin=*, nosep]
+	\item Billing config endpoint: \texttt{enabled=true}.
+	\item DB şeması: \texttt{token\_package.description} mevcut.
+	\item DB şeması: \texttt{token\_purchase} tablosu mevcut.
+	\item \texttt{stripe} import testi başarılı.
+	\item Frontend production build başarılı.
+\end{itemize}
+\end{tcolorbox}
+
+\section{Risk ve Notlar}
+
+\begin{tcolorbox}[colback=yellow!10,colframe=warningorange,title={Güvenlik Notu}]
+API anahtarları sohbet içinde açık geçtiği için, repo tarafı temiz olsa bile
+operasyonel güvenlik açısından key rotation gereklidir (Stripe, OpenAI,
+Anthropic, Gemini, Resend).
+\end{tcolorbox}
+
+\end{document}

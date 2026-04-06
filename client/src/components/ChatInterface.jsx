@@ -548,7 +548,8 @@ const ChatInterface = ({
   // COLLAB PARAMS
   socketIsStreaming = false,
   liveStreamText = '',
-  streamingHistoryId = null
+  streamingHistoryId = null,
+  tokenErrorNotice = null
 }) => {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -663,6 +664,19 @@ const ChatInterface = ({
       setTimeout(() => setToast(prev => ({ ...prev, show: false })), 6000);
     }
   };
+
+  useEffect(() => {
+    if (!tokenErrorNotice?.nonce) return;
+
+    const balancePart = typeof tokenErrorNotice.balance === 'number'
+      ? ` Mevcut bakiyeniz: ${tokenErrorNotice.balance}.`
+      : '';
+    const requiredPart = typeof tokenErrorNotice.required === 'number'
+      ? ` Gerekli token: ${tokenErrorNotice.required}.`
+      : '';
+
+    showToast(`${tokenErrorNotice.message || 'Token yetersiz.'}${requiredPart}${balancePart}`, 'error');
+  }, [tokenErrorNotice?.nonce]);
 
   useEffect(() => {
     if (!linkedRepoProp) return;
