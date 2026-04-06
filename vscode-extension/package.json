@@ -1,0 +1,57 @@
+{
+  "name": "code-alchemist",
+  "displayName": "CodeAlchemist",
+  "description": "AI-powered code assistant",
+  "version": "0.0.1",
+  "publisher": "dilakemer",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:codeAlchemist.setApiKey",
+    "onCommand:codeAlchemist.ask"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeAlchemist.setApiKey",
+        "title": "CodeAlchemist: Set API Key"
+      },
+      {
+        "command": "codeAlchemist.ask",
+        "title": "CodeAlchemist: Ask (Send Selected Code)"
+      }
+    ],
+    "configuration": {
+      "title": "CodeAlchemist",
+      "properties": {
+        "codeAlchemist.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key (starts with ca-...)."
+        },
+        "codeAlchemist.endpoint": {
+          "type": "string",
+          "default": "https://code-alchemist-last-version.onrender.com/v1/ask",
+          "description": "Backend endpoint for /v1/ask."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "lint": "eslint .",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.6.3"
+  }
+}
