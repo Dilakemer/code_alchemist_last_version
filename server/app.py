@@ -33,6 +33,7 @@ from google import genai as google_genai
 from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase
 from anthropic import Anthropic, APIError
 from openai import OpenAI
+import stripe
 from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
@@ -567,6 +568,27 @@ with app.app_context():
     try:
         db.create_all()
         print("Database tables initialized successfully.")
+
+        # --- Startup Seeding: TokenPackage tablosu boşsa varsayılan paketleri ekle ---
+        try:
+            if TokenPackage.query.count() == 0:
+                for pkg_data in DEFAULT_TOKEN_PACKAGES:
+                    pkg = TokenPackage(
+                        name=pkg_data['name'],
+                        description=pkg_data.get('description', ''),
+                        tokens=pkg_data['tokens'],
+                        price_usd=pkg_data['price_usd'],
+                        bonus_pct=pkg_data.get('bonus_pct', 0),
+                        is_active=True,
+                    )
+                    db.session.add(pkg)
+                db.session.commit()
+                print(f"Seeded {len(DEFAULT_TOKEN_PACKAGES)} default token packages.")
+        except Exception as seed_err:
+            print(f"Warning: Could not seed default token packages: {seed_err}")
+            db.session.rollback()
+        # --- End Seeding ---
+
     except Exception as e:
         print(f"Error initializing database: {e}")
 
@@ -7244,6 +7266,314 @@ def get_weekly_stats():
             'streak': user.streak_days
         }
     })
+
+# ==========================================
+# BILLING & TOKEN ECONOMY ENDPOINTS
+#💳 Stripe entegrasyon rotaları
+# ==========================================
+
+_STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
+_STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
+_STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+
+if _STRIPE_SECRET_KEY:
+    stripe.api_key = _STRIPE_SECRET_KEY
+    print("Stripe client configured.")
+else:
+    print("Warning: STRIPE_SECRET_KEY not set. Billing disabled.")
+
+
+@app.route('/api/billing/config', methods=['GET'])
+def billing_config():
+    """Frontend'in Stripe'ın aktif olup olmadığını anlaması için config endpoint."""
+    enabled = bool(_STRIPE_SECRET_KEY and _STRIPE_PUBLISHABLE_KEY)
+    return jsonify({
+        'enabled': enabled,
+        'public_key': _STRIPE_PUBLISHABLE_KEY if enabled else None,
+    })
+
+
+@app.route('/api/billing/packages', methods=['GET'])
+def billing_packages():
+    """Aktif token paketlerini listeler. DB boşsa varsayılanlar döner."""
+    try:
+        pkgs = TokenPackage.query.filter_by(is_active=True).order_by(TokenPackage.price_usd).all()
+        if pkgs:
+            packages_data = [
+                {
+                    'id': p.id,
+                    'name': p.name,
+                    'description': p.description,
+                    'tokens': p.tokens,
+                    'price_usd': p.price_usd,
+                    'bonus_pct': p.bonus_pct,
+                    'highlight': (p.bonus_pct is not None and p.bonus_pct > 0),
+                }
+                for p in pkgs
+            ]
+        else:
+            # DB boşsa statik fallback
+            packages_data = [
+                {**pkg, 'id': pkg['name'].lower().replace(' ', '-'), 'highlight': pkg.get('bonus_pct', 0) > 0}
+                for pkg in DEFAULT_TOKEN_PACKAGES
+            ]
+        return jsonify({'packages': packages_data})
+    except Exception as e:
+        print(f"billing_packages error: {e}")
+        return jsonify({'error': 'Could not fetch packages.'}), 500
+
+
+@app.route('/api/tokens/usage', methods=['GET'])
+@jwt_required()
+def token_usage():
+    """Kullanıcının token bakiyesi ve son işlem geçmişini döndürür."""
+    user_id = get_jwt_identity()
+    limit = max(1, min(int(request.args.get('limit', 10)), 50))
+    try:
+        balance_record = TokenBalance.query.filter_by(user_id=user_id).first()
+        if not balance_record:
+            # Hesap yoksa oluştur (graceful init)
+            balance_record = TokenBalance(user_id=user_id, balance=0, total_spent=0)
+            db.session.add(balance_record)
+            db.session.commit()
+
+        transactions = (
+            TokenTransaction.query
+            .filter_by(user_id=user_id)
+            .order_by(TokenTransaction.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify({
+            'balance': balance_record.balance,
+            'total_spent': balance_record.total_spent,
+            'transactions': [
+                {
+                    'id': tx.id,
+                    'amount': tx.amount,
+                    'type': tx.type,
+                    'description': tx.description,
+                    'created_at': tx.created_at.isoformat(),
+                }
+                for tx in transactions
+            ],
+        })
+    except Exception as e:
+        print(f"token_usage error: {e}")
+        return jsonify({'error': 'Could not fetch token usage.'}), 500
+
+
+@app.route('/api/billing/checkout-session', methods=['POST'])
+@jwt_required()
+def create_checkout_session():
+    """Stripe Checkout oturumu oluşturur ve checkout URL'sini döndürür."""
+    if not _STRIPE_SECRET_KEY:
+        return jsonify({'error': 'Billing is not configured on the server. Contact admin.'}), 503
+
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+    package_id = data.get('package_id')
+
+    # Paketi bul (hem int DB id hem string slug için)
+    pkg = None
+    try:
+        pkg_id_int = int(package_id)
+        pkg = TokenPackage.query.filter_by(id=pkg_id_int, is_active=True).first()
+    except (TypeError, ValueError):
+        pass
+
+    if not pkg:
+        # Slug ile ara
+        pkg = TokenPackage.query.filter(
+            db.func.lower(TokenPackage.name) == str(package_id).replace('-', ' ').lower(),
+            TokenPackage.is_active == True
+        ).first()
+
+    if not pkg:
+        # Fallback: statik paketlerde ara
+        for default_pkg in DEFAULT_TOKEN_PACKAGES:
+            slug = default_pkg['name'].lower().replace(' ', '-')
+            if str(package_id) in (slug, default_pkg['name'].lower()):
+                pkg = type('PseudoPkg', (), {
+                    'id': None,
+                    'name': default_pkg['name'],
+                    'description': default_pkg.get('description', ''),
+                    'tokens': default_pkg['tokens'],
+                    'price_usd': default_pkg['price_usd'],
+                    'bonus_pct': default_pkg.get('bonus_pct', 0),
+                })()
+                break
+
+    if not pkg:
+        return jsonify({'error': f'Package not found: {package_id}'}), 404
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found.'}), 404
+
+    # Bonus token hesabı
+    bonus_tokens = int(pkg.tokens * pkg.bonus_pct / 100) if pkg.bonus_pct else 0
+    total_tokens = pkg.tokens + bonus_tokens
+    price_cents = int(round(pkg.price_usd * 100))
+
+    # Render/production URL tespiti
+    host = request.host_url.rstrip('/')
+    success_url = f"{host}/?payment=success&tokens={total_tokens}"
+    cancel_url = f"{host}/?payment=canceled"
+
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            mode='payment',
+            customer_email=user.email,
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'unit_amount': price_cents,
+                    'product_data': {
+                        'name': f"{pkg.name} — {total_tokens} Tokens",
+                        'description': pkg.description or f"{pkg.tokens} tokens" + (f" + %{pkg.bonus_pct} bonus" if pkg.bonus_pct else ""),
+                    },
+                },
+                'quantity': 1,
+            }],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                'user_id': str(user_id),
+                'package_name': pkg.name,
+                'tokens_granted': str(total_tokens),
+            },
+        )
+    except stripe.error.StripeError as e:
+        print(f"Stripe checkout error: {e}")
+        return jsonify({'error': f'Payment session could not be created: {str(e)}'}), 502
+    except Exception as e:
+        print(f"Unexpected checkout error: {e}")
+        return jsonify({'error': 'An unexpected error occurred. Please try again.'}), 500
+
+    # Veritabanına bekleyen satın alma kaydı ekle
+    try:
+        purchase = TokenPurchase(
+            user_id=user_id,
+            package_id=pkg.id if hasattr(pkg, 'id') and pkg.id else None,
+            package_name=pkg.name,
+            tokens_granted=total_tokens,
+            amount_cents=price_cents,
+            currency='usd',
+            stripe_checkout_session_id=session.id,
+            status='pending',
+        )
+        db.session.add(purchase)
+        db.session.commit()
+    except Exception as db_err:
+        print(f"DB insert for checkout failed: {db_err}")
+        db.session.rollback()
+        # Stripe oturumu oluştu ama DB'ye yazamadık — yine de yönlendir, webhook düzeltir.
+
+    return jsonify({'checkout_url': session.url})
+
+
+@app.route('/api/billing/webhook', methods=['POST'])
+def stripe_webhook():
+    """Stripe ödeme tamamlanma olayını dinler ve token bakiyesini günceller."""
+    payload = request.get_data(as_text=False)
+    sig_header = request.headers.get('Stripe-Signature', '')
+
+    if not _STRIPE_WEBHOOK_SECRET:
+        return jsonify({'error': 'Webhook secret not configured.'}), 500
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, _STRIPE_WEBHOOK_SECRET)
+    except stripe.error.SignatureVerificationError:
+        print("Webhook signature verification failed.")
+        return jsonify({'error': 'Invalid signature'}), 400
+    except Exception as e:
+        print(f"Webhook parse error: {e}")
+        return jsonify({'error': 'Webhook parse error'}), 400
+
+    if event['type'] == 'checkout.session.completed':
+        session_obj = event['data']['object']
+        stripe_session_id = session_obj.get('id')
+        stripe_payment_intent = session_obj.get('payment_intent')
+
+        # Satın alma kaydını bul
+        purchase = TokenPurchase.query.filter_by(
+            stripe_checkout_session_id=stripe_session_id
+        ).first()
+
+        if not purchase:
+            # Metadata'dan kullanıcı bilgisini çekelim (fallback)
+            meta = session_obj.get('metadata', {})
+            user_id_str = meta.get('user_id')
+            tokens_granted_str = meta.get('tokens_granted')
+            package_name = meta.get('package_name', 'Unknown')
+
+            if not user_id_str or not tokens_granted_str:
+                print(f"Webhook: No purchase record and no metadata for session {stripe_session_id}")
+                return jsonify({'received': True}), 200
+
+            # Kayıt yoksa oluştur
+            try:
+                purchase = TokenPurchase(
+                    user_id=int(user_id_str),
+                    package_name=package_name,
+                    tokens_granted=int(tokens_granted_str),
+                    amount_cents=int(session_obj.get('amount_total', 0)),
+                    currency=session_obj.get('currency', 'usd'),
+                    stripe_checkout_session_id=stripe_session_id,
+                    stripe_payment_intent_id=stripe_payment_intent,
+                    status='pending',
+                )
+                db.session.add(purchase)
+                db.session.flush()
+            except Exception as e:
+                print(f"Webhook: Could not create fallback purchase: {e}")
+                db.session.rollback()
+                return jsonify({'received': True}), 200
+
+        # --- Idempotency: Zaten completed mi? ---
+        if purchase.status == 'completed':
+            print(f"Webhook: Purchase {purchase.id} already completed. Skipping.")
+            return jsonify({'received': True}), 200
+
+        user_id = purchase.user_id
+        tokens_to_add = purchase.tokens_granted
+
+        try:
+            # TokenBalance güncelle veya oluştur
+            balance_record = TokenBalance.query.filter_by(user_id=user_id).first()
+            if not balance_record:
+                balance_record = TokenBalance(user_id=user_id, balance=0, total_spent=0)
+                db.session.add(balance_record)
+                db.session.flush()
+
+            balance_record.balance += tokens_to_add
+
+            # TokenTransaction kaydet
+            tx = TokenTransaction(
+                user_id=user_id,
+                amount=tokens_to_add,
+                type='purchase',
+                description=f"Token purchase: {purchase.package_name or 'Package'} ({tokens_to_add} tokens)",
+                reference_id=stripe_session_id,
+            )
+            db.session.add(tx)
+
+            # Satın alma kaydını tamamlandı olarak işaretle
+            purchase.status = 'completed'
+            purchase.stripe_payment_intent_id = stripe_payment_intent
+            purchase.completed_at = datetime.datetime.utcnow()
+
+            db.session.commit()
+            print(f"Webhook: Granted {tokens_to_add} tokens to user {user_id}.")
+        except Exception as e:
+            db.session.rollback()
+            print(f"Webhook: DB update failed for user {user_id}: {e}")
+            return jsonify({'error': 'DB update failed'}), 500
+
+    return jsonify({'received': True}), 200
+
 
 # ==========================================
 # API KEYS & VS CODE EXTENSION ENDPOINTS
