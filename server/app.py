@@ -476,7 +476,8 @@ if any(not os.getenv(key) for key in required_env_keys):
 
 # static_folder has to be absolute or relative to this file. 
 # In render-build.sh, we copy client/dist/* to server/static.
-app = Flask(__name__, static_folder='static', static_url_path='')
+static_folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+app = Flask(__name__, static_folder=static_folder_path, static_url_path='')
 basedir = os.path.abspath(os.path.dirname(__file__))
 # Veritabanı dosyasını instance klasöründe tutuyoruz (Flask standardı)
 instance_path = os.path.join(basedir, 'instance')
@@ -7560,9 +7561,16 @@ def external_ask():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):
-    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+    # Eğer API isteği gelirse onu routing'e bırak (404 verse bile)
+    if path.startswith('api/') or path.startswith('v1/'):
+        return jsonify({'error': 'API endpoint not found', 'path': path}), 404
+
+    # Statik klasördeki dosyaya bak (assets/..., alchemy_wave.png vb.)
+    full_path = os.path.join(app.static_folder, path)
+    if path != "" and os.path.exists(full_path):
         return send_from_directory(app.static_folder, path)
     else:
+        # Eğer dosya yoksa veya '/' istendiyse index.html döndür (React Router handle eder)
         return send_from_directory(app.static_folder, 'index.html')
 
 # ==========================================
