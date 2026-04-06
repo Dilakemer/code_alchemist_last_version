@@ -22,6 +22,8 @@ import ProjectWorkspace from './components/ProjectWorkspace';
 import LandingPage from './components/LandingPage';
 import ModelCostDashboard from './components/ModelCostDashboard';
 import GamificationPanel from './components/GamificationPanel';
+import TokenWallet from './components/TokenWallet';
+import TokenDashboardModal from './components/TokenDashboardModal';
 import ThemeStore from './components/ThemeStore';
 import WeeklyReport from './components/WeeklyReport';
 import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
@@ -58,9 +60,11 @@ function App() {
   const [showWeeklyReport, setShowWeeklyReport] = useState(false);
   const [weeklyReportData, setWeeklyReportData] = useState(null);
   const [showToolsDrawer, setShowToolsDrawer] = useState(false);
+  const [showTokenDashboard, setShowTokenDashboard] = useState(false);
   const [collabShareLink, setCollabShareLink] = useState('');
   const [showCollabShareOptions, setShowCollabShareOptions] = useState(false);
   const [usageInfo, setUsageInfo] = useState(null);
+  const [tokenErrorNotice, setTokenErrorNotice] = useState(null);
 
   // Community State
   const [activeCommunityPost, setActiveCommunityPost] = useState(null);
@@ -329,26 +333,21 @@ function App() {
   };
 
   const switchSubscriptionPlan = async (plan) => {
-    if (!token) {
-      setAuthOpen(true);
-      return;
-    }
-    try {
-      const resp = await fetch(`${API_BASE}/api/billing/plan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ plan })
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        handleShowAlert(data.error || 'Plan güncellenemedi');
+    if (plan === 'premium') {
+      if (!token) {
+        setAuthOpen(true);
         return;
       }
-      setUsageInfo(data);
-      handleShowAlert(data.message || `Plan ${plan} olarak güncellendi.`);
-    } catch (err) {
-      handleShowAlert(`Plan güncelleme hatası: ${err.message}`);
+      setShowTokenDashboard(true);
+      return;
     }
+
+    if (plan === 'free') {
+      handleShowAlert('Starter Balance already includes 100 tokens for new users.');
+      return;
+    }
+
+    handleShowAlert('Select a token package to continue.');
   };
 
   const fetchCollabReview = async (tokenValue = collabToken) => {
@@ -1104,8 +1103,22 @@ function App() {
       if (!res.ok) {
         const errPayload = await res.json().catch(() => ({}));
         const errMsg = errPayload.error || res.statusText || 'Request failed';
+        if (res.status === 402 || errPayload.insufficient_tokens) {
+          setChatHistory(prev => prev.filter(item => item.id !== tempId));
+          setQuestion(currentQuestion);
+          setCode(currentCode);
+          setImage(currentImage);
+          setTokenErrorNotice({
+            message: errMsg,
+            balance: errPayload.balance,
+            required: errPayload.required,
+            nonce: Date.now(),
+          });
+          setLoading(false);
+          return;
+        }
         if (res.status === 429 && errPayload.upgrade_required) {
-          handleShowAlert(`${errMsg} Daha fazla limit için Premium plana geçebilirsin.`);
+          handleShowAlert(`${errMsg} Daha fazla kullanım için Pro Pack veya Heavy User Bundle satın alabilirsin.`);
         } else {
           handleShowAlert(errMsg);
         }
@@ -1225,6 +1238,19 @@ function App() {
                         localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
                       } catch (err) {
                         console.warn('Failed to persist awarded coins', err);
+                      }
+                    }
+                  }
+                  if (typeof data.new_token_balance === 'number') {
+                    setUser(prev => prev ? { ...prev, tokens: data.new_token_balance } : prev);
+                    const storedUser = localStorage.getItem('codebrain_user');
+                    if (storedUser) {
+                      try {
+                        const parsedUser = JSON.parse(storedUser);
+                        parsedUser.tokens = data.new_token_balance;
+                        localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
+                      } catch (err) {
+                        console.warn('Failed to persist updated token balance', err);
                       }
                     }
                   }
@@ -1908,6 +1934,16 @@ function App() {
               multiModels={multiModels}
               setMultiModels={setMultiModels}
             />
+            {user && (
+              <TokenWallet
+                balance={user.tokens ?? 0}
+                grant={100}
+                onClick={() => {
+                    setShowTokenDashboard(true);
+                  refreshUserInfo();
+                }}
+              />
+            )}
           </div>
 
           {/* Search Bar */}
@@ -2102,16 +2138,16 @@ function App() {
 
             <div className="hidden sm:block h-6 w-px bg-gray-700 mx-2"></div>
 
-            <button
-              onClick={() => {
+              <button 
+                onClick={() => {
                 setShowToolsDrawer(true);
                 refreshUserInfo();
               }}
-              className="flex items-center gap-2 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 text-purple-300 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all border border-purple-500/30 group"
-              title="Magical Tools"
+              className="flex items-center gap-2 bg-gradient-to-r from-slate-700/30 to-indigo-600/15 hover:from-slate-700/45 hover:to-indigo-600/25 text-slate-200 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all border border-white/10 group"
+              title="Workspace"
             >
               <span className="text-xs group-hover:scale-110 transition-transform">✨</span>
-              <span className="hidden xs:block">Magical Tools</span>
+              <span className="hidden xs:block">Workspace</span>
               {isCollabView && <span className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></span>}
             </button>
 
@@ -2185,6 +2221,7 @@ function App() {
               socketIsStreaming={socketIsStreaming}
               liveStreamText={liveStreamText}
               streamingHistoryId={streamingHistoryId}
+              tokenErrorNotice={tokenErrorNotice}
             />
           </div>
 
@@ -2667,7 +2704,22 @@ function App() {
         </div>
       )}
 
-      {/* Magical Tools Drawer */}
+      {/* Token Command Center */}
+      {showTokenDashboard && (
+        <TokenDashboardModal
+          isOpen={showTokenDashboard}
+          onClose={() => setShowTokenDashboard(false)}
+          apiBase={API_BASE}
+          authHeaders={authHeaders}
+          user={user}
+          onOpenPricing={() => {
+            setShowTokenDashboard(false);
+            setShowToolsDrawer(true);
+          }}
+        />
+      )}
+
+      {/* Workspace Drawer */}
       {showToolsDrawer && (
         <div 
           className="tools-drawer-overlay" 
@@ -2679,7 +2731,7 @@ function App() {
         >
           <div className="tools-drawer">
             <div className="tools-drawer-header">
-              <h2>⚡ Magical Tools</h2>
+              <h2>Workspace</h2>
               <button 
                 onClick={() => setShowToolsDrawer(false)}
                 className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-all"
@@ -2945,7 +2997,7 @@ function App() {
                {usageInfo && usageInfo.usage && (
                  <div className="p-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5">
                    <div className="text-[11px] text-cyan-200 font-semibold mb-1">
-                     Plan: {usageInfo.plan}
+                     Starter Balance: 100 Tokens
                    </div>
                    <div className="text-[10px] text-cyan-100/80">
                      Daily: {usageInfo.usage.daily_requests_used}/{usageInfo.limits?.daily_requests}
@@ -2958,13 +3010,13 @@ function App() {
                        onClick={() => switchSubscriptionPlan('free')}
                        className="text-[10px] py-1 rounded bg-gray-700/70 hover:bg-gray-600 text-gray-100"
                      >
-                       Free
+                        Starter Balance
                      </button>
                      <button
                        onClick={() => switchSubscriptionPlan('premium')}
                        className="text-[10px] py-1 rounded bg-fuchsia-700/70 hover:bg-fuchsia-600 text-fuchsia-100"
                      >
-                       Premium
+                        Pro Pack
                      </button>
                    </div>
                  </div>
