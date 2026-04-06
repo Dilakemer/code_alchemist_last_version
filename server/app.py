@@ -6841,7 +6841,7 @@ def external_ask():
         return jsonify({'error': 'Invalid or revoked API Key'}), 401
     
     # Son kullanım tarihini güncelle
-    key_record.last_used_at = datetime.utcnow()
+    key_record.last_used_at = datetime.datetime.utcnow()
     db.session.commit()
     
     data = request.get_json() or {}
