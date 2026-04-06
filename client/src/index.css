@@ -6,7 +6,11 @@
 /* GLOBAL FONT - Inter (ChatGPT-like)           */
 /* ============================================= */
 * {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
 }
 
 body {
@@ -553,38 +557,52 @@ select,
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.1);
 }
 
-/* Theme Variables */
+/* Theme Variables - New SaaS Design System */
 :root {
-  --bg-primary: #000000;
-  --bg-secondary: #111827;
-  --bg-tertiary: #1f2937;
-  --text-primary: #f3f4f6;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
-  --border-color: #374151;
-  --accent-primary: #d946ef;
-  --accent-secondary: #a855f7;
+  /* Dark Theme Default */
+  --bg-base: #0F172A;      /* slate-900 */
+  --bg-surface: #1E293B;   /* slate-800 */
+  --bg-elevated: #334155;  /* slate-700 */
+  
+  --text-primary: #F1F5F9;   /* slate-100 */
+  --text-secondary: #94A3B8; /* slate-400 */
+  --text-muted: #64748B;    /* slate-500 */
+  
+  --accent: #6366F1;         /* indigo-500 */
+  --accent-hover: #4F46E5;   /* indigo-600 */
+  --accent-gradient: linear-gradient(135deg, #6366F1, #8B5CF6);
+  
+  --border-color: #334155;   /* slate-700 */
+  
+  /* Legacy compatibility (mapping to new system) */
+  --bg-primary: var(--bg-base);
+  --bg-secondary: var(--bg-surface);
+  --bg-tertiary: var(--bg-elevated);
+  --accent-primary: var(--accent);
+  --accent-secondary: #8B5CF6;
 }
 
-/* Light Theme - ChatGPT Style (Neutral Grays) */
+/* Light Theme - Clean SaaS Gray */
 [data-theme="light"] {
-  --bg-primary: #ffffff;
-  /* Sohbet arka planı - Beyaz/Çok açık gri */
-  --bg-secondary: #f6f6f6;
-  /* Sidebar/Kartlar - Hafif gri */
-  --bg-tertiary: #ececec;
-  /* Hover vs - Biraz daha koyu gri */
-  --text-primary: #2d2d2d;
-  /* Koyu gri metin (Siyah değil) */
-  --text-secondary: #5f5f5f;
-  /* İkincil metin */
-  --text-muted: #8e8e8e;
-  /* Soluk metin */
-  --border-color: #e5e5e5;
-  /* Kenarlıklar - İnce gri */
-  --accent-primary: #10a37f;
-  /* ChatGPT Yeşili veya şimdiki Mor: Mor kalsın ama yumuşak olsun */
-  --accent-secondary: #8b5cf6;
+  --bg-base: #F8FAFC;      /* slate-50 */
+  --bg-surface: #FFFFFF;    /* White */
+  --bg-elevated: #F1F5F9;   /* slate-100 */
+  
+  --text-primary: #0F172A;   /* slate-900 */
+  --text-secondary: #475569; /* slate-600 */
+  --text-muted: #64748B;    /* slate-500 */
+  
+  --accent: #4F46E5;         /* indigo-600 */
+  --accent-hover: #4338CA;   /* indigo-700 */
+  --accent-gradient: linear-gradient(135deg, #4F46E5, #7C3AED);
+  
+  --border-color: #E2E8F0;   /* slate-200 */
+  
+  --bg-primary: var(--bg-base);
+  --bg-secondary: var(--bg-surface);
+  --bg-tertiary: var(--bg-elevated);
+  --accent-primary: var(--accent);
+  --accent-secondary: #7C3AED;
 }
 
 /* Theme transition */

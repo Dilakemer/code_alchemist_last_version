@@ -23,6 +23,18 @@ class User(db.Model):
     last_active_date = db.Column(db.Date, nullable=True)
     longest_streak = db.Column(db.Integer, default=0)
 
+class ApiKey(db.Model):
+    """Stores API keys for programmatic and external tool access (e.g. VS Code Extension)."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False) # e.g. "My VS Code Mac"
+    key = db.Column(db.String(128), unique=True, nullable=False, index=True) # the token
+    is_active = db.Column(db.Boolean, default=True) # Soft delete
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    
+    user = db.relationship('User', backref=db.backref('api_keys', lazy='dynamic'))
+
 class XPEvent(db.Model):
     """Per-event XP transaction log for analytics and auditing."""
     id = db.Column(db.Integer, primary_key=True)

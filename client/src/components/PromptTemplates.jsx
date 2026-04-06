@@ -43,22 +43,23 @@ const PromptTemplates = ({ onSelect, visible = true }) => {
     if (!visible) return null;
 
     return (
-        <div className="flex flex-wrap gap-2 mb-3 animate-fadeIn mobile-prompt-templates">
+        <div className="flex flex-wrap gap-2 mb-4 animate-fadeIn mobile-prompt-templates">
             {promptTemplates.map((template, index) => (
                 <button
                     key={index}
                     onClick={() => onSelect(template.prompt)}
-                    className={`
-                        flex-1 min-w-[100px] flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-xs font-medium
-                        bg-gradient-to-r ${template.color} text-white
-                        hover:scale-[1.02] hover:shadow-lg
-                        transition-all duration-200 ease-out
-                        border border-white/20
-                        mobile-prompt-btn
-                    `}
+                    className="
+                        flex-1 min-w-[110px] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold
+                        bg-slate-800/40 border border-slate-700/50 text-slate-300
+                        hover:bg-indigo-500/10 hover:border-indigo-500/30 hover:text-white
+                        transition-all duration-300 ease-out backdrop-blur-sm
+                        mobile-prompt-btn group
+                    "
                     title={template.prompt}
                 >
-                    <span>{template.icon}</span>
+                    <span className="opacity-70 group-hover:opacity-100 group-hover:scale-110 transition-all duration-300">
+                        {template.icon}
+                    </span>
                     <span>{template.label}</span>
                 </button>
             ))}

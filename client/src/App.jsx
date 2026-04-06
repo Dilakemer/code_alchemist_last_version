@@ -51,6 +51,7 @@ function App() {
   const [collabToken, setCollabToken] = useState(null);
   const [isCollabView, setIsCollabView] = useState(false);
   const [collabOwner, setCollabOwner] = useState(null);
+  const [gamificationRefreshKey, setGamificationRefreshKey] = useState(0);
   const [collabReview, setCollabReview] = useState({ status: 'open', updated_by: null, updated_at: null, comments: [] });
   const [collabReviewLoading, setCollabReviewLoading] = useState(false);
   const [collabReviewComment, setCollabReviewComment] = useState('');
@@ -98,7 +99,7 @@ function App() {
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem('codebrain_theme');
     if (saved) return saved;
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    return 'dark';
   });
 
   // Search State
@@ -241,12 +242,18 @@ function App() {
     }
   }, [token]);
 
+  useEffect(() => {
+    if (token && user) {
+      syncDailyGamification();
+    }
+  }, [token, user]);
+
   const loadSharedSession = async (token) => {
     try {
       const resp = await fetch(`${API_BASE}/api/collaboration/session/${token}`);
       if (!resp.ok) throw new Error('Paylaşım linki geçersiz');
       const data = await resp.json();
-      setChatHistory(data.history);
+      setChatHistory((data.history || []).map(item => ({ ...item, is_response_complete: true })));
       setCollabToken(token);
       setIsCollabView(true);
       setCollabOwner(data.owner_display_name);
@@ -270,6 +277,54 @@ function App() {
       setUsageInfo(data);
     } catch (err) {
       console.error('Billing usage fetch error:', err);
+    }
+  };
+
+  const syncDailyGamification = async () => {
+    if (!token || !user) return;
+
+    const storageKey = 'codebrain_gamification_sync_date';
+    const today = new Date().toISOString().slice(0, 10);
+    if (localStorage.getItem(storageKey) === today) return;
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/gamification/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ activity_date: today })
+      });
+
+      if (!resp.ok) return;
+
+      const data = await resp.json();
+      localStorage.setItem(storageKey, today);
+
+      const syncedCoins = data?.total_coins ?? data?.xp_awarded?.total_coins;
+      if (typeof syncedCoins === 'number') {
+        setUser(prev => prev ? { ...prev, coins: syncedCoins } : prev);
+        const storedUser = localStorage.getItem('codebrain_user');
+        if (storedUser) {
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            parsedUser.coins = syncedCoins;
+            localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
+          } catch (err) {
+            console.warn('Failed to persist synced coins', err);
+          }
+        }
+      }
+
+      if (data && data.events && data.events.length > 0) {
+        const newToasts = data.events.map(ev => ({ id: Date.now() + Math.random(), ...ev }));
+        setGamificationToasts(prev => [...prev, ...newToasts]);
+        setTimeout(() => {
+          setGamificationToasts(prev => prev.filter(t => !newToasts.includes(t)));
+        }, 5000);
+      }
+
+      setGamificationRefreshKey(prev => prev + 1);
+    } catch (err) {
+      console.error('Error syncing gamification', err);
     }
   };
 
@@ -691,7 +746,7 @@ function App() {
       const res = await fetch(`${API_BASE}/api/conversations/${id}`, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
-        setChatHistory(data.history || []);
+        setChatHistory((data.history || []).map(item => ({ ...item, is_response_complete: true })));
         setActiveConversationId(id);
         setActiveTab('conversations');
       } else {
@@ -1158,6 +1213,25 @@ function App() {
                   } : item
                 ));
 
+                if (data.xp_awarded && token && user) {
+                  if (typeof data.xp_awarded.total_coins === 'number') {
+                    const updatedCoins = data.xp_awarded.total_coins;
+                    setUser(prev => prev ? { ...prev, coins: updatedCoins } : prev);
+                    const storedUser = localStorage.getItem('codebrain_user');
+                    if (storedUser) {
+                      try {
+                        const parsedUser = JSON.parse(storedUser);
+                        parsedUser.coins = updatedCoins;
+                        localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
+                      } catch (err) {
+                        console.warn('Failed to persist awarded coins', err);
+                      }
+                    }
+                  }
+                  setGamificationRefreshKey(prev => prev + 1);
+                  refreshUserInfo();
+                }
+
                 // Voice Alchemy is manually triggered now via ChatInterface
               }
             } catch (e) {
@@ -1178,6 +1252,7 @@ function App() {
             ? {
               ...item,
               ai_response: item.ai_response || '[Warning: stream ended before completion.]',
+              is_response_complete: true,
               responseTime: item.responseTime || totalDuration,
               timeToFirstToken: item.timeToFirstToken || ttf,
               routing_reason:
@@ -1194,19 +1269,7 @@ function App() {
 
       // After streaming is complete, sync gamification silently
       if (token && user) {
-        fetch(`${API_BASE}/api/gamification/sync`, { headers: { ...authHeaders } })
-          .then(res => res.ok ? res.json() : null)
-          .then(data => {
-            if (data && data.events && data.events.length > 0) {
-              const newToasts = data.events.map(ev => ({ id: Date.now() + Math.random(), ...ev }));
-              setGamificationToasts(prev => [...prev, ...newToasts]);
-              setTimeout(() => {
-                setGamificationToasts(prev => prev.filter(t => !newToasts.includes(t)));
-              }, 5000);
-            }
-          })
-          .catch(e => console.error("Error syncing gamification", e));
-
+        syncDailyGamification();
         fetchUsageLimits();
       }
 
@@ -2226,25 +2289,6 @@ function App() {
           />
         )}
         
-        {/* Gamification Modal */}
-        {showGamificationData && user && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="gamification-modal-content relative">
-              <button
-                onClick={() => setShowGamificationData(false)}
-                className="absolute top-4 right-4 text-gray-400 hover:text-white z-10 text-xl"
-              >
-                ✕
-              </button>
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400 mb-6 flex items-center gap-3">
-                  <i className="fas fa-crown text-yellow-500"></i> Alchemist Rank
-                </h2>
-                <GamificationPanel token={token} />
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Share Modal */}
         {
@@ -2507,6 +2551,7 @@ function App() {
             onClose={handleProfileClose}
             apiBase={API_BASE}
             authHeaders={authHeaders}
+            token={token}
             currentUser={user}
             onLogout={handleLogout}
             onUserUpdate={(updatedUser) => {
@@ -2648,12 +2693,12 @@ function App() {
                 className="tool-item"
                 onClick={() => { 
                   if (!user) { setAuthOpen(true); } 
-                  else { setShowThemeStore(true); } 
+                  else { handleProfileOpen(user.id); } 
                   setShowToolsDrawer(false); 
                 }}
               >
                 <span className="text-lg">🎨</span>
-                <span>Theme Store</span>
+                <span>Theme Store (Profile)</span>
               </button>
 
               <button 
@@ -2680,7 +2725,7 @@ function App() {
                 className="tool-item"
                 onClick={() => { 
                   if (!user) { setAuthOpen(true); } 
-                  else { setShowGamificationData(true); } 
+                  else { handleProfileOpen(user.id); } 
                   setShowToolsDrawer(false); 
                 }}
               >
@@ -2932,32 +2977,6 @@ function App() {
         </div>
       )}
 
-      {/* Theme Store Modal */}
-      {showThemeStore && user && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden shadow-2xl relative">
-            <div className="overflow-y-auto p-6 max-h-[85vh]">
-              <ThemeStore 
-                token={token}
-                userCoins={user?.coins || 0}
-                userXP={user?.xp || 0}
-                onThemeChange={(newTheme) => {
-                  setTheme(newTheme);
-                  // Optionally sync the new theme to local storage or external immediately handled by App.jsx useEffect
-                }}
-                onClose={() => setShowThemeStore(false)}
-                onRefreshCoins={(newCoins) => {
-                  if (user) {
-                    const u = { ...user, coins: newCoins };
-                    setUser(u);
-                    localStorage.setItem('codebrain_user', JSON.stringify(u));
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Gamification Toasts */}
       <div className="fixed top-20 right-6 z-50 flex flex-col gap-3 pointer-events-none">

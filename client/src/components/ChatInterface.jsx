@@ -61,7 +61,7 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
                     )}
                     <button
                       onClick={() => onApplyPatch?.(codeString)}
-                      className="flex items-center gap-1.5 text-xs text-fuchsia-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
+                      className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-gray-700"
                       title="Apply to Editor"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -103,7 +103,7 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
                           <div className="absolute top-2 right-2 z-10">
                             <button
                               onClick={() => onApplyPatch?.(newPart)}
-                              className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-3 py-1.5 rounded-md text-xs font-bold shadow-lg flex items-center gap-1.5 transition-all transform active:scale-95"
+                              className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-md text-xs font-bold shadow-lg flex items-center gap-1.5 transition-all transform active:scale-95"
                               title="Apply suggested code to main editor"
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -156,7 +156,7 @@ const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCod
             );
           }
           return (
-            <code className={`${className || ''} bg-gray-700/50 px-1.5 py-0.5 rounded text-fuchsia-300 break-words whitespace-pre-wrap`} {...props} style={{ wordBreak: 'break-word' }}>
+            <code className={`${className || ''} bg-gray-700/50 px-1.5 py-0.5 rounded text-indigo-300 break-words whitespace-pre-wrap`} {...props} style={{ wordBreak: 'break-word' }}>
               {children}
             </code>
           );
@@ -597,6 +597,7 @@ const ChatInterface = ({
   // Toast State
   const [toast, setToast] = useState({ show: false, message: '', type: 'success', url: null });
   const [generatingTestId, setGeneratingTestId] = useState(null);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   // Security Audit Modal State
   const [auditModal, setAuditModal] = useState({
@@ -1413,7 +1414,7 @@ const ChatInterface = ({
                   )}
 
                   {/* Reasoning / Explainable AI Layer */}
-                  {(turn.reasoning || turn.routing_reason) && (
+                  {((turn.is_response_complete === true) || (!loading || index !== history.length - 1)) && (turn.reasoning || turn.routing_reason) && (
                     <div className="mt-4 bg-cyan-950/20 border border-cyan-500/30 rounded-xl overflow-hidden transition-all duration-300">
                       <button
                         onClick={() => toggleReasoning(turn.id)}
@@ -1524,10 +1525,10 @@ const ChatInterface = ({
                       {index === history.length - 1 && turn.ai_response && (
                         <button
                           onClick={() => setQuestion('Please continue and provide more details on this.')}
-                          className="flex items-center gap-1 text-xs text-gray-400 hover:text-fuchsia-300 transition-colors"
+                          className="flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-300 transition-colors"
                           title="Expand Response"
                         >
-               ö           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                           </svg>
                           <span>Continue</span>
@@ -1566,7 +1567,7 @@ const ChatInterface = ({
                 {/* Community Solutions Toggle */}
                 <button
                   onClick={() => toggleSolutions(turn.id)}
-                  className="mt-2 text-xs text-fuchsia-400 hover:text-fuchsia-300 flex items-center gap-1 ml-2 transition-colors"
+                  className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 ml-2 transition-colors"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
@@ -1599,12 +1600,12 @@ const ChatInterface = ({
         {loading && (
           <div className="flex flex-col items-center justify-center py-8 animate-fadeIn">
             <div className="relative w-12 h-12 mb-2">
-              <div className="absolute inset-0 bg-fuchsia-500/20 rounded-full animate-ping" />
-              <div className="absolute inset-2 bg-gradient-to-tr from-purple-600 to-fuchsia-600 rounded-full animate-spin shadow-[0_0_15px_rgba(192,38,211,0.5)]">
+              <div className="absolute inset-0 bg-indigo-500/20 rounded-full animate-ping" />
+              <div className="absolute inset-2 bg-[var(--accent-gradient)] rounded-full animate-spin shadow-[0_0_15px_rgba(99,102,241,0.5)]">
                 <div className="absolute top-1 left-1 w-2 h-2 bg-white rounded-full opacity-60" />
               </div>
             </div>
-            <p className="text-[10px] font-mono text-fuchsia-400 uppercase tracking-widest animate-pulse">
+            <p className="text-[10px] font-mono text-indigo-400 uppercase tracking-widest animate-pulse">
               ⚗️ Transmuting Knowledge...
             </p>
           </div>
@@ -1617,8 +1618,11 @@ const ChatInterface = ({
         <div className="max-w-4xl mx-auto space-y-3">
           {/* Prompt Templates */}
           <PromptTemplates
-            onSelect={(prompt) => setQuestion(question ? `${question}\n\n${prompt}` : prompt)}
-            visible={history.length === 0 && !loading}
+            onSelect={(prompt) => {
+              setQuestion(question ? `${question}\n\n${prompt}` : prompt);
+              setShowTemplates(false);
+            }}
+            visible={showTemplates}
           />
 
           {/* File Preview */}
@@ -1631,9 +1635,9 @@ const ChatInterface = ({
                   className="h-20 w-auto rounded-lg border border-fuchsia-500/50 shadow-lg"
                 />
               ) : image.type?.startsWith('audio/') ? (
-                <div className="flex items-center gap-3 bg-gray-800/80 px-4 py-3 rounded-lg border border-fuchsia-500/50">
-                  <div className="flex items-center justify-center w-10 h-10 bg-fuchsia-600/30 rounded-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-fuchsia-400" viewBox="0 0 20 20" fill="currentColor">
+                <div className="flex items-center gap-3 bg-gray-800/80 px-4 py-3 rounded-lg border border-indigo-500/50">
+                  <div className="flex items-center justify-center w-10 h-10 bg-indigo-600/30 rounded-full">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-400" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 10.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-5v-2.07z" clipRule="evenodd" />
                     </svg>
                   </div>
@@ -1648,8 +1652,8 @@ const ChatInterface = ({
                   />
                 </div>
               ) : (
-                <div className="flex items-center gap-2 bg-gray-800/80 px-4 py-2 rounded-lg border border-fuchsia-500/50">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-fuchsia-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="flex items-center gap-2 bg-gray-800/80 px-4 py-2 rounded-lg border border-indigo-500/50">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <div className="text-sm">
@@ -1676,7 +1680,7 @@ const ChatInterface = ({
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="Paste your code here..."
-                className="w-full bg-black/50 text-gray-300 text-sm font-mono p-3 rounded-xl border border-gray-700 focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 outline-none resize-none h-32 custom-scrollbar"
+                className="w-full bg-black/50 text-gray-300 text-sm font-mono p-3 rounded-xl border border-gray-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none h-32 custom-scrollbar"
               />
               <button
                 onClick={() => setCode('')}
@@ -1786,7 +1790,7 @@ const ChatInterface = ({
             </div>
           )}
 
-          <div className="w-full bg-gray-800/80 rounded-2xl border border-gray-700/50 focus-within:border-fuchsia-500/50 focus-within:ring-1 focus-within:ring-fuchsia-500/50 shadow-inner flex flex-col transition-all backdrop-blur-sm relative">
+          <div className="w-full bg-gray-800/80 rounded-2xl border border-gray-700/50 focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/50 shadow-inner flex flex-col transition-all backdrop-blur-sm relative">
             {useMonacoEditor ? (
               <MonacoCodeEditor
                 value={question}
@@ -1824,7 +1828,7 @@ const ChatInterface = ({
                   onClick={() => setUseMonacoEditor(v => !v)}
                   className={`p-2 rounded-xl transition-all text-xs flex items-center gap-1 ${
                     useMonacoEditor
-                      ? 'text-fuchsia-400 bg-fuchsia-900/30'
+                      ? 'text-indigo-400 bg-indigo-900/30'
                       : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
                   }`}
                   title={useMonacoEditor ? 'Switch to plain text' : 'Switch to Monaco Code Editor'}
@@ -1833,10 +1837,21 @@ const ChatInterface = ({
                   <span className="hidden sm:block text-xs">{useMonacoEditor ? 'Plain' : 'Code'}</span>
                 </button>
 
+                {/* Prompt Templates Toggle */}
+                <button
+                  onClick={() => setShowTemplates(v => !v)}
+                  className={`p-2 rounded-xl transition-all ${showTemplates ? 'text-indigo-400 bg-indigo-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                  title="Prompt Templates"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                </button>
+
                 {/* Paperclip / Attach Button */}
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className={`p-2 rounded-xl transition-all ${image ? 'text-fuchsia-400 bg-fuchsia-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
+                  className={`p-2 rounded-xl transition-all ${image ? 'text-indigo-400 bg-indigo-900/30' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'}`}
                   title="Attach File"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1886,7 +1901,7 @@ const ChatInterface = ({
                   <button
                     onClick={() => handleAskRequest('auto')}
                     disabled={loading || (!question.trim() && !image)}
-                    className="flex-shrink-0 p-2 px-4 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:hover:bg-fuchsia-600 text-white rounded-xl transition-all shadow-lg shadow-fuchsia-900/20 group min-w-[60px] h-[40px] flex items-center justify-center"
+                    className="flex-shrink-0 p-2 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white rounded-xl transition-all shadow-lg shadow-indigo-900/20 group min-w-[60px] h-[40px] flex items-center justify-center"
                   >
                     {loading ? (
                       <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -2178,7 +2193,7 @@ const ChatInterface = ({
       {toast.show && (
         <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[150] px-6 py-4 rounded-full shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 flex items-center gap-3 max-w-lg ${toast.type === 'error' ? 'bg-red-900/95 border border-red-500/50 text-red-100' : 'bg-gray-900/95 border border-fuchsia-500/50 text-white backdrop-blur-md'}`}>
           {toast.type === 'success' ? (
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-fuchsia-500 to-blue-500 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-full bg-[var(--accent-gradient)] flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
@@ -2204,7 +2219,7 @@ const ChatInterface = ({
                   toast.action();
                   setToast({ ...toast, show: false });
                 }}
-                className="text-xs bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-3 py-1.5 rounded-full transition-colors whitespace-nowrap font-bold shadow-lg"
+                className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-full transition-colors whitespace-nowrap font-bold shadow-lg"
               >
                 Undo
               </button>

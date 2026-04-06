@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 
-const GamificationPanel = ({ token }) => {
+const GamificationPanel = ({ token, refreshKey = 0 }) => {
   const [profile, setProfile] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [authUser, setAuthUser] = useState(null);
@@ -12,7 +12,7 @@ const GamificationPanel = ({ token }) => {
     if (token) {
       fetchData();
     }
-  }, [token]);
+  }, [token, refreshKey]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -157,7 +157,7 @@ const GamificationPanel = ({ token }) => {
                   <span className="identity-chip">@{handle}</span>
                   <span className="identity-chip nickname">Lakap: {localRankTitle}</span>
                 </div>
-                <div className="xp-text">{profile.xp} / {nextXP} XP</div>
+                <div className="xp-text">{effectiveTotalXP} / {nextXP} XP</div>
               </div>
               <div className="streak-badge" title="Daily Streak">
                 <i className="fas fa-fire streak-icon"></i>

@@ -6760,6 +6760,126 @@ def get_weekly_stats():
         }
     })
 
+# ==========================================
+# API KEYS & VS CODE EXTENSION ENDPOINTS
+# ==========================================
+import secrets
+from models import ApiKey
+
+@app.route('/api/keys', methods=['GET'])
+@jwt_required()
+def get_api_keys():
+    user_id = get_jwt_identity()
+    # Sadece aktif anahtarları getir
+    keys = ApiKey.query.filter_by(user_id=user_id, is_active=True).order_by(ApiKey.created_at.desc()).all()
+    return jsonify({
+        'keys': [
+            {
+                'id': k.id,
+                'name': k.name,
+                'key_preview': f"ca-***-{k.key[-4:]}" if len(k.key) > 4 else "***",
+                'created_at': k.created_at.isoformat(),
+                'last_used_at': k.last_used_at.isoformat() if k.last_used_at else None
+            } for k in keys
+        ]
+    })
+
+@app.route('/api/keys', methods=['POST'])
+@jwt_required()
+def create_api_key():
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+    name = data.get('name', 'My API Key').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+        
+    # Benzersiz token üret (ca- öneki ile CodeAlchemist olduğu belli olsun)
+    token = f"ca-{secrets.token_hex(16)}"
+    
+    new_key = ApiKey(user_id=user_id, name=name, key=token)
+    db.session.add(new_key)
+    db.session.commit()
+    
+    # Tam token sadece bir kez döndürülür
+    return jsonify({
+        'message': 'API Key created successfully',
+        'key': {
+            'id': new_key.id,
+            'name': new_key.name,
+            'token': token,
+            'created_at': new_key.created_at.isoformat()
+        }
+    })
+
+@app.route('/api/keys/<int:key_id>', methods=['DELETE'])
+@jwt_required()
+def revoke_api_key(key_id):
+    user_id = get_jwt_identity()
+    key_record = ApiKey.query.filter_by(id=key_id, user_id=user_id).first()
+    if not key_record:
+        return jsonify({'error': 'Key not found'}), 404
+        
+    # Soft delete - Veritabanı tutarlılığı için satırı silmiyoruz
+    key_record.is_active = False
+    db.session.commit()
+    return jsonify({'message': 'Key revoked successfully'})
+
+
+@app.route('/v1/ask', methods=['POST'])
+def external_ask():
+    """
+    Endpoint for VS Code Extension and external tools.
+    Expects header: X-API-Key
+    Expects JSON body: { "question": "...", "code": "..." }
+    """
+    api_key_header = request.headers.get('X-API-Key')
+    if not api_key_header:
+        return jsonify({'error': 'X-API-Key header is missing'}), 401
+        
+    key_record = ApiKey.query.filter_by(key=api_key_header, is_active=True).first()
+    if not key_record:
+        return jsonify({'error': 'Invalid or revoked API Key'}), 401
+    
+    # Son kullanım tarihini güncelle
+    key_record.last_used_at = datetime.utcnow()
+    db.session.commit()
+    
+    data = request.get_json() or {}
+    question = data.get('question', '')
+    code = data.get('code', '')
+    
+    if not question and not code:
+        return jsonify({'error': 'Either question or code must be provided'}), 400
+        
+    user_id = key_record.user_id
+    user = User.query.get(user_id)
+    prefs = json.loads(user.preferences) if user and user.preferences else {}
+    
+    generator = generate_gemini_answer(
+        question=question, 
+        code=code, 
+        prefs=prefs
+    )
+    
+    wants_stream = request.headers.get('Accept') == 'text/event-stream'
+    
+    if wants_stream:
+        def generate():
+            for chunk in generator:
+                # Eklenti hazır olduğunda Server-Sent Events akışı kullanılabilir
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    else:
+        # V1.0 için senkron (toplu) JSON yanıt
+        full_text = ""
+        for chunk in generator:
+            full_text += chunk
+            
+        return jsonify({
+            'answer': full_text
+        })
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve(path):

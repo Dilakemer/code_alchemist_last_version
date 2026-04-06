@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import FollowButton from './FollowButton';
+import GamificationPanel from './GamificationPanel';
+import ThemeStore from './ThemeStore';
 
-const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, onPostClick, onLogout, onUserUpdate, onShowAlert, onUserClick, onBack, canGoBack }) => {
+const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, onPostClick, onLogout, onUserUpdate, onShowAlert, onUserClick, onBack, canGoBack, token }) => {
     const [profileData, setProfileData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [showSettings, setShowSettings] = useState(false);
+    const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'achievements' | 'appearance' | 'account'
+    
+    // Account Settings States
     const [displayName, setDisplayName] = useState('');
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
@@ -18,10 +22,17 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
     const fileInputRef = useRef(null);
 
     // Followers/Following list states
-    const [activeListTab, setActiveListTab] = useState(null); // 'followers' | 'following' | null
+    const [activeListTab, setActiveListTab] = useState(null);
     const [followersList, setFollowersList] = useState([]);
     const [followingList, setFollowingList] = useState([]);
     const [listLoading, setListLoading] = useState(false);
+
+    // API Keys States
+    const [apiKeys, setApiKeys] = useState([]);
+    const [keysLoading, setKeysLoading] = useState(false);
+    const [newKeyName, setNewKeyName] = useState('');
+    const [newKeyToken, setNewKeyToken] = useState(null);
+    const [isCreatingKey, setIsCreatingKey] = useState(false);
 
     const isOwnProfile = currentUser && currentUser.id === userId;
 
@@ -31,7 +42,8 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                 const res = await fetch(`${apiBase}/api/users/${userId}/profile`, { headers: authHeaders });
                 if (res.ok) {
                     const data = await res.json();
-                    setProfileData(data); // { user: {...}, posts: [...] }
+                    setProfileData(data);
+                    setDisplayName(data.user.display_name || '');
                 }
             } catch (err) {
                 console.error("Failed to fetch profile", err);
@@ -40,17 +52,27 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
             }
         };
         if (userId) {
-            // Reset states when user changes
-            // Only reset if NOT navigating back? Actually we want to reset UI states (like settings open) but show new user data
-            setActiveListTab(null);
-            setShowSettings(false);
-            setMessage({ type: '', text: '' });
-            setFollowersList([]);
-            setFollowingList([]);
-            setLoading(true); // Ensure loading state is true when switching
+            setLoading(true);
             fetchProfile();
         }
     }, [userId, apiBase, authHeaders]);
+
+    useEffect(() => {
+        if (activeTab === 'developer' && isOwnProfile) {
+            setKeysLoading(true);
+            fetch(`${apiBase}/api/keys`, { headers: authHeaders })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.keys) setApiKeys(data.keys);
+                })
+                .catch(err => console.error("Error fetching keys:", err))
+                .finally(() => setKeysLoading(false));
+            
+            // clear previously created token display
+            setNewKeyToken(null);
+            setNewKeyName('');
+        }
+    }, [activeTab, apiBase, authHeaders, isOwnProfile]);
 
     if (!userId) return null;
 
@@ -61,546 +83,390 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
         if (!u) return null;
         const candidate = u.profile_image || u.profile_image_url || u.profileImage || u.avatar || u.author_image;
         if (!candidate) return null;
-        // Eğer zaten tam URL ise direkt döndür
-        if (candidate.startsWith('http://') || candidate.startsWith('https://')) return candidate;
-        // Eğer /uploads/ ile başlıyorsa apiBase ile birleştir
-        if (candidate.startsWith('/uploads/') || candidate.startsWith('/uploads')) {
-            return `${apiBase}${candidate}`;
-        }
-        // Eğer uploads/ ile başlıyorsa (slash yok) ekle
-        if (candidate.startsWith('uploads/')) {
-            return `${apiBase}/${candidate}`;
-        }
-        // Diğer durumlarda başına / ekle
+        if (candidate.startsWith('http')) return candidate;
         return `${apiBase}${candidate.startsWith('/') ? '' : '/'}${candidate}`;
     };
 
     const avatarUrl = resolveAvatarUrl(user);
-    const bioRaw = user?.bio || user?.description || user?.about || '';
-    const bio = bioRaw && !/okunaksız/i.test(bioRaw) ? bioRaw : '';
+    const bio = user?.bio || '';
 
     const handleRemovePhoto = async () => {
         setImageLoading(true);
-        setMessage({ type: '', text: '' });
-
         try {
-            const res = await fetch(`${apiBase}/api/auth/profile/image`, {
-                method: 'DELETE',
-                headers: authHeaders
-            });
+            const res = await fetch(`${apiBase}/api/auth/profile/image`, { method: 'DELETE', headers: authHeaders });
             const data = await res.json();
-
             if (res.ok) {
-                setMessage({ type: 'success', text: data.message || 'Photo removed!' });
+                setMessage({ type: 'success', text: 'Photo removed!' });
                 if (onUserUpdate) onUserUpdate(data.user);
-            } else {
-                setMessage({ type: 'error', text: data.error || 'Error occurred.' });
             }
-        } catch {
-            setMessage({ type: 'error', text: 'Connection error.' });
-        } finally {
-            setImageLoading(false);
-        }
+        } catch { setMessage({ type: 'error', text: 'Error.' }); }
+        finally { setImageLoading(false); }
     };
 
+    const tabs = [
+        { id: 'overview', label: 'Genel Bakış', icon: '👤' },
+        { id: 'achievements', label: 'Başarılar', icon: '🏆', ownOnly: true },
+        { id: 'appearance', label: 'Görünüm', icon: '🎨', ownOnly: true },
+        { id: 'developer', label: 'Geliştirici', icon: '💻', ownOnly: true },
+        { id: 'account', label: 'Hesap', icon: '⚙️', ownOnly: true },
+    ];
+
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl h-[85vh] flex flex-col relative shadow-2xl overflow-hidden">
-                {canGoBack && (
-                    <button
-                        onClick={onBack}
-                        className="absolute top-4 left-4 text-gray-400 hover:text-white z-10 p-2 bg-black/20 hover:bg-black/40 rounded-full transition-all"
-                        title="Geri Dön"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                    </button>
-                )}
-                <button
-                    onClick={onClose}
-                    className="absolute top-4 right-4 text-gray-400 hover:text-white z-10"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-
-                {loading ? (
-                    <div className="p-8 flex justify-center">
-                        <div className="w-8 h-8 border-2 border-fuchsia-500 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                ) : user ? (
-                    <>
-                        {/* Profile Header */}
-                        <div className="flex flex-col items-center p-4 border-b border-gray-800 shrink-0">
-                            <div className="flex items-center gap-4 mb-3 w-full px-4">
-                                <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-600 p-1 shrink-0">
-                                    <div className="w-full h-full rounded-full bg-gray-900 overflow-hidden flex items-center justify-center">
-                                        {avatarUrl ? (
-                                            <img
-                                                src={avatarUrl}
-                                                alt={user.display_name}
-                                                className="w-full h-full object-cover"
-                                                onError={(e) => {
-                                                    e.currentTarget.style.display = 'none';
-                                                    e.currentTarget.nextSibling.style.display = 'block';
-                                                }}
-                                            />
-                                        ) : null}
-                                        <span
-                                            className="text-xl font-bold text-white uppercase"
-                                            style={{ display: avatarUrl ? 'none' : 'block' }}
-                                        >
-                                            {user.display_name?.[0]}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="flex-1 text-left">
-                                    <h2 className="text-lg font-bold text-white leading-tight">{user.display_name}</h2>
-                                    <p className="text-gray-400 text-xs mb-1">Since: {user.created_at}</p>
-                                    {bio && <p className="text-xs text-gray-500 line-clamp-2">{bio}</p>}
-                                </div>
-                            </div>
-
-                            <div className="flex gap-4 w-full justify-center bg-gray-800/30 py-2 rounded-lg">
-                                <button
-                                    onClick={async () => {
-                                        setActiveListTab('followers');
-                                        setListLoading(true);
-                                        try {
-                                            const res = await fetch(`${apiBase}/api/users/${userId}/followers`, { headers: authHeaders });
-                                            if (res.ok) {
-                                                const data = await res.json();
-                                                setFollowersList(data.followers || []);
-                                                setProfileData(prev => ({
-                                                    ...prev,
-                                                    user: {
-                                                        ...prev.user,
-                                                        followers_count: (data.followers || []).length
-                                                    }
-                                                }));
-                                            }
-                                        } catch (err) {
-                                            console.error('Failed to fetch followers', err);
-                                        } finally {
-                                            setListLoading(false);
-                                        }
-                                    }}
-                                    className="text-center hover:bg-gray-800/50 px-3 py-1 rounded transition-colors"
-                                >
-                                    <div className="text-sm font-bold text-white">{user.followers_count || 0}</div>
-                                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">Followers</div>
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        setActiveListTab('following');
-                                        setListLoading(true);
-                                        try {
-                                            const res = await fetch(`${apiBase}/api/users/${userId}/following`, { headers: authHeaders });
-                                            if (res.ok) {
-                                                const data = await res.json();
-                                                setFollowingList(data.following || []);
-                                                setProfileData(prev => ({
-                                                    ...prev,
-                                                    user: {
-                                                        ...prev.user,
-                                                        following_count: (data.following || []).length
-                                                    }
-                                                }));
-                                            }
-                                        } catch (err) {
-                                            console.error('Failed to fetch following', err);
-                                        } finally {
-                                            setListLoading(false);
-                                        }
-                                    }}
-                                    className="text-center hover:bg-gray-800/50 px-3 py-1 rounded transition-colors"
-                                >
-                                    <div className="text-sm font-bold text-white">{user.following_count || 0}</div>
-                                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">Following</div>
-                                </button>
-                                <div className="text-center px-3 py-1">
-                                    <div className="text-sm font-bold text-white">{posts.length}</div>
-                                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">Posts</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* AI Profile Insight Card */}
-                        {isOwnProfile && (
-                            <div className="w-full px-6 mb-4">
-                                <div className="bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700/50 rounded-xl p-4 relative overflow-hidden group">
-                                    <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 text-fuchsia-500" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                                        </svg>
-                                    </div>
-
-                                    <div className="flex items-start justify-between relative z-10">
-                                        <div>
-                                            <h3 className="text-fuchsia-400 font-bold text-sm mb-1 uppercase tracking-wider flex items-center gap-2">
-                                                <span className="animate-pulse">✨</span> AI Persona Insight
-                                            </h3>
-                                            {user.preferences ? (
-                                                <div className="space-y-2">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-white font-bold text-lg">{user.preferences.persona || 'General User'}</span>
-                                                        <span className="px-2 py-0.5 rounded-full bg-fuchsia-900/50 text-fuchsia-300 text-xs border border-fuchsia-500/30">
-                                                            {user.preferences.expertise || 'Beginner'}
-                                                        </span>
-                                                    </div>
-                                                    {user.preferences.interests && (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {user.preferences.interests.map((tag, i) => (
-                                                                <span key={i} className="text-xs text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#{tag}</span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <p className="text-gray-400 text-xs max-w-xs">
-                                                    Analyze your chat history to let AI understand your style and expertise.
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        <button
-                                            onClick={async () => {
-                                                setAnalyzing(true);
-                                                try {
-                                                    const res = await fetch(`${apiBase}/api/auth/profile/analyze`, {
-                                                        method: 'POST',
-                                                        headers: authHeaders
-                                                    });
-                                                    const data = await res.json();
-                                                    if (res.ok) {
-                                                        setProfileData(prev => ({
-                                                            ...prev,
-                                                            user: data.user // Update user with new preferences
-                                                        }));
-                                                        // Optional: Trigger a parent update if needed
-                                                        if (onUserUpdate) onUserUpdate(data.user);
-                                                    } else {
-                                                        // Show detailed error if available
-                                                        const errMsg = data.details ? `${data.error}\nDetails: ${data.details}` : (data.error || data.message || 'Analysis failed.');
-                                                        alert(errMsg);
-                                                    }
-                                                } catch (err) {
-                                                    console.error(err);
-                                                    alert(`Connection error: ${err.message}`);
-                                                } finally {
-                                                    setAnalyzing(false);
-                                                }
-                                            }}
-                                            disabled={analyzing}
-                                            className="bg-gray-800 hover:bg-gray-700 text-white text-xs px-3 py-2 rounded-lg border border-gray-600 transition-colors flex items-center gap-2"
-                                        >
-                                            {analyzing ? (
-                                                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                            ) : (
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                                                </svg>
-                                            )}
-                                            {user.preferences ? 'Refresh' : 'Analyze Me'}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Follow Button */}
-                        {currentUser && currentUser.id !== userId && (
-                            <FollowButton
-                                userId={userId}
-                                initialIsFollowing={user.is_following}
-                                apiBase={apiBase}
-                                authHeaders={authHeaders}
-                                onFollowChange={(newStatus) => {
-                                    setProfileData(prev => ({
-                                        ...prev,
-                                        user: {
-                                            ...prev.user,
-                                            is_following: newStatus,
-                                            followers_count: (prev.user.followers_count || 0) + (newStatus ? 1 : -1)
-                                        }
-                                    }));
-                                }}
-                                onShowAlert={onShowAlert}
-                            />
-                        )}
-
-                        {/* Settings Button for own profile */}
-                        {isOwnProfile && (
-                            <button
-                                onClick={() => {
-                                    setShowSettings(!showSettings);
-                                    setDisplayName(user.display_name || '');
-                                }}
-                                className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+            <div className="bg-[#0F172A] border border-white/10 rounded-3xl w-full max-w-4xl h-[85vh] flex flex-col relative shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">
+                
+                {/* Header Section */}
+                <div className="p-6 border-b border-white/5 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-4">
+                        {canGoBack && (
+                            <button onClick={onBack} className="p-2 hover:bg-white/5 rounded-full transition-colors text-gray-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                                 </svg>
-                                {showSettings ? 'Back' : 'Settings'}
                             </button>
                         )}
+                        <h2 className="text-xl font-black text-white">Profil</h2>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full text-gray-400 transition-colors">
+                        ✕
+                    </button>
+                </div>
 
+                <div className="flex flex-1 overflow-hidden">
+                    {/* Sidebar Tabs */}
+                    <div className="w-64 border-r border-white/5 p-4 flex flex-col gap-1 shrink-0">
+                        {tabs.map(tab => {
+                            if (tab.ownOnly && !isOwnProfile) return null;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                                        activeTab === tab.id 
+                                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                    }`}
+                                >
+                                    <span>{tab.icon}</span>
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                        
+                        <div className="mt-auto pt-4">
+                            {isOwnProfile && (
+                                <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl text-sm font-bold transition-all">
+                                    <span>🚪</span> Çıkış Yap
+                                </button>
+                            )}
+                        </div>
+                    </div>
 
-                        {/* Followers/Following List Modal */}
-                        {activeListTab && (
-                            <div className="absolute inset-0 bg-gray-900 z-50 flex flex-col">
-                                <div className="flex items-center justify-between p-4 border-b border-gray-800">
-                                    <div className="flex gap-4">
-                                        <button
-                                            onClick={() => setActiveListTab('followers')}
-                                            className={`text-sm font-medium px-3 py-1 rounded-lg transition-colors ${activeListTab === 'followers' ? 'bg-fuchsia-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                                        >
-                                            Followers ({user.followers_count || 0})
-                                        </button>
-                                        <button
-                                            onClick={() => setActiveListTab('following')}
-                                            className={`text-sm font-medium px-3 py-1 rounded-lg transition-colors ${activeListTab === 'following' ? 'bg-fuchsia-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                                        >
-                                            Following ({user.following_count || 0})
-                                        </button>
-                                    </div>
-                                    <button
-                                        onClick={() => setActiveListTab(null)}
-                                        className="text-gray-400 hover:text-white"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                </div>
-                                <div className="flex-1 overflow-y-auto p-4">
-                                    {listLoading ? (
-                                        <div className="flex justify-center py-8">
-                                            <div className="w-6 h-6 border-2 border-fuchsia-500 border-t-transparent rounded-full animate-spin"></div>
+                    {/* Content Area */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                        {loading ? (
+                            <div className="h-full flex items-center justify-center">
+                                <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                            </div>
+                        ) : !user ? (
+                            <div className="text-center text-slate-500 mt-20">Kullanıcı bulunamadı.</div>
+                        ) : (
+                            <>
+                                {activeTab === 'overview' && (
+                                    <div className="max-w-2xl mx-auto">
+                                        <div className="flex items-center gap-6 mb-10">
+                                            <div className="w-24 h-24 rounded-3xl bg-[var(--accent-gradient)] p-1 shrink-0">
+                                                <div className="w-full h-full rounded-[20px] bg-[#0F172A] overflow-hidden flex items-center justify-center text-3xl font-black text-white">
+                                                    {avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="" /> : user.display_name?.[0]}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <h1 className="text-3xl font-black text-white mb-1">{user.display_name}</h1>
+                                                <p className="text-slate-400 text-sm font-medium">@{user.username || 'alchemist'}</p>
+                                                <div className="flex gap-4 mt-4">
+                                                    <span className="text-xs text-slate-500"><b>{user.followers_count || 0}</b> Takipçi</span>
+                                                    <span className="text-xs text-slate-500"><b>{user.following_count || 0}</b> Takip</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            {(activeListTab === 'followers' ? followersList : followingList).map((u) => {
-                                                const avatarUrl = resolveAvatarUrl(u);
-                                                return (
-                                                    <div
-                                                        key={u.id}
-                                                        onClick={() => onUserClick && onUserClick(u.id)}
-                                                        className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
-                                                    >
-                                                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-600 flex items-center justify-center text-sm font-bold overflow-hidden border border-gray-700">
-                                                            {avatarUrl ? (
-                                                                <img
-                                                                    src={avatarUrl}
-                                                                    alt={u.display_name}
-                                                                    className="w-full h-full object-cover"
-                                                                    onError={(e) => {
-                                                                        e.target.style.display = 'none';
-                                                                        e.target.parentElement.innerText = u.display_name?.[0]?.toUpperCase() || '?';
-                                                                    }}
-                                                                />
-                                                            ) : (
-                                                                u.display_name?.[0]?.toUpperCase()
-                                                            )}
-                                                        </div>
-                                                        <div className="flex-1">
-                                                            <div className="text-white font-medium text-sm">{u.display_name}</div>
-                                                        </div>
+
+                                        {/* Bio / Persona */}
+                                        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 mb-8">
+                                            <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">AI Persona & Bio</h3>
+                                            <p className="text-slate-300 text-sm leading-relaxed mb-6">{bio || 'Henüz bir bio eklenmemiş.'}</p>
+                                            
+                                            {isOwnProfile && (
+                                                <div className="flex items-center justify-between p-4 bg-indigo-500/5 rounded-xl border border-indigo-500/10">
+                                                    <div>
+                                                        <span className="text-[10px] font-black text-indigo-400 uppercase block mb-1">Current Expertise</span>
+                                                        <span className="text-sm font-bold text-white">{user.preferences?.expertise || 'Analiz Edilmedi'}</span>
                                                     </div>
-                                                )
-                                            })}
-                                            {(activeListTab === 'followers' ? followersList : followingList).length === 0 && (
-                                                <div className="text-center text-gray-500 py-8 text-sm">
-                                                    {activeListTab === 'followers' ? 'No followers yet' : 'Not following anyone yet'}
+                                                    <button 
+                                                        disabled={analyzing}
+                                                        onClick={async () => {
+                                                            setAnalyzing(true);
+                                                            try {
+                                                                const res = await fetch(`${apiBase}/api/auth/profile/analyze`, { method: 'POST', headers: authHeaders });
+                                                                if (res.ok) {
+                                                                    const data = await res.json();
+                                                                    setProfileData(prev => ({ ...prev, user: data.user }));
+                                                                    if (onUserUpdate) onUserUpdate(data.user);
+                                                                }
+                                                            } finally { setAnalyzing(false); }
+                                                        }}
+                                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg transition-all"
+                                                    >
+                                                        {analyzing ? '...' : 'Re-Analyze Persona'}
+                                                    </button>
                                                 </div>
                                             )}
                                         </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
 
-                        {/* Settings Panel */}
-                        {showSettings && isOwnProfile ? (
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                                <h3 className="text-lg font-bold text-white mb-4">Profile Settings</h3>
-
-                                {message.text && (
-                                    <div className={`p-3 rounded-lg text-sm ${message.type === 'error' ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-green-500/20 text-green-300 border border-green-500/30'}`}>
-                                        {message.text}
+                                        {/* Posts */}
+                                        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">Gönderiler</h3>
+                                        <div className="space-y-3">
+                                            {posts.map(post => (
+                                                <div key={post.id} onClick={() => onPostClick && onPostClick(post)} className="p-4 rounded-xl border border-white/5 bg-white/[0.01] hover:border-indigo-500/30 cursor-pointer transition-all">
+                                                    <p className="text-sm text-slate-200 font-medium line-clamp-1">{post.user_question}</p>
+                                                    <div className="flex gap-3 mt-2 text-[10px] text-slate-500 font-bold uppercase">
+                                                        <span>{post.selected_model}</span>
+                                                        <span>•</span>
+                                                        <span>{new Date(post.timestamp).toLocaleDateString()}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {posts.length === 0 && <p className="text-sm text-slate-600 italic">Henüz gönderi yok.</p>}
+                                        </div>
                                     </div>
                                 )}
 
-                                {/* Profile Picture */}
-                                <div>
-                                    <label className="block text-sm text-gray-400 mb-2">Profile Picture</label>
-                                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={async (e) => {
-                                        const file = e.target.files?.[0];
-                                        if (!file) return;
-                                        setImageLoading(true);
-                                        const formData = new FormData();
-                                        formData.append('image', file);
-                                        try {
-                                            const res = await fetch(`${apiBase}/api/auth/profile/image`, { method: 'POST', headers: authHeaders, body: formData });
-                                            const data = await res.json();
-                                            if (res.ok) {
-                                                setMessage({ type: 'success', text: 'Photo updated!' });
-                                                if (onUserUpdate) onUserUpdate(data.user);
-                                            } else {
-                                                setMessage({ type: 'error', text: data.error || 'Error occurred.' });
-                                            }
-                                        } catch { setMessage({ type: 'error', text: 'Connection error.' }); }
-                                        finally { setImageLoading(false); }
-                                    }} />
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-white transition-colors disabled:opacity-50" disabled={imageLoading}>
-                                            {imageLoading ? 'Processing...' : 'Change Photo'}
-                                        </button>
-                                        {avatarUrl && (
-                                            <button
-                                                onClick={handleRemovePhoto}
-                                                className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/40 rounded-lg text-sm text-red-300 transition-colors disabled:opacity-50"
-                                                disabled={imageLoading}
-                                            >
-                                                Remove Photo
-                                            </button>
-                                        )}
+                                {activeTab === 'achievements' && isOwnProfile && (
+                                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                        <GamificationPanel token={token} />
                                     </div>
-                                </div>
+                                )}
 
-                                {/* Display Name */}
-                                <div>
-                                    <label className="block text-sm text-gray-400 mb-2">Display Name</label>
-                                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-fuchsia-500 outline-none" />
-                                </div>
+                                {activeTab === 'appearance' && isOwnProfile && (
+                                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                        <h3 className="text-xl font-black text-white mb-6">Tema Mağazası</h3>
+                                        <ThemeStore />
+                                    </div>
+                                )}
 
-                                {/* Password Change */}
-                                <div className="space-y-3">
-                                    <label className="block text-sm text-gray-400">Change Password</label>
-                                    <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current Password" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-fuchsia-500 outline-none" />
-                                    <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New Password" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-fuchsia-500 outline-none" />
-                                    <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm New Password" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-fuchsia-500 outline-none" />
-                                </div>
+                                {activeTab === 'developer' && isOwnProfile && (
+                                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-2xl mx-auto">
+                                        <h3 className="text-xl font-black text-white mb-2">Geliştirici Ayarları</h3>
+                                        <p className="text-sm text-slate-400 mb-8">
+                                            CodeAlchemist'i VS Code, Terminal veya kendi araçlarınızla entegre etmek için API anahtarları oluşturun.
+                                        </p>
+                                        
+                                        {/* Create New Key Section */}
+                                        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 mb-8">
+                                            <h4 className="text-sm font-bold text-white mb-4">Yeni Anahtar Oluştur</h4>
+                                            
+                                            {newKeyToken ? (
+                                                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl mb-4">
+                                                    <p className="text-emerald-400 text-sm font-bold mb-2">Başarıyla oluşturuldu! Lütfen bu anahtarı güvenli bir yere kopyalayın.</p>
+                                                    <p className="text-xs text-slate-400 mb-3">Güvenlik nedeniyle bu anahtarı bir daha tam olarak göremeyeceksiniz.</p>
+                                                    <div className="flex items-center gap-2 bg-black/40 p-3 rounded-lg border border-white/10">
+                                                        <code className="text-indigo-300 font-mono text-sm flex-1 break-all">{newKeyToken}</code>
+                                                        <button 
+                                                            onClick={() => {
+                                                                navigator.clipboard.writeText(newKeyToken);
+                                                                if(onShowAlert) onShowAlert('Anahtar kopyalandı!', 'success');
+                                                            }}
+                                                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded text-xs font-bold transition-all"
+                                                        >Kopyala</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex gap-3">
+                                                    <input 
+                                                        type="text" 
+                                                        value={newKeyName} 
+                                                        onChange={(e) => setNewKeyName(e.target.value)} 
+                                                        placeholder="Örn: VS Code Mac" 
+                                                        className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                                        maxLength={50}
+                                                    />
+                                                    <button 
+                                                        disabled={isCreatingKey || !newKeyName.trim()}
+                                                        onClick={async () => {
+                                                            setIsCreatingKey(true);
+                                                            try {
+                                                                const res = await fetch(`${apiBase}/api/keys`, {
+                                                                    method: 'POST',
+                                                                    headers: { 'Content-Type': 'application/json', ...authHeaders },
+                                                                    body: JSON.stringify({ name: newKeyName })
+                                                                });
+                                                                if (res.ok) {
+                                                                    const data = await res.json();
+                                                                    setNewKeyToken(data.key.token);
+                                                                    setApiKeys(prev => [data.key, ...prev]);
+                                                                    setNewKeyName('');
+                                                                    if(onShowAlert) onShowAlert('Yeni API anahtarı üretildi.', 'success');
+                                                                } else {
+                                                                    const data = await res.json();
+                                                                    if(onShowAlert) onShowAlert(data.error || 'Hata oluştu', 'error');
+                                                                }
+                                                            } catch (err) {
+                                                                if(onShowAlert) onShowAlert('Bağlantı hatası', 'error');
+                                                            } finally {
+                                                                setIsCreatingKey(false);
+                                                            }
+                                                        }}
+                                                        className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                                                    >
+                                                        {isCreatingKey ? '...' : 'Oluştur'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
 
-                                {/* Save Button */}
-                                <button
-                                    onClick={async () => {
-                                        if (newPassword && newPassword !== confirmPassword) { setMessage({ type: 'error', text: 'Passwords do not match.' }); return; }
-                                        setUpdating(true);
-                                        try {
-                                            const res = await fetch(`${apiBase}/api/auth/profile`, {
-                                                method: 'PUT',
-                                                headers: { 'Content-Type': 'application/json', ...authHeaders },
-                                                body: JSON.stringify({ display_name: displayName, current_password: currentPassword, new_password: newPassword })
-                                            });
-                                            const data = await res.json();
-                                            if (res.ok) {
-                                                setMessage({ type: 'success', text: 'Profile updated!' });
-                                                setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
-                                                if (onUserUpdate) onUserUpdate(data.user);
-                                            } else { setMessage({ type: 'error', text: data.error || 'Error occurred.' }); }
-                                        } catch { setMessage({ type: 'error', text: 'Connection error.' }); }
-                                        finally { setUpdating(false); }
-                                    }}
-                                    disabled={updating}
-                                    className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white py-2.5 rounded-lg font-medium transition-all disabled:opacity-50"
-                                >
-                                    {updating ? 'Saving...' : 'Save Changes'}
-                                </button>
+                                        {/* List Keys Section */}
+                                        <div className="space-y-3">
+                                            <h4 className="text-sm font-bold text-slate-300 mb-4 px-1">Mevcut Anahtarlarınız</h4>
+                                            {keysLoading ? (
+                                                <div className="text-center py-6 text-slate-500 text-sm">Yükleniyor...</div>
+                                            ) : apiKeys.length === 0 ? (
+                                                <div className="text-center py-6 text-slate-500 text-sm bg-white/[0.01] border border-white/5 rounded-xl">
+                                                    Henüz API anahtarınız yok.
+                                                </div>
+                                            ) : (
+                                                apiKeys.map(key => (
+                                                    <div key={key.id} className="flex items-center justify-between p-4 bg-white/[0.02] border border-white/5 hover:border-white/10 rounded-xl transition-colors">
+                                                        <div>
+                                                            <div className="flex items-center gap-3 mb-1">
+                                                                <h5 className="font-bold text-slate-200 text-sm">{key.name}</h5>
+                                                                <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">{key.key_preview || (key.token && key.token.replace(/^(ca-).+(.{4})$/, '$1***$2')) || '***'}</span>
+                                                            </div>
+                                                            <div className="text-[11px] text-slate-500 flex items-center gap-3">
+                                                                <span>Oluşturuldu: {new Date(key.created_at).toLocaleDateString()}</span>
+                                                                {key.last_used_at && (
+                                                                    <>
+                                                                        <span>•</span>
+                                                                        <span>Son Kullanım: {new Date(key.last_used_at).toLocaleDateString()}</span>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <button 
+                                                            onClick={async () => {
+                                                                if (!window.confirm(`"${key.name}" anahtarını iptal etmek istediğinize emin misiniz?`)) return;
+                                                                try {
+                                                                    const res = await fetch(`${apiBase}/api/keys/${key.id}`, {
+                                                                        method: 'DELETE',
+                                                                        headers: authHeaders
+                                                                    });
+                                                                    if (res.ok) {
+                                                                        setApiKeys(prev => prev.filter(k => k.id !== key.id));
+                                                                        if(onShowAlert) onShowAlert('Anahtar iptal edildi.', 'success');
+                                                                    }
+                                                                } catch (err) {
+                                                                    if(onShowAlert) onShowAlert('İptal edilemedi.', 'error');
+                                                                }
+                                                            }}
+                                                            className="p-2 text-red-500/50 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                                            title="İptal Et (Revoke)"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
 
-                                {/* Delete Account */}
-                                <div className="pt-6 border-t border-gray-800">
-                                    <h4 className="text-red-400 font-bold mb-2">Danger Zone</h4>
-                                    {!showDeleteConfirm ? (
-                                        <button onClick={() => setShowDeleteConfirm(true)} className="text-red-400 hover:text-red-300 text-sm underline">
-                                            Delete My Account
-                                        </button>
-                                    ) : (
-                                        <div className="space-y-3 bg-red-900/20 border border-red-500/30 rounded-lg p-4">
-                                            <p className="text-sm text-red-300">This action cannot be undone! Enter your password to confirm:</p>
-                                            <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} placeholder="Your Password" className="w-full bg-gray-800 border border-red-500/50 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-red-500 outline-none" />
-                                            <div className="flex gap-2">
-                                                <button onClick={() => { setShowDeleteConfirm(false); setDeletePassword(''); }} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm">Cancel</button>
+                                {activeTab === 'account' && isOwnProfile && (
+                                    <div className="max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                        <div>
+                                            <h3 className="text-xl font-black text-white mb-6">Hesap Ayarları</h3>
+                                            
+                                            {message.text && (
+                                                <div className={`p-4 rounded-xl text-sm mb-6 ${message.type === 'error' ? 'bg-red-500/10 text-red-300 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'}`}>
+                                                    {message.text}
+                                                </div>
+                                            )}
+
+                                            <div className="space-y-6">
+                                                <div>
+                                                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Display Name</label>
+                                                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
+                                                </div>
+
+                                                <div className="space-y-3 pt-4">
+                                                    <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Şifre Değiştir</label>
+                                                    <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Şu anki şifre" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none" />
+                                                    <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Yeni şifre" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none" />
+                                                    <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Yeni şifre (Tekrar)" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none" />
+                                                </div>
+
                                                 <button
                                                     onClick={async () => {
-                                                        if (!deletePassword) return;
+                                                        if (newPassword && newPassword !== confirmPassword) { setMessage({ type: 'error', text: 'Passwords do not match.' }); return; }
+                                                        setUpdating(true);
                                                         try {
-                                                            const res = await fetch(`${apiBase}/api/auth/delete-account`, {
-                                                                method: 'DELETE',
+                                                            const res = await fetch(`${apiBase}/api/auth/profile`, {
+                                                                method: 'PUT',
                                                                 headers: { 'Content-Type': 'application/json', ...authHeaders },
-                                                                body: JSON.stringify({ password: deletePassword })
+                                                                body: JSON.stringify({ display_name: displayName, current_password: currentPassword, new_password: newPassword })
                                                             });
-                                                            if (res.ok) { if (onLogout) await onLogout(); onClose(); }
-                                                            else { const d = await res.json(); setMessage({ type: 'error', text: d.error || 'Could not delete.' }); }
-                                                        } catch { setMessage({ type: 'error', text: 'Connection error.' }); }
+                                                            const data = await res.json();
+                                                            if (res.ok) {
+                                                                setMessage({ type: 'success', text: 'Profile updated!' });
+                                                                setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+                                                                if (onUserUpdate) onUserUpdate(data.user);
+                                                            } else { setMessage({ type: 'error', text: data.error || 'Error!' }); }
+                                                        } finally { setUpdating(false); }
                                                     }}
-                                                    className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-lg text-sm font-bold"
+                                                    disabled={updating}
+                                                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-2xl font-black transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50"
                                                 >
-                                                    Delete Account
+                                                    {updating ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
                                                 </button>
                                             </div>
                                         </div>
-                                    )}
-                                </div>
-                            </div>
-                        ) : (
-                            /* Posts Section */
-                            <div className="flex-1 overflow-y-auto p-6">
-                                <h3 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-wider flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                                    </svg>
-                                    Posts
-                                </h3>
-                                {posts.length === 0 ? (
-                                    <div className="text-center text-gray-500 text-sm py-8">
-                                        No posts yet
-                                    </div>
-                                ) : (
-                                    <div className="space-y-3">
-                                        {posts.map((post) => (
-                                            <div
-                                                key={post.id}
-                                                onClick={() => onPostClick && onPostClick(post)}
-                                                className="bg-gray-800/50 rounded-lg p-4 border border-gray-700 hover:border-fuchsia-500/50 transition-all cursor-pointer group"
-                                            >
-                                                <p className="text-sm text-white font-medium mb-2 line-clamp-2 group-hover:text-fuchsia-300 transition-colors">
-                                                    {post.user_question || 'Untitled Post'}
-                                                </p>
-                                                {post.code_snippet && (
-                                                    <div className="bg-gray-900 rounded p-2 mb-2 border border-gray-800">
-                                                        <code className="text-xs text-gray-400 line-clamp-2 font-mono">
-                                                            {post.code_snippet}
-                                                        </code>
+
+                                        <div className="pt-8 border-t border-white/5">
+                                            <h4 className="text-red-400 font-bold mb-4">Tehlikeli Bölge</h4>
+                                            {!showDeleteConfirm ? (
+                                                <button onClick={() => setShowDeleteConfirm(true)} className="text-red-400/60 hover:text-red-400 text-sm font-bold underline transition-colors">
+                                                    Hesabımı Kalıcı Olarak Sil
+                                                </button>
+                                            ) : (
+                                                <div className="p-6 bg-red-500/5 border border-red-500/20 rounded-2xl space-y-4">
+                                                    <p className="text-sm text-red-300">Bu işlem geri alınamaz. Onaylamak için şifrenizi girin:</p>
+                                                    <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} className="w-full bg-black/20 border border-red-500/30 rounded-xl px-4 py-3 text-white outline-none" />
+                                                    <div className="flex gap-3">
+                                                        <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 bg-white/5 text-white py-3 rounded-xl font-bold">Vazgeç</button>
+                                                        <button 
+                                                            onClick={async () => {
+                                                                const res = await fetch(`${apiBase}/api/auth/delete-account`, {
+                                                                    method: 'DELETE',
+                                                                    headers: { 'Content-Type': 'application/json', ...authHeaders },
+                                                                    body: JSON.stringify({ password: deletePassword })
+                                                                });
+                                                                if (res.ok) { onLogout(); onClose(); }
+                                                            }}
+                                                            className="flex-1 bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-bold"
+                                                        >
+                                                            Hesabımı Sil
+                                                        </button>
                                                     </div>
-                                                )}
-                                                <div className="flex items-center gap-4 text-xs text-gray-500">
-                                                    <span className="flex items-center gap-1">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                                        </svg>
-                                                        {new Date(post.timestamp).toLocaleDateString('en-US')}
-                                                    </span>
-                                                    <span className="flex items-center gap-1 text-fuchsia-400">
-                                                        ⚡ {post.selected_model}
-                                                    </span>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            )}
+                                        </div>
                                     </div>
                                 )}
-                            </div>
+                            </>
                         )}
-                    </>
-                ) : (
-                    <div className="p-8 text-center text-gray-500">User not found</div>
-                )}
+                    </div>
+                </div>
             </div>
-        </div >
+        </div>
     );
 };
 
