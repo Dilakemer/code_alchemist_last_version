@@ -6102,6 +6102,20 @@ def init_db():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/debug/static', methods=['GET'])
+def debug_static():
+    import glob
+    try:
+        files = glob.glob(os.path.join(app.static_folder, '**', '*'), recursive=True)
+        return jsonify({
+            'static_folder': app.static_folder,
+            'exists': os.path.exists(app.static_folder),
+            'files': [f.replace(app.static_folder, '') for f in files]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+
 
 # ============================================
 # FAVORITES API

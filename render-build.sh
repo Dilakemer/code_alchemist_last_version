@@ -1,18 +1,26 @@
+#!/bin/bash
+set -e
+
 # Build Frontend
 echo "Building Frontend..."
 cd client
-npm install
-npm run build
-cd ..
+# Run ci instead of install, and limit memory to avoid OOM
+npm ci || npm install
+NODE_OPTIONS=--max_old_space_size=400 npm run build
 
-# Ensure server/static exists and is clean
-echo "Cleaning existing static files..."
-mkdir -p server/static
-rm -rf server/static/*
-
-# Copy built assets to Flask static folder
-echo "Copying built assets to Flask..."
-cp -r client/dist/* server/static/
+# If build succeeded, copy to static folder
+if [ -d "dist" ]; then
+    echo "Copying built assets to Flask..."
+    cd ..
+    mkdir -p server/static
+    # Only remove index.html and assets directory to not break generated/
+    rm -rf server/static/assets
+    rm -f server/static/index.html
+    cp -r client/dist/* server/static/
+else
+    echo "Frontend build skipped or failed to output to dist."
+    cd ..
+fi
 
 # Install Backend Dependencies
 echo "Installing Backend Dependencies..."
