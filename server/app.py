@@ -6844,7 +6844,14 @@ def external_ask():
     key_record.last_used_at = datetime.datetime.utcnow()
     db.session.commit()
     
-    data = request.get_json() or {}
+    # Tolerate invalid/missing JSON to avoid generic 400 from Werkzeug
+    data = request.get_json(silent=True)
+    if data is None:
+        try:
+            raw = (request.data or b"").decode("utf-8", errors="replace").strip()
+            data = json.loads(raw) if raw else {}
+        except Exception:
+            data = {}
     question = data.get('question', '')
     code = data.get('code', '')
     
