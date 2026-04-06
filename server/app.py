@@ -187,6 +187,7 @@ SIGNUP_GRANT_TOKENS = 100  # Yeni kullanıcıya verilen ücretsiz başlangıç t
 
 DEFAULT_TOKEN_PACKAGES = [
     {
+        'id': 'starter',
         'name': 'Starter',
         'description': 'Solo kullanım ve hafif deneme akışları için.',
         'tokens': 500,
@@ -194,21 +195,24 @@ DEFAULT_TOKEN_PACKAGES = [
         'bonus_pct': 0,
     },
     {
-        'name': 'Growth',
-        'description': 'Günlük üretim akışı olan bireyler ve küçük ekipler için.',
+        'id': 'pro-pack',
+        'name': 'Pro Pack',
+        'description': 'Sürekli üretim akışı olan bireyler ve küçük ekipler için.',
         'tokens': 2000,
         'price_usd': 15.0,
         'bonus_pct': 5,
     },
     {
-        'name': 'Scale',
+        'id': 'heavy-user-bundle',
+        'name': 'Heavy User Bundle',
         'description': 'Yoğun kullanım ve ekip içi denemeler için.',
         'tokens': 8000,
         'price_usd': 49.0,
         'bonus_pct': 10,
     },
     {
-        'name': 'Studio',
+        'id': 'studio-upgrade',
+        'name': 'Studio Upgrade',
         'description': 'Kurumsal ekipler ve yüksek hacimli kullanım için.',
         'tokens': 20000,
         'price_usd': 99.0,
@@ -569,9 +573,10 @@ with app.app_context():
         db.create_all()
         print("Database tables initialized successfully.")
 
-        # --- Startup Seeding: TokenPackage tablosu boşsa varsayılan paketleri ekle ---
+        # --- Startup Seeding: Ensure token packages match defaults ---
         try:
-            if TokenPackage.query.count() == 0:
+            current_count = TokenPackage.query.count()
+            if current_count == 0:
                 for pkg_data in DEFAULT_TOKEN_PACKAGES:
                     pkg = TokenPackage(
                         name=pkg_data['name'],
@@ -584,10 +589,20 @@ with app.app_context():
                     db.session.add(pkg)
                 db.session.commit()
                 print(f"Seeded {len(DEFAULT_TOKEN_PACKAGES)} default token packages.")
+            else:
+                # Update existing if they match tokens (alignment strategy)
+                for pkg_data in DEFAULT_TOKEN_PACKAGES:
+                    existing = TokenPackage.query.filter_by(tokens=pkg_data['tokens']).first()
+                    if existing:
+                        existing.name = pkg_data['name']
+                        existing.description = pkg_data['description']
+                        existing.price_usd = pkg_data['price_usd']
+                        existing.bonus_pct = pkg_data['bonus_pct']
+                db.session.commit()
+                print("Token packages aligned with defaults.")
         except Exception as seed_err:
-            print(f"Warning: Could not seed default token packages: {seed_err}")
+            print(f"Warning: Could not seed/align token packages: {seed_err}")
             db.session.rollback()
-        # --- End Seeding ---
 
     except Exception as e:
         print(f"Error initializing database: {e}")
@@ -7209,35 +7224,40 @@ def create_checkout_session():
     data = request.get_json(silent=True) or {}
     package_id = data.get('package_id')
 
-    # Paketi bul (hem int DB id hem string slug için)
+    # Paketi bul (hem int DB id hem string slug/name için)
     pkg = None
+    package_id_str = str(package_id).lower().replace('-', ' ')
+    
     try:
-        pkg_id_int = int(package_id)
-        pkg = TokenPackage.query.filter_by(id=pkg_id_int, is_active=True).first()
-    except (TypeError, ValueError):
-        pass
+        # 1. DB'den Ara (ID ile)
+        if isinstance(package_id, int) or package_id.isdigit():
+            pkg = TokenPackage.query.filter_by(id=int(package_id), is_active=True).first()
+        
+        # 2. DB'den Ara (İsim/Slug ile)
+        if not pkg:
+            pkg = TokenPackage.query.filter(
+                (db.func.lower(TokenPackage.name) == package_id_str) |
+                (db.func.lower(TokenPackage.name) == str(package_id).lower())
+            ).filter_by(is_active=True).first()
 
-    if not pkg:
-        # Slug ile ara
-        pkg = TokenPackage.query.filter(
-            db.func.lower(TokenPackage.name) == str(package_id).replace('-', ' ').lower(),
-            TokenPackage.is_active == True
-        ).first()
+        # 3. Fallback: Seeding yapılmamışsa veya DB'de yoksa DEFAULT_TOKEN_PACKAGES'tan seç
+        if not pkg:
+            for default_pkg in DEFAULT_TOKEN_PACKAGES:
+                # Hem ID hem İsim kontrolü
+                if default_pkg['id'] == package_id or default_pkg['name'].lower() == package_id_str:
+                    # Mock nesne oluştur
+                    pkg = type('PseudoPkg', (), {
+                        'id': None,
+                        'name': default_pkg['name'],
+                        'description': default_pkg.get('description', ''),
+                        'tokens': default_pkg['tokens'],
+                        'price_usd': default_pkg['price_usd'],
+                        'bonus_pct': default_pkg.get('bonus_pct', 0),
+                    })()
+                    break
 
-    if not pkg:
-        # Fallback: statik paketlerde ara
-        for default_pkg in DEFAULT_TOKEN_PACKAGES:
-            slug = default_pkg['name'].lower().replace(' ', '-')
-            if str(package_id) in (slug, default_pkg['name'].lower()):
-                pkg = type('PseudoPkg', (), {
-                    'id': None,
-                    'name': default_pkg['name'],
-                    'description': default_pkg.get('description', ''),
-                    'tokens': default_pkg['tokens'],
-                    'price_usd': default_pkg['price_usd'],
-                    'bonus_pct': default_pkg.get('bonus_pct', 0),
-                })()
-                break
+    except Exception as e:
+        print(f"Package matching error: {e}")
 
     if not pkg:
         return jsonify({'error': f'Package not found: {package_id}'}), 404
