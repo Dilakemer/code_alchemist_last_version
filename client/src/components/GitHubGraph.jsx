@@ -15,6 +15,7 @@ const GitHubGraph = ({ repo, branch, conversationId, onClose, apiBase, authHeade
     const [hoverNode, setHoverNode] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
     const [exportData, setExportData] = useState(null);
+    const [graphSize, setGraphSize] = useState({ width: 0, height: 0 });
     const containerRef = useRef();
     const pdfContentRef = useRef();
 
@@ -130,6 +131,43 @@ const GitHubGraph = ({ repo, branch, conversationId, onClose, apiBase, authHeade
 
         fetchTree();
     }, [repo, branch]);
+
+    useEffect(() => {
+        const updateSize = () => {
+            if (!containerRef.current) return;
+            setGraphSize({
+                width: containerRef.current.clientWidth,
+                height: containerRef.current.clientHeight
+            });
+        };
+
+        updateSize();
+
+        const observer = new ResizeObserver(updateSize);
+        if (containerRef.current) {
+            observer.observe(containerRef.current);
+        }
+
+        window.addEventListener('resize', updateSize);
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', updateSize);
+        };
+    }, [selectedFile]);
+
+    useEffect(() => {
+        const onKeyDown = (event) => {
+            if (event.key !== 'Escape') return;
+            if (selectedFile) {
+                setSelectedFile(null);
+                return;
+            }
+            onClose?.();
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [selectedFile, onClose]);
 
     const handleNodePaint = useCallback((node, ctx, globalScale) => {
         const label = node.name;
@@ -264,8 +302,8 @@ const GitHubGraph = ({ repo, branch, conversationId, onClose, apiBase, authHeade
                 </div>
             </div>
 
-            <div className={`flex-1 relative flex ${selectedFile ? 'flex-row' : ''}`}>
-                <div className={`relative ${selectedFile ? 'w-2/3 border-r border-white/10' : 'w-full h-full'}`} ref={containerRef}>
+            <div className={`flex-1 relative flex min-h-0 ${selectedFile ? 'flex-row' : ''}`}>
+                <div className={`relative overflow-hidden ${selectedFile ? 'w-2/3 border-r border-white/10' : 'w-full h-full'}`} ref={containerRef}>
                     {loading && (
                         <div className="absolute inset-0 flex items-center justify-center flex-col gap-4">
                             <div className="w-12 h-12 border-4 border-pink-500/30 border-t-pink-500 rounded-full animate-spin" />
@@ -298,8 +336,8 @@ const GitHubGraph = ({ repo, branch, conversationId, onClose, apiBase, authHeade
                                 return highlightLinks.has(`${sourceId}-${targetId}`) ? 2 : 1;
                             }}
                             backgroundColor="#050505"
-                            width={containerRef.current?.clientWidth}
-                            height={containerRef.current?.clientHeight}
+                            width={graphSize.width}
+                            height={graphSize.height}
                             nodeLabel="id"
                             d3Force={(d3, force) => {
                                 force('charge').strength(-50);
@@ -310,7 +348,7 @@ const GitHubGraph = ({ repo, branch, conversationId, onClose, apiBase, authHeade
                 </div>
 
                 {selectedFile && (
-                    <div className="w-1/3 bg-[#0a0a0a] flex flex-col h-full z-10 overflow-hidden relative">
+                    <div className="w-1/3 bg-[#0a0a0a] flex flex-col h-full z-10 overflow-hidden relative pointer-events-auto min-w-0">
                         <div className="p-3 border-b border-white/10 flex justify-between items-center bg-black/40">
                             <h3 className="text-white font-mono text-sm truncate">{selectedFile.id}</h3>
                             <button onClick={() => setSelectedFile(null)} className="text-gray-400 hover:text-white">

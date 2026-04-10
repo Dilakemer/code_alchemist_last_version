@@ -105,6 +105,11 @@ function App() {
     if (saved) return saved;
     return 'dark';
   });
+  const [includePreviousModules, setIncludePreviousModules] = useState(() => {
+    const savedValue = localStorage.getItem('codebrain_include_previous_modules');
+    if (savedValue === null) return true;
+    return savedValue === 'true';
+  });
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -143,6 +148,9 @@ function App() {
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [viewingUserId, setViewingUserId] = useState(null);
   const [userHistory, setUserHistory] = useState([]);
+
+  // Debug State for Memory/Carryover Monitoring
+  const [debug, setDebug] = useState(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [currentlySpeakingId, setCurrentlySpeakingId] = useState(null);
   // Onboarding
@@ -283,6 +291,57 @@ function App() {
       console.error('Billing usage fetch error:', err);
     }
   };
+
+  const refreshTokenBalance = async () => {
+    if (!token) return null;
+    try {
+      const resp = await fetch(`${API_BASE}/api/tokens/usage?limit=5`, { headers: authHeaders });
+      if (!resp.ok) return null;
+
+      const data = await resp.json();
+      if (typeof data?.balance === 'number') {
+        setUser(prev => {
+          if (!prev) return prev;
+          const next = { ...prev, tokens: data.balance };
+          localStorage.setItem('codebrain_user', JSON.stringify(next));
+          return next;
+        });
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Token balance refresh error:', err);
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (!token) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const paymentState = (params.get('payment') || params.get('billing') || '').toLowerCase();
+    const isSuccess = paymentState === 'success';
+    const isCancelled = paymentState === 'canceled' || paymentState === 'cancelled';
+
+    if (!isSuccess && !isCancelled) return;
+
+    const sanitizedUrl = `${window.location.pathname}${window.location.hash || ''}`;
+    window.history.replaceState({}, '', sanitizedUrl);
+
+    const applyPostCheckoutState = async () => {
+      if (isSuccess) {
+        await refreshTokenBalance();
+        await fetchUsageLimits();
+        setShowTokenDashboard(true);
+        handleShowAlert('Odeme tamamlandi. Token bakiyesi guncellendi.');
+        return;
+      }
+
+      handleShowAlert('Odeme islemi iptal edildi.');
+    };
+
+    applyPostCheckoutState();
+  }, [token]);
 
   const syncDailyGamification = async () => {
     if (!token || !user) return;
@@ -492,6 +551,10 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('codebrain_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('codebrain_include_previous_modules', includePreviousModules ? 'true' : 'false');
+  }, [includePreviousModules]);
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -771,6 +834,7 @@ function App() {
     setQuestion('');
     setCode('');
     setImage(null);
+    setDebug(null);
     setActiveTab('conversations');
     // Trigger new conversation animation
     setIsNewConversation(true);
@@ -779,16 +843,25 @@ function App() {
 
   const handleDeleteConversation = async (id) => {
     try {
-      await fetch(`${API_BASE}/api/conversations/${id}`, {
+      const res = await fetch(`${API_BASE}/api/conversations/${id}`, {
         method: 'DELETE',
         headers: authHeaders
       });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        handleShowAlert(`Silme başarısız: ${errData.error || 'Bilinmeyen hata'}`);
+        return;
+      }
+      
       fetchConversations();
       if (activeConversationId === id) {
         handleNewChat();
       }
+      handleShowAlert("Sohbet başarıyla silindi!");
     } catch (err) {
       console.error("Failed to delete conversation", err);
+      handleShowAlert(`Hata: ${err.message}`);
     }
   };
 
@@ -908,7 +981,8 @@ function App() {
           question: effectiveQuestion,
           model: model,
           sender_name: user?.display_name || 'Guest',
-          client_nonce: tempId // ID senkronizasyonu için
+          client_nonce: tempId, // ID senkronizasyonu için
+          include_previous_modules: includePreviousModules,
         };
 
         // Render cold-start / transient network errors can surface as "Load failed".
@@ -1079,6 +1153,8 @@ function App() {
           formData.append('branch', preLinkedBranch);
         }
 
+        formData.append('include_previous_modules', includePreviousModules ? 'true' : 'false');
+
         formData.append('image', currentImage);
         body = formData;
       } else {
@@ -1090,7 +1166,8 @@ function App() {
           models: currentModels, // For blend mode
           conversation_id: effectiveConversationId,
           repo: !effectiveConversationId ? preLinkedRepo : null,
-          branch: !effectiveConversationId ? preLinkedBranch : 'main'
+          branch: !effectiveConversationId ? preLinkedBranch : 'main',
+          include_previous_modules: includePreviousModules,
         });
       }
 
@@ -1195,6 +1272,14 @@ function App() {
 
               if (data.done) {
                 receivedDoneEvent = true;
+
+                // Capture debug state for memory/carryover monitoring
+                setDebug({
+                  carryover: data.carryover,
+                  capsuleCount: data.memory_capsules?.length || 0,
+                  capsules: data.memory_capsules || []
+                });
+
                 if (data.conversation_id && effectiveConversationId !== data.conversation_id) {
                   setActiveConversationId(data.conversation_id);
                   setPreLinkedRepo(null); // Clear after linked to a real conv
@@ -1221,39 +1306,43 @@ function App() {
                     detected_language: data.detected_language || item.detected_language,
                     detected_intent: data.detected_intent || item.detected_intent,
                     persona: data.persona,
+                    memory_used: data.memory_used,
+                    memory_hits: data.memory_hits,
                     responseTime: totalDuration,
                     timeToFirstToken: ttf
                   } : item
                 ));
 
-                if (data.xp_awarded && token && user) {
-                  if (typeof data.xp_awarded.total_coins === 'number') {
-                    const updatedCoins = data.xp_awarded.total_coins;
-                    setUser(prev => prev ? { ...prev, coins: updatedCoins } : prev);
-                    const storedUser = localStorage.getItem('codebrain_user');
-                    if (storedUser) {
-                      try {
-                        const parsedUser = JSON.parse(storedUser);
-                        parsedUser.coins = updatedCoins;
-                        localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
-                      } catch (err) {
-                        console.warn('Failed to persist awarded coins', err);
-                      }
+                if (token && user && data.xp_awarded && typeof data.xp_awarded.total_coins === 'number') {
+                  const updatedCoins = data.xp_awarded.total_coins;
+                  setUser(prev => prev ? { ...prev, coins: updatedCoins } : prev);
+                  const storedUser = localStorage.getItem('codebrain_user');
+                  if (storedUser) {
+                    try {
+                      const parsedUser = JSON.parse(storedUser);
+                      parsedUser.coins = updatedCoins;
+                      localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
+                    } catch (err) {
+                      console.warn('Failed to persist awarded coins', err);
                     }
                   }
-                  if (typeof data.new_token_balance === 'number') {
-                    setUser(prev => prev ? { ...prev, tokens: data.new_token_balance } : prev);
-                    const storedUser = localStorage.getItem('codebrain_user');
-                    if (storedUser) {
-                      try {
-                        const parsedUser = JSON.parse(storedUser);
-                        parsedUser.tokens = data.new_token_balance;
-                        localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
-                      } catch (err) {
-                        console.warn('Failed to persist updated token balance', err);
-                      }
+                }
+
+                if (token && user && typeof data.new_token_balance === 'number') {
+                  setUser(prev => prev ? { ...prev, tokens: data.new_token_balance } : prev);
+                  const storedUser = localStorage.getItem('codebrain_user');
+                  if (storedUser) {
+                    try {
+                      const parsedUser = JSON.parse(storedUser);
+                      parsedUser.tokens = data.new_token_balance;
+                      localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
+                    } catch (err) {
+                      console.warn('Failed to persist updated token balance', err);
                     }
                   }
+                }
+
+                if (token && user && (data.xp_awarded || typeof data.new_token_balance === 'number')) {
                   setGamificationRefreshKey(prev => prev + 1);
                   refreshUserInfo();
                 }
@@ -2181,6 +2270,8 @@ function App() {
               user={user}
               onAuthRequired={() => setAuthOpen(true)}
               model={model}
+              includePreviousModules={includePreviousModules}
+              setIncludePreviousModules={setIncludePreviousModules}
               apiBase={API_BASE}
               authHeaders={authHeaders}
               theme={theme}
@@ -2222,6 +2313,7 @@ function App() {
               liveStreamText={liveStreamText}
               streamingHistoryId={streamingHistoryId}
               tokenErrorNotice={tokenErrorNotice}
+              debug={debug}
             />
           </div>
 
@@ -2589,6 +2681,7 @@ function App() {
             apiBase={API_BASE}
             authHeaders={authHeaders}
             token={token}
+            onThemeChange={(themeId) => setTheme(themeId)}
             currentUser={user}
             onLogout={handleLogout}
             onUserUpdate={(updatedUser) => {
@@ -2821,7 +2914,7 @@ function App() {
 
               <div className="space-y-3">
                  <button 
-                   className="tool-item border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 hover:border-emerald-500/40"
+                   className="tool-item !text-emerald-500 !bg-emerald-500/10 hover:!bg-emerald-500/20"
                    onClick={() => { 
                       if (!user) { setAuthOpen(true); } 
                       else { handleShareSession(); } 
@@ -2833,7 +2926,7 @@ function App() {
                  </button>
 
                  <button 
-                   className="tool-item border-fuchsia-500/20 bg-fuchsia-500/5 hover:bg-fuchsia-500/10 hover:border-fuchsia-500/40"
+                   className="tool-item !text-fuchsia-500 !bg-fuchsia-500/10 hover:!bg-fuchsia-500/20"
                    onClick={() => {
                      if (!user) {
                         setAuthOpen(true);
@@ -2888,13 +2981,20 @@ function App() {
 
                     {/* Active Users */}
                     {socketActiveUsers.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {socketActiveUsers.map((uname, i) => (
-                          <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-purple-600/30 border border-purple-500/30 text-purple-200 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                            {uname}
-                          </span>
-                        ))}
+                      <div className="flex items-center gap-2 px-1">
+                        <span className="text-[10px] text-pink-300/60 uppercase tracking-widest font-semibold flex items-center gap-1">
+                          <i className="fas fa-users text-[9px]"></i> Görüntüleyenler:
+                        </span>
+                        <div className="flex -space-x-1.5 overflow-hidden py-1">
+                          {socketActiveUsers.map((uname, i) => (
+                            <div key={i} className="relative z-10 hover:z-20 transition-all cursor-pointer" title={uname}>
+                              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white text-[9px] font-bold shadow-md ring-1 ring-purple-900/50">
+                                {uname.substring(0, 2).toUpperCase()}
+                              </div>
+                              <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 ring-1 ring-purple-900 animate-pulse"></span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -2966,11 +3066,25 @@ function App() {
                         </button>
                       </div>
                       <div className="max-h-20 overflow-y-auto space-y-1">
-                        {(collabReview?.comments || []).slice(0, 6).map((c) => (
-                          <div key={c.id} className="text-[10px] text-pink-100/90 bg-black/20 border border-pink-400/10 rounded px-2 py-1">
-                            <span className="font-semibold text-pink-300">{c.author}:</span> {c.comment}
-                          </div>
-                        ))}
+                        {(collabReview?.comments || []).slice(0, 6).map((c) => {
+                          const isOnline = socketActiveUsers.includes(c.author);
+                          return (
+                            <div key={c.id} className="text-[10px] text-pink-100/90 bg-black/20 border border-pink-400/10 rounded px-2 py-1.5 flex items-start gap-1.5">
+                              <div className="relative mt-0.5">
+                                <div className="w-4 h-4 rounded-full bg-gradient-to-br from-indigo-500 to-pink-500 flex items-center justify-center text-white text-[7px] font-bold">
+                                  {c.author ? c.author.substring(0, 2).toUpperCase() : '?'}
+                                </div>
+                                {isOnline && (
+                                  <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-purple-900"></span>
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <span className="font-semibold text-pink-300 mr-1">{c.author}:</span> 
+                                <span className="break-words">{c.comment}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -3060,6 +3174,7 @@ function App() {
           </div>
         ))}
       </div>
+
     </div>
   );
 }

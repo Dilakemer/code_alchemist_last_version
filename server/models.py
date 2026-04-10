@@ -4,6 +4,13 @@ from datetime import datetime
 db = SQLAlchemy()
 
 
+class SoftDeleteMixin:
+    """Mixin for SaaS-grade soft delete and versioning policy."""
+    is_deleted = db.Column(db.Boolean, default=False, index=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)
+    deleted_by_cascade = db.Column(db.Boolean, default=False)
+    version = db.Column(db.Integer, default=1, nullable=False) # For idempotency/resilience
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
@@ -66,7 +73,7 @@ class UserTheme(db.Model):
 
     user = db.relationship('User', backref=db.backref('theme_prefs', uselist=False))
 
-class SharedSession(db.Model):
+class SharedSession(db.Model, SoftDeleteMixin):
     """Paylaşılan sohbet oturumu (Real-time Collaboration)"""
     id = db.Column(db.Integer, primary_key=True)
     conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False)
@@ -107,7 +114,7 @@ class CollaborationComment(db.Model):
     author_user = db.relationship('User', foreign_keys=[author_user_id])
 
 
-class Conversation(db.Model):
+class Conversation(db.Model, SoftDeleteMixin):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=True)  # Linked project
@@ -121,7 +128,86 @@ class Conversation(db.Model):
     user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic'))
 
 
-class History(db.Model):
+class ConversationSummary(db.Model, SoftDeleteMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False, unique=True, index=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=True, index=True)
+    summary_text = db.Column(db.Text, nullable=True)
+    modules_json = db.Column(db.Text, nullable=True)
+    last_history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=True, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('conversation_summaries', lazy='dynamic'))
+    conversation = db.relationship('Conversation', backref=db.backref('summary_row', uselist=False, lazy='joined'))
+    project = db.relationship('Project')
+    last_history = db.relationship('History', foreign_keys=[last_history_id])
+
+
+class MemoryItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    source_conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False, index=True)
+    memory_type = db.Column(db.String(50), nullable=False, index=True)
+    module_key = db.Column(db.String(80), nullable=False, index=True)
+    content = db.Column(db.Text, nullable=False)
+    importance = db.Column(db.Integer, default=1, index=True)
+    last_used_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('memory_items', lazy='dynamic'))
+    source_conversation = db.relationship('Conversation', backref=db.backref('memory_items', lazy='dynamic', cascade='all, delete'))
+
+
+class MemoryNode(db.Model, SoftDeleteMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    node_uid = db.Column(db.String(160), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=True, index=True)
+    source_history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=True, index=True)
+    node_type = db.Column(db.String(32), nullable=False, index=True)
+    module_key = db.Column(db.String(80), nullable=False, index=True)
+    summary_text = db.Column(db.Text, nullable=True)
+    content = db.Column(db.Text, nullable=True)
+    depends_on_json = db.Column(db.Text, nullable=True)
+    conflicts_with_json = db.Column(db.Text, nullable=True)
+    validity_state = db.Column(db.String(32), default='active', index=True)
+    importance = db.Column(db.Float, default=0.0, index=True)
+    relevance_score = db.Column(db.Float, default=0.0, index=True)
+    semantic_similarity = db.Column(db.Float, nullable=True)
+    task_alignment = db.Column(db.Float, nullable=True)
+    reinforcement_score = db.Column(db.Float, default=0.0, index=True)
+    decay_score = db.Column(db.Float, default=0.0, index=True)
+    usage_count = db.Column(db.Integer, default=0, index=True)
+    # Inherits version, is_deleted from SoftDeleteMixin
+    last_accessed_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('memory_nodes', lazy='dynamic'))
+    conversation = db.relationship('Conversation', backref=db.backref('memory_nodes', lazy='dynamic'))
+    source_history = db.relationship('History', foreign_keys=[source_history_id])
+
+
+class MemoryEdge(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    source_node_uid = db.Column(db.String(160), nullable=False, index=True)
+    target_node_uid = db.Column(db.String(160), nullable=False, index=True)
+    relation_type = db.Column(db.String(32), nullable=False, index=True)  # fixed ontology: supports | refines | invalidates | replaces | derives_from
+    weight = db.Column(db.Float, default=1.0, nullable=False)
+    source_module_key = db.Column(db.String(80), nullable=True, index=True)
+    target_module_key = db.Column(db.String(80), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('memory_edges', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'source_node_uid', 'target_node_uid', 'relation_type', name='_memory_edge_uc'),
+    )
+
+
+class History(db.Model, SoftDeleteMixin):
     id = db.Column(db.Integer, primary_key=True)
     conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'), nullable=False)
     user_question = db.Column(db.Text, nullable=False)
@@ -139,7 +225,7 @@ class History(db.Model):
     conversation = db.relationship('Conversation', backref=db.backref('history_items', lazy='dynamic', cascade="all, delete"))
 
 
-class Answer(db.Model):
+class Answer(db.Model, SoftDeleteMixin):
     id = db.Column(db.Integer, primary_key=True)
     history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=False)
     author_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -190,7 +276,7 @@ class NotificationHidden(db.Model):
     # user = db.relationship('User', backref=db.backref('read_notifications', lazy='dynamic'))
 
 
-class Snippet(db.Model):
+class Snippet(db.Model, SoftDeleteMixin):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     title = db.Column(db.String(255), nullable=False)
@@ -227,7 +313,7 @@ class UserFollow(db.Model):
     following = db.relationship('User', foreign_keys=[following_id], backref=db.backref('followers', lazy='dynamic'))
 
 
-class Notification(db.Model):
+class Notification(db.Model, SoftDeleteMixin):
     """Genel bildirim tablosu"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Bildirimi alan
@@ -236,6 +322,7 @@ class Notification(db.Model):
     related_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # İlgili kullanıcı (takip eden vs.)
     related_post_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=True)  # İlgili gönderi
     is_read = db.Column(db.Boolean, default=False)
+    lifecycle_state = db.Column(db.String(32), default='active', index=True) # active, hidden, orphaned
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # İlişkiler
@@ -244,7 +331,7 @@ class Notification(db.Model):
     related_post = db.relationship('History', backref=db.backref('notifications', lazy='dynamic'))
 
 
-class Favorite(db.Model):
+class Favorite(db.Model, SoftDeleteMixin):
     """Kullanıcıların favori AI yanıtları"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -287,7 +374,7 @@ class FeedbackDetail(db.Model):
     user = db.relationship('User', backref=db.backref('feedback_details', lazy='dynamic'))
 
 
-class Project(db.Model):
+class Project(db.Model, SoftDeleteMixin):
     """Çok dosyalı proje/workspace bağlamı"""
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)

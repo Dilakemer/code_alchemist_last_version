@@ -1,10 +1,12 @@
 import os, sys
+import hashlib
 
 # Keep Socket.IO on threading mode to avoid deprecated/fragile eventlet runtime on Gunicorn.
 ASYNC_MODE = 'threading'
 
 import uuid
 import re
+import concurrent.futures
 
 import re
 import io
@@ -30,7 +32,7 @@ from flask_jwt_extended import (
 )
 from passlib.hash import pbkdf2_sha256
 from google import genai as google_genai
-from models import db, History, Answer, User, Conversation, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase
+from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase
 from anthropic import Anthropic, APIError
 from openai import OpenAI
 import stripe
@@ -38,6 +40,14 @@ from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
 from utils.github_parser import GitHubParser
+from utils.memory_utils import (
+    build_minimum_continuation_capsule,
+    build_memory_retrieval_plan,
+    build_structured_memory_capsule,
+    detect_memory_conflicts,
+    extract_memory_candidates,
+)
+from services.lifecycle_orchestrator import start_worker, LifecycleOrchestrator
 
 
 def _normalize_gemini_model_name(model_name):
@@ -161,21 +171,24 @@ PLAN_LIMITS = {
 # -------------------------------------------------------
 TOKEN_COSTS = {
     # Gemini ailesi
-    'gemini': 8,
-    'gemini-2.5-flash': 2,
-    'gemini-2.5-flash-lite': 2,
-    'gemini-1.5-flash': 2,
-    'gemini-1.5-pro': 8,
+    'gemini': 5,
+    'gemini-3-flash-preview': 5,
+    'gemini-2.5-flash': 4,
+    'gemini-3.1-flash-lite-preview': 2,
+    'gemini-2.5-flash-lite': 1,
+    'gemini-1.5-flash': 1,
     # OpenAI ailesi
     'gpt': 10,
     'gpt-4o': 10,
     'gpt-4o-mini': 2,
     'gpt-3.5-turbo': 2,
     # Anthropic ailesi
-    'claude': 12,
-    'claude-opus': 12,
-    'claude-sonnet': 12,
-    'claude-haiku': 12,
+    'claude': 10,
+    'claude-sonnet-4-5': 10,
+    'claude-opus-4-5': 18,
+    'claude-sonnet': 10,
+    'claude-opus': 18,
+    'claude-haiku': 5,
     # Özel modlar
     'model-blend': 20,
     'model-compare': 25,
@@ -351,21 +364,39 @@ def _build_project_embedding_index(project):
     if cached and cached.get('signature') == signature and (now - cached.get('timestamp', 0) < PROJECT_EMBED_CACHE_TTL):
         return cached
 
-    chunks = []
+    raw_items = []
     for pf in files:
         content = (pf.content or '')[:12000]  # hard limit per file for cost control
         for idx, chunk in enumerate(_chunk_text(content, chunk_size=1200, overlap=200)):
-            emb, model_used = _embed_text_with_fallback(chunk, task_type='RETRIEVAL_DOCUMENT')
-            if not emb:
-                continue
-            chunks.append({
-                'file': pf.name,
-                'language': pf.language or 'plaintext',
+            raw_items.append({
+                'pf_name': pf.name,
+                'pf_lang': pf.language or 'plaintext',
                 'text': chunk,
-                'embedding': emb,
-                'chunk_index': idx,
-                'model_used': model_used,
+                'chunk_index': idx
             })
+
+    if not raw_items:
+        return None
+
+    def _embed_task(item):
+        emb, model_used = _embed_text_with_fallback(item['text'], task_type='RETRIEVAL_DOCUMENT')
+        if not emb:
+            return None
+        return {
+            'file': item['pf_name'],
+            'language': item['pf_lang'],
+            'text': item['text'],
+            'embedding': emb,
+            'chunk_index': item['chunk_index'],
+            'model_used': model_used,
+        }
+
+    chunks = []
+    # Use max_workers=10 for fast parallel embedding. Most API quotas allow this.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(_embed_task, raw_items))
+    
+    chunks = [r for r in results if r]
 
     if not chunks:
         return None
@@ -478,6 +509,9 @@ if any(not os.getenv(key) for key in required_env_keys):
 # In render-build.sh, we copy client/dist/* to server/static.
 static_folder_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 app = Flask(__name__, static_folder=static_folder_path, static_url_path='')
+
+# SaaS-Grade Lifecycle Orchestration (Start Async Worker)
+start_worker(app)
 basedir = os.path.abspath(os.path.dirname(__file__))
 # Veritabanı dosyasını instance klasöründe tutuyoruz (Flask standardı)
 instance_path = os.path.join(basedir, 'instance')
@@ -821,8 +855,10 @@ def transcribe_audio_with_gemini(audio_path):
         # Denenecek model listesi (En yüksek ücretsiz kotadan en düşüğe)
         model_candidates = [
             GEMINI_MODEL.replace('models/', ''), # .env'deki model
-            "gemini-2.5-flash-lite",  # 10 RPM - En yüksek ücretsiz kota
-            "gemini-2.5-flash"        # 5 RPM - Yedek
+            "gemini-3.1-flash-lite", 
+            "gemini-2.5-flash-lite", 
+            "gemini-3-flash",
+            "gemini-2.5-flash"
         ]
         
         last_error = None
@@ -941,8 +977,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         # 1. Hedef modeli ekle
         fallback_chain.append(target_id)
         
-        # 2. Kota sırasına göre yedek modeller (2.0 Flash ücretsiz planda 0 kota!)
-        for alt in ['gemini-3.1-flash-lite-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']:
+        # 2. Kota sırasına göre yedek modeller
+        for alt in ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-2.5-flash']:
             if alt not in fallback_chain:
                 fallback_chain.append(alt)
 
@@ -960,8 +996,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         if github_context:
             system_instruction += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
     else:
-        # Varsayılan (Fallback zinciri ile - 2.0 Flash ücretsiz planda 0 kota)
-        fallback_chain = [GEMINI_MODEL, 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
+        # Varsayılan (Fallback zinciri ile)
+        fallback_chain = [GEMINI_MODEL, 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-2.5-flash']
 
     system_prompt = (
         "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
@@ -1171,7 +1207,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
                 return
 
     if not model_success:
-        yield "\n\n*> [System]: All Gemini models failed (Quota/Service). Falling back to **Claude Opus 4.5**...*\n\n"
+        yield "\n\n*> [System]: All Gemini models failed (Quota/Service). Falling back to **Claude Opus 4.6**...*\n\n"
         yield from generate_claude_answer(question, code, history_context, 'claude-opus-4-5', image_path, prefs, github_context, depth + 1)
 
 
@@ -1187,7 +1223,7 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
     if requested_model and 'claude' in requested_model:
         target_model = requested_model
     else:
-        target_model = ANTHROPIC_MODEL if ANTHROPIC_MODEL else 'claude-sonnet-4-5-20250929'
+        target_model = ANTHROPIC_MODEL if ANTHROPIC_MODEL else 'claude-sonnet-4-5'
 
     print(f"Claude İsteği (Stream) şu modelle yapılıyor: {target_model}")
 
@@ -1564,6 +1600,463 @@ def summarize_answer(answer: str) -> str:
         return answer[:100] + "..."
     except:
         return answer[:100] + "..."
+
+
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _safe_json_list(value):
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def _resolve_include_previous_modules(user, payload, no_save=False):
+    """Enable retrieval-based continuity for authenticated chat unless explicitly disabled."""
+    if not user or no_save:
+        return False
+
+    raw_value = None
+    if payload and isinstance(payload, dict):
+        raw_value = payload.get('include_previous_modules')
+
+    # Explicit user preference always wins when provided.
+    if raw_value is not None:
+        return _parse_bool(raw_value)
+
+    return True
+
+
+def _is_context_reset_intent(question_text):
+    text = (question_text or '').lower()
+    reset_signals = [
+        'from scratch',
+        'start over',
+        'ignore previous',
+        'yeni bastan',
+        'sifirdan',
+        'eskiyi yok say',
+        'fikri degistir',
+        'karar degisti',
+    ]
+    return any(signal in text for signal in reset_signals)
+
+
+def _load_previous_memory_context(user, question, conversation=None, include_previous_modules=False):
+    if not user or not include_previous_modules:
+        return {'text': '', 'hit_count': 0, 'hits': []}
+
+    if _is_context_reset_intent(question):
+        return {
+            'text': '',
+            'hit_count': 0,
+            'hits': [],
+            'retrieval_mode': 'reset-intent-skip',
+            'focus_module': None,
+        }
+
+    memory_rows = (
+        MemoryItem.query.filter_by(user_id=user.id)
+        .order_by(
+            MemoryItem.importance.desc(),
+            MemoryItem.last_used_at.desc().nullslast(),
+            MemoryItem.created_at.desc(),
+        )
+        .limit(50)
+        .all()
+    )
+
+    summary_query = ConversationSummary.query.filter_by(user_id=user.id)
+    if conversation and conversation.id:
+        summary_query = summary_query.filter(ConversationSummary.conversation_id != conversation.id)
+
+    summary_rows = (
+        summary_query.order_by(ConversationSummary.updated_at.desc())
+        .limit(1)
+        .all()
+    )
+
+    memory_context = build_minimum_continuation_capsule(
+        question,
+        memory_rows,
+        summary_rows,
+        char_budget=420,
+        max_lines=5,
+        min_confidence=0.42,
+    )
+
+    conflict_result = detect_memory_conflicts(question, memory_context.get('hits', []))
+    if conflict_result.get('has_conflict'):
+        drop_module_keys = set(conflict_result.get('drop_module_keys', []))
+        filtered_hits = [
+            hit for hit in memory_context.get('hits', [])
+            if (hit.get('module_key') or 'general') not in drop_module_keys
+        ]
+
+        memory_context['hits'] = filtered_hits
+        memory_context['hit_count'] = len(filtered_hits)
+        memory_context['conflicts'] = conflict_result.get('conflicts', [])
+        if filtered_hits:
+            memory_context['text'] = '[Memory Capsule]\n' + '\n'.join(
+                f"- {(hit.get('module_key') or 'general').title()}: {(hit.get('content') or hit.get('summary_text') or '').strip()} (score={float(hit.get('score') or 0.0):.2f})"
+                for hit in filtered_hits[:5]
+            )
+            memory_context['focus_module'] = filtered_hits[0].get('module_key')
+        else:
+            memory_context['text'] = ''
+            memory_context['focus_module'] = None
+
+    retrieval_plan = build_memory_retrieval_plan(
+        question,
+        memory_rows,
+        summary_rows,
+        top_k=5,
+        min_confidence=0.42,
+    )
+    if retrieval_plan.get('text'):
+        memory_context['text'] = retrieval_plan.get('text', '')
+        memory_context['hit_count'] = retrieval_plan.get('hit_count', 0)
+        memory_context['hits'] = retrieval_plan.get('hits', [])
+        memory_context['focus_module'] = retrieval_plan.get('focus_module')
+
+    memory_context['structured_capsule'] = retrieval_plan.get('structured_capsule')
+    memory_context['memory_graph'] = retrieval_plan.get('memory_graph')
+    memory_context['memory_transitions'] = retrieval_plan.get('transitions')
+    memory_context['retrieval_plan_steps'] = retrieval_plan.get('plan_steps', [])
+
+    used_memory_ids = [hit.get('source_id') for hit in memory_context.get('hits', []) if hit.get('source_type') == 'memory' and hit.get('source_id')]
+    if used_memory_ids:
+        MemoryItem.query.filter(MemoryItem.id.in_(used_memory_ids)).update(
+            {MemoryItem.last_used_at: datetime.datetime.utcnow()},
+            synchronize_session=False,
+        )
+
+    return memory_context
+
+
+def _upsert_conversation_summary(current_conv, history_id, user_id, summary_text, extracted_memory_items):
+    module_keys = sorted({item.get('module_key') for item in extracted_memory_items if item.get('module_key')})
+    summary_row = ConversationSummary.query.filter_by(conversation_id=current_conv.id).first()
+
+    if not summary_row:
+        summary_row = ConversationSummary(
+            user_id=user_id,
+            conversation_id=current_conv.id,
+            project_id=current_conv.project_id,
+        )
+        db.session.add(summary_row)
+
+    existing_modules = _safe_json_list(summary_row.modules_json)
+    merged_modules = sorted({*existing_modules, *module_keys})
+
+    summary_row.user_id = user_id
+    summary_row.conversation_id = current_conv.id
+    summary_row.project_id = current_conv.project_id
+    summary_row.summary_text = summary_text
+    summary_row.modules_json = json.dumps(merged_modules, ensure_ascii=False)
+    summary_row.last_history_id = history_id
+    summary_row.updated_at = datetime.datetime.utcnow()
+
+    return summary_row
+
+
+def _store_memory_items(user_id, conversation_id, extracted_memory_items):
+    stored_items = []
+    now = datetime.datetime.utcnow()
+
+    for item in extracted_memory_items:
+        content = (item.get('content') or '').strip()
+        if not content:
+            continue
+
+        memory_type = item.get('memory_type') or 'preference'
+        module_key = item.get('module_key') or 'general'
+        importance = int(item.get('importance') or 1)
+
+        existing_item = MemoryItem.query.filter_by(
+            user_id=user_id,
+            source_conversation_id=conversation_id,
+            memory_type=memory_type,
+            module_key=module_key,
+            content=content,
+        ).first()
+
+        if existing_item:
+            existing_item.importance = max(int(existing_item.importance or 1), importance)
+            existing_item.last_used_at = now
+            stored_items.append(existing_item)
+            continue
+
+        memory_item = MemoryItem(
+            user_id=user_id,
+            source_conversation_id=conversation_id,
+            memory_type=memory_type,
+            module_key=module_key,
+            content=content,
+            importance=importance,
+            last_used_at=now,
+        )
+        db.session.add(memory_item)
+        stored_items.append(memory_item)
+
+    return stored_items
+
+
+def _memory_node_uid_from_entry(entry):
+    source_type = entry.get('source_type') or 'memory'
+    source_id = entry.get('source_id')
+    module_key = entry.get('module_key') or 'general'
+    summary = (entry.get('summary') or entry.get('content') or '')[:120]
+    if source_id is not None:
+        return f'{source_type}:{source_id}'
+    digest = hashlib.sha1(f'{source_type}:{module_key}:{summary}'.encode('utf-8')).hexdigest()[:16]
+    return f'{source_type}:{digest}'
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _memory_guardrail(user_id, module_key, node_uid, transition_action=None):
+    recent_same_module = MemoryNode.query.filter_by(user_id=user_id, module_key=module_key).order_by(
+        MemoryNode.last_accessed_at.desc(),
+        MemoryNode.updated_at.desc(),
+    ).limit(8).all()
+
+    repeat_signals = sum(
+        1 for item in recent_same_module
+        if item.node_uid != node_uid and not item.is_deleted and item.validity_state == 'active'
+    )
+
+    dampening = 1.0
+    anti_loop = repeat_signals >= 3
+    if anti_loop:
+        dampening *= 0.65
+
+    if transition_action == 'drop':
+        dampening *= 0.35
+    elif transition_action == 'update':
+        dampening *= 0.75
+    elif transition_action == 'merge':
+        dampening *= 0.85
+
+    return {
+        'anti_loop': anti_loop,
+        'repeat_signals': repeat_signals,
+        'dampening': dampening,
+    }
+
+
+def _prune_memory_graph_state(user_id, protected_uids=None, max_active_nodes=220):
+    protected_uids = set(protected_uids or [])
+    active_count = MemoryNode.query.filter_by(user_id=user_id, validity_state='active', is_deleted=False).count()
+    if active_count <= max_active_nodes:
+        return {
+            'triggered': False,
+            'pruned_nodes': 0,
+            'active_count': active_count,
+            'max_active_nodes': max_active_nodes,
+        }
+
+    prune_target = active_count - max_active_nodes
+    candidates = MemoryNode.query.filter_by(user_id=user_id, validity_state='active', is_deleted=False).order_by(
+        MemoryNode.reinforcement_score.asc(),
+        MemoryNode.decay_score.desc(),
+        MemoryNode.importance.asc(),
+        MemoryNode.updated_at.asc(),
+    ).all()
+
+    pruned = 0
+    for node in candidates:
+        if pruned >= prune_target:
+            break
+        if node.node_uid in protected_uids:
+            continue
+        node.validity_state = 'archived'
+        node.is_deleted = True
+        pruned += 1
+
+    return {
+        'triggered': True,
+        'pruned_nodes': pruned,
+        'active_count': active_count,
+        'max_active_nodes': max_active_nodes,
+    }
+
+
+def _write_back_memory_graph(user_id, conversation_id, history_id, memory_context):
+    structured = memory_context.get('structured_capsule') or {}
+    graph = memory_context.get('memory_graph') or {}
+    transitions = memory_context.get('memory_transitions') or {}
+    entries = list(structured.get('entries') or [])
+    transition_map = {item.get('module_key'): item for item in transitions.get('transitions', []) if item.get('module_key')}
+    now = datetime.datetime.utcnow()
+
+    node_uids = []
+    persisted_nodes = []
+    guardrail_snapshots = []
+
+    for entry in entries:
+        module_key = entry.get('module_key') or 'general'
+        node_uid = _memory_node_uid_from_entry(entry)
+        node_uids.append(node_uid)
+        transition = transition_map.get(module_key)
+        guardrail = _memory_guardrail(user_id, module_key, node_uid, transition.get('action') if transition else None)
+        guardrail_snapshots.append({
+            'module_key': module_key,
+            'node_uid': node_uid,
+            **guardrail,
+        })
+
+        existing = MemoryNode.query.filter_by(user_id=user_id, node_uid=node_uid).first()
+        next_state = 'active'
+        if transition and transition.get('action') == 'drop':
+            next_state = 'deprecated'
+        elif existing and existing.validity_state == 'deprecated' and transition and transition.get('action') == 'update':
+            next_state = 'active'
+
+        depends_on = []
+        conflicts_with = []
+        for graph_node in (graph.get('nodes') or []):
+            if _memory_node_uid_from_entry(entry) == graph_node.get('id'):
+                depends_on = list(graph_node.get('depends_on') or [])
+                conflicts_with = list(graph_node.get('conflicts_with') or [])
+                break
+
+        summary_text = entry.get('summary') or ''
+        content_text = summary_text
+        reinforcement = _safe_float(entry.get('relevance_score'), 0.0)
+        decay = 0.0
+        reinforcement_delta = 0.12 * guardrail['dampening']
+
+        if existing:
+            previous_summary = existing.summary_text or ''
+            existing.module_key = module_key
+            existing.node_type = entry.get('type') or existing.node_type or 'fact'
+            existing.summary_text = summary_text
+            existing.content = content_text
+            existing.depends_on_json = json.dumps(depends_on, ensure_ascii=False)
+            existing.conflicts_with_json = json.dumps(conflicts_with, ensure_ascii=False)
+            existing.validity_state = next_state
+            existing.importance = _safe_float(entry.get('importance'), existing.importance or 0.0)
+            existing.relevance_score = max(_safe_float(existing.relevance_score, 0.0), reinforcement)
+            existing.semantic_similarity = _safe_float(entry.get('semantic_similarity'), existing.semantic_similarity or 0.0) if entry.get('semantic_similarity') is not None else existing.semantic_similarity
+            existing.task_alignment = _safe_float(entry.get('task_alignment'), existing.task_alignment or 0.0) if entry.get('task_alignment') is not None else existing.task_alignment
+            existing.reinforcement_score = min(1.0, _safe_float(existing.reinforcement_score, 0.0) + reinforcement_delta)
+            existing.decay_score = min(1.0, _safe_float(existing.decay_score, 0.0) * 0.96 + decay)
+            existing.usage_count = int(existing.usage_count or 0) + 1
+            existing.version = int(existing.version or 1) + (1 if previous_summary != summary_text else 0)
+            existing.last_accessed_at = now
+            existing.source_history_id = history_id
+            existing.conversation_id = conversation_id
+            existing.is_deleted = next_state == 'deprecated'
+            persisted_nodes.append(existing)
+        else:
+            node = MemoryNode(
+                node_uid=node_uid,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                source_history_id=history_id,
+                node_type=entry.get('type') or 'fact',
+                module_key=module_key,
+                summary_text=summary_text,
+                content=content_text,
+                depends_on_json=json.dumps(depends_on, ensure_ascii=False),
+                conflicts_with_json=json.dumps(conflicts_with, ensure_ascii=False),
+                validity_state=next_state,
+                importance=_safe_float(entry.get('importance'), 0.0),
+                relevance_score=reinforcement,
+                semantic_similarity=_safe_float(entry.get('semantic_similarity'), 0.0) if entry.get('semantic_similarity') is not None else None,
+                task_alignment=_safe_float(entry.get('task_alignment'), 0.0) if entry.get('task_alignment') is not None else None,
+                reinforcement_score=min(1.0, reinforcement + 0.1),
+                decay_score=0.0,
+                usage_count=1 if not guardrail['anti_loop'] else 0,
+                version=1,
+                last_accessed_at=now,
+                is_deleted=next_state == 'deprecated',
+            )
+            db.session.add(node)
+            persisted_nodes.append(node)
+
+    # Graph edges persist as audit trail.
+    persisted_edges = 0
+    for graph_edge in (graph.get('edges') or []):
+        edge = MemoryEdge.query.filter_by(
+            user_id=user_id,
+            source_node_uid=graph_edge.get('source_id'),
+            target_node_uid=graph_edge.get('target_id'),
+            relation_type=graph_edge.get('relation_type'),
+        ).first()
+        if edge:
+            edge.weight = max(_safe_float(edge.weight, 0.0), _safe_float(graph_edge.get('weight'), 1.0))
+            edge.created_at = now
+        else:
+            db.session.add(MemoryEdge(
+                user_id=user_id,
+                source_node_uid=graph_edge.get('source_id'),
+                target_node_uid=graph_edge.get('target_id'),
+                relation_type=graph_edge.get('relation_type'),
+                weight=_safe_float(graph_edge.get('weight'), 1.0),
+                source_module_key=(graph_edge.get('source_id') or '').split(':', 1)[0] if graph_edge.get('source_id') else None,
+                target_module_key=(graph_edge.get('target_id') or '').split(':', 1)[0] if graph_edge.get('target_id') else None,
+                created_at=now,
+            ))
+            persisted_edges += 1
+
+    # Reinforce nodes that were actively injected.
+    for node in persisted_nodes:
+        node.reinforcement_score = min(1.0, _safe_float(node.reinforcement_score, 0.0) + (0.03 if node.validity_state == 'active' else 0.0))
+        node.decay_score = max(0.0, _safe_float(node.decay_score, 0.0) * 0.995)
+
+    # Apply gentle decay to older active nodes not used in this turn.
+    stale_query = MemoryNode.query.filter(
+        MemoryNode.user_id == user_id,
+        MemoryNode.validity_state == 'active',
+        MemoryNode.is_deleted.is_(False),
+    )
+    if node_uids:
+        stale_query = stale_query.filter(~MemoryNode.node_uid.in_(node_uids))
+
+    stale_nodes = stale_query.limit(50).all()
+    for node in stale_nodes:
+        node.reinforcement_score = max(0.0, _safe_float(node.reinforcement_score, 0.0) * 0.985)
+        node.decay_score = min(1.0, _safe_float(node.decay_score, 0.0) + 0.01)
+        if node.decay_score >= 0.7 and node.reinforcement_score < 0.2:
+            node.validity_state = 'deprecated'
+            node.is_deleted = True
+
+    prune_snapshot = _prune_memory_graph_state(user_id, protected_uids=node_uids, max_active_nodes=220)
+
+    return {
+        'nodes_upserted': len(persisted_nodes),
+        'edges_upserted': persisted_edges,
+        'graph_nodes': len(graph.get('nodes') or []),
+        'graph_edges': len(graph.get('edges') or []),
+        'planned_steps': list(memory_context.get('retrieval_plan_steps') or []),
+        'compaction_audit': memory_context.get('graph_compaction_audit'),
+        'debug_signals': memory_context.get('debug_signals'),
+        'learning_signals': memory_context.get('learning_signals'),
+        'guardrail': {
+            'anti_loop': any(item['anti_loop'] for item in guardrail_snapshots),
+            'repeat_signals': max([item['repeat_signals'] for item in guardrail_snapshots] or [0]),
+            'dampening_floor': min([item['dampening'] for item in guardrail_snapshots] or [1.0]),
+        },
+        'pruning': prune_snapshot,
+    }
 
 
 # --- GAMIFICATION SYSTEM ---
@@ -2412,6 +2905,7 @@ def serialize_user(user: User) -> dict:
         'id': user.id,
         'email': user.email,
         'display_name': user.display_name,
+        'bio': prefs.get('bio', ''),
         'is_admin': user.is_admin,
         'profile_image': f"/api/files/{os.path.basename(user.profile_image)}" if user.profile_image else None,
         'created_at': user.created_at.strftime('%Y-%m-%d %H:%M'),
@@ -2779,11 +3273,13 @@ def update_preferences_api():
 @app.route('/api/auth/profile', methods=['PUT'])
 @jwt_required()
 def update_profile():
-    """Kullanıcı profilini güncelle (display_name ve şifre)."""
+    """Kullanıcı profilini güncelle (display_name, bio ve şifre)."""
     user = get_current_user()
     data = request.json or {}
     
     new_display_name = (data.get('display_name') or '').strip()
+    has_bio_field = 'bio' in data
+    new_bio = (data.get('bio') or '').strip()
     new_password = data.get('new_password') or ''
     current_password = data.get('current_password') or ''
     
@@ -2794,6 +3290,17 @@ def update_profile():
         if existing and existing.id != user.id:
             return jsonify({'error': 'This username is already taken.'}), 409
         user.display_name = new_display_name
+
+    # Bio güncelleme (preferences JSON içinde saklanır)
+    try:
+        prefs = json.loads(user.preferences) if user.preferences else {}
+        if not isinstance(prefs, dict):
+            prefs = {}
+    except Exception:
+        prefs = {}
+    if has_bio_field:
+        prefs['bio'] = new_bio[:500]
+        user.preferences = json.dumps(prefs)
     
     # Şifre güncelleme
     if new_password:
@@ -3507,6 +4014,9 @@ def bulk_refactor():
 def ask():
     # Debug logging
     print(f"DEBUG: /api/ask called. Content-Type: {request.content_type}")
+
+    payload = {}
+    include_previous_modules = None
     
     # Handle multipart/form-data
     if request.content_type and 'multipart/form-data' in request.content_type:
@@ -3514,8 +4024,11 @@ def ask():
         code = request.form.get('code', '')
         model = request.form.get('model', 'auto')
         conversation_id = request.form.get('conversation_id')
+        include_previous_modules = request.form.get('include_previous_modules')
         if conversation_id == 'null' or conversation_id == 'undefined':
             conversation_id = None
+
+        payload = request.form.to_dict(flat=True)
         
         image_file = request.files.get('image')
         image_path = None
@@ -3525,18 +4038,26 @@ def ask():
             image_file.save(image_path)
     else:
         # Handle JSON (or attempt to parse as JSON)
-        data = request.get_json(silent=True) or {}
-        question = data.get('question', '')
-        code = data.get('code', '')
-        model = data.get('model', 'auto')
-        conversation_id = data.get('conversation_id')
-        repo_param = data.get('repo')
-        branch_param = data.get('branch', 'main')
+        payload = request.get_json(silent=True) or {}
+        question = payload.get('question', '')
+        code = payload.get('code', '')
+        model = payload.get('model', 'auto')
+        conversation_id = payload.get('conversation_id')
+        include_previous_modules = payload.get('include_previous_modules')
+        repo_param = payload.get('repo')
+        branch_param = payload.get('branch', 'main')
         image_path = None
+
+    no_save = _parse_bool(payload.get('no_save'))
     
     # Kullanıcı tespiti
     user = get_current_user()
     user_id = user.id if user else None
+    include_previous_modules = _resolve_include_previous_modules(
+        user,
+        {'include_previous_modules': include_previous_modules} if include_previous_modules is not None else payload,
+        no_save=no_save,
+    )
     
     # AI Taste Profile al
     prefs = get_user_preferences(user)
@@ -3562,11 +4083,6 @@ def ask():
     except Exception as e:
         print(f"Quota check failed (continuing): {e}")
 
-    # Check if this is a no-save request (used for model comparison)
-    no_save = data.get('no_save', False) if 'data' in dir() and data else False
-    if request.content_type and 'application/json' in request.content_type:
-        no_save = request.get_json(silent=True).get('no_save', False) if request.get_json(silent=True) else False
-
     # Konuşma Yönetimi
     conversation = None
     history_context = []
@@ -3575,8 +4091,8 @@ def ask():
     if not no_save:
         if conversation_id:
             conversation = db.session.get(Conversation, conversation_id)
-            # Eğer conversation varsa, geçmişi çek
-            if conversation:
+            # Eğer conversation varsa ve kullanıcı geçmişi istiyorsa, geçmişi çek
+            if conversation and include_previous_modules:
                 # Sadece bu konuşmaya ait son 5 mesajı al (Token tasarrufu için)
                 prev_items = History.query.filter_by(conversation_id=conversation.id)\
                     .order_by(History.timestamp.desc())\
@@ -3661,6 +4177,12 @@ def ask():
 
     else:
         print(f"Model İsteği (no_save): {model}, Image: {image_path}")
+
+    memory_context = {'text': '', 'hit_count': 0, 'hits': []}
+    if include_previous_modules and user:
+        memory_context = _load_previous_memory_context(user, question, conversation, include_previous_modules=True)
+        if memory_context.get('text'):
+            github_context = f"{memory_context['text']}\n\n{github_context}".strip() if github_context else memory_context['text']
 
     # --- Akıllı Model Routing (Smart Routing) ---
     original_model = model
@@ -3777,6 +4299,17 @@ def ask():
     # audio transcription, or image generation overrides the model.
     # (routing_reason stays None for explicit user selections)
 
+    # Auto-routing sonrası model değişebildiği için nihai modele göre tekrar doğrula.
+    if user:
+        allowed_final, balance_final, req_cost_final = check_tokens(user, model)
+        if not allowed_final:
+            return jsonify({
+                'error': f'Yetersiz Token! Bu işlem için {req_cost_final} token gerekiyor, mevcut bakiyeniz: {balance_final}.',
+                'insufficient_tokens': True,
+                'required': req_cost_final,
+                'balance': balance_final
+            }), 402
+
     answer = ""
 
     # --- Model Yönlendirme Mantığı ---
@@ -3841,7 +4374,11 @@ def ask():
                 'selected_model': model,
                     'detected_language': detected_lang,
                     'detected_intent': detected_intent,
-                'persona': prefs.get('persona', 'General User') if user else 'General User'
+                'persona': prefs.get('persona', 'General User') if user else 'General User',
+                'memory_used': bool(memory_context.get('text')),
+                'memory_hits': int(memory_context.get('hit_count') or 0),
+                'carryover': include_previous_modules,
+                'memory_capsules': memory_context.get('hits', []),
             }
 
             # Only save to database if not a no_save request
@@ -3854,8 +4391,9 @@ def ask():
                         current_conv = Conversation(id=conversation.id, user_id=user_id, title=question[:50])
                         db.session.add(current_conv)
 
-                    # Özetleme
+                    # Özetleme ve kalıcı hafıza çıkarımı
                     summary = summarize_answer(full_answer)
+                    extracted_memory_items = extract_memory_candidates(question, full_answer) if user else []
 
                     # Başlık güncelleme (ilk mesajsa) - kısa ve öz başlık üret
                     if not history_context:
@@ -3874,20 +4412,34 @@ def ask():
                         persona=prefs.get('persona', 'General User') if user else 'General User'
                     )
                     db.session.add(history)
+
+                    # Flush first so the new history id can be attached to summary rows.
+                    db.session.flush()
+
+                    if user:
+                        _upsert_conversation_summary(current_conv, history.id, user.id, summary, extracted_memory_items)
+                        _store_memory_items(user.id, current_conv.id, extracted_memory_items)
+                        learning_snapshot = _write_back_memory_graph(user.id, current_conv.id, history.id, memory_context)
+                        final_data['memory_learning'] = learning_snapshot
+
                     db.session.commit()
 
                     # 4. AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
                     if user:
-                        update_user_taste(user, model, full_answer, question)
-                        
+                        # Bu scope'ta detached instance riskini önlemek için kullanıcıyı yeniden al.
+                        charge_user = db.session.get(User, user.id)
+                        update_user_taste(charge_user, model, full_answer, question)
+
                         # 💰 TOKEN EKONOMİSİ — Harcamayı düş
                         success, new_bal = deduct_tokens(
-                            user, 
-                            model, 
+                            charge_user,
+                            model,
                             description=f"Chat: {question[:30]}...",
                             reference_id=history.id
                         )
                         final_data['new_token_balance'] = new_bal
+                        if not success:
+                            final_data['token_warning'] = 'Token düşümü yapılamadı. Bakiye yetersiz olabilir.'
 
                     final_data.update({
                         'history_id': history.id,
@@ -3986,16 +4538,18 @@ def blend_models():
     
     # Create or get conversation
     if user:
+        conversation = None
         if conversation_id:
             conversation = Conversation.query.filter_by(id=conversation_id, user_id=user.id).first()
-        else:
-            # Create new conversation
+
+        # If conversation_id is missing/stale, create a fresh conversation so save + token deduction never gets skipped.
+        if not conversation:
             conversation = Conversation(
                 user_id=user.id,
                 title=question[:50] + ('...' if len(question) > 50 else ''),
                 created_at=datetime.datetime.now()
             )
-            
+
             # If repo was pre-verified and passed here, link it to the new conversation
             repo_param = data.get('repo')
             branch_param = data.get('branch', 'main')
@@ -4006,7 +4560,8 @@ def blend_models():
 
             db.session.add(conversation)
             db.session.commit()
-            conversation_id = conversation.id
+
+        conversation_id = conversation.id
     else:
         conversation = None
         conversation_id = None
@@ -4014,6 +4569,8 @@ def blend_models():
     def generate_blend_stream():
         model_responses = {}
         xp_result = None
+        new_token_balance = None
+        history_entry = None
         
         # 1. Paralel olarak tüm modellerden yanıt al
         yield f"data: {json.dumps({'status': 'fetching', 'message': 'Sending query to selected models...'})}\n\n"
@@ -4156,10 +4713,10 @@ Provide a clear reasoning/justification for why this blended response was chosen
                 referee_reasoning = f"Referee failed: {str(ref_err)}"
         
         # 3. Save to database if user is logged in
-        if user and conversation_id and blended_response:
+        if user and conversation and blended_response:
             try:
                 history_entry = History(
-                    conversation_id=conversation_id,
+                    conversation_id=conversation.id,
                     user_question=question,
                     ai_response=blended_response,
                     code_snippet=code if code else None,
@@ -4174,7 +4731,20 @@ Provide a clear reasoning/justification for why this blended response was chosen
                 print(f"DEBUG: Saved Blend History item {history_entry.id}")
                 
                 # Update Taste Profile
-                update_user_taste(user, "blend", blended_response, question)
+                charge_user = db.session.get(User, user.id)
+                update_user_taste(charge_user, "blend", blended_response, question)
+
+                # Blend modu için token düşümü
+                success, new_bal = deduct_tokens(
+                    charge_user,
+                    'model-blend',
+                    description=f"Blend: {question[:30]}...",
+                    reference_id=history_entry.id
+                )
+                if success:
+                    new_token_balance = new_bal
+                else:
+                    print(f"WARN: Token deduction failed for blend user_id={user.id}, balance={new_bal}")
 
                 # Keep blend and ask flows consistent for gamification rewards.
                 xp_result = award_xp(user.id, XP_REWARDS['ask_question'], "Asking a Question", source='ask_question')
@@ -4188,12 +4758,14 @@ Provide a clear reasoning/justification for why this blended response was chosen
             'source_models': list(model_responses.keys()),
             'individual_responses': model_responses,
             'conversation_id': conversation_id,
-            'history_id': history_entry.id if (user and conversation_id and blended_response) else None,
+            'history_id': history_entry.id if history_entry else None,
             'persona': persona,
             'routing_reason': f"Blended {', '.join(models)} for enhanced accuracy"
         }
         if xp_result:
             final_data['xp_awarded'] = xp_result
+        if new_token_balance is not None:
+            final_data['new_token_balance'] = new_token_balance
         yield f"data: {json.dumps(final_data)}\n\n"
     
     return Response(stream_with_context(generate_blend_stream()), mimetype='text/event-stream')
@@ -4216,7 +4788,8 @@ def list_conversations():
             query = query.filter(Conversation.project_id.is_(None))
 
         # Exclude community posts and include archive filter logic if needed
-        convs = query.filter(db.or_(Conversation.is_archived == False, Conversation.is_archived == None))\
+        convs = query.filter(Conversation.is_deleted == False)\
+            .filter(db.or_(Conversation.is_archived == False, Conversation.is_archived == None))\
             .order_by(Conversation.is_pinned.desc(), Conversation.created_at.desc())\
             .all()
     else:
@@ -4328,10 +4901,11 @@ def list_archived_conversations():
 @jwt_required()
 def get_user_posts():
     user = get_current_user()
-    # Kullanıcının 'Community' olarak işaretlenmiş postlarını getir
+    # Kullanıcının 'Community' olarak işaretlenmiş, silinmemiş postlarını getir
     items = History.query.join(Conversation)\
         .filter(Conversation.user_id == user.id)\
         .filter(History.selected_model == 'Community')\
+        .filter(History.is_deleted == False)\
         .order_by(History.timestamp.desc())\
         .all()
     return jsonify({'posts': [serialize_history(h) for h in items]})
@@ -4339,13 +4913,13 @@ def get_user_posts():
 
 @app.route('/api/conversations/<int:conversation_id>', methods=['GET'])
 def get_conversation(conversation_id):
-    conversation = Conversation.query.get_or_404(conversation_id)
+    conversation = Conversation.query.filter_by(id=conversation_id, is_deleted=False).first_or_404()
     # Güvenlik: Eğer kullanıcı giriş yapmışsa ve bu konuşma başkasınınsa erişimi engelle (admin hariç)
     user = get_current_user()
     if conversation.user_id and (not user or (user.id != conversation.user_id and not user.is_admin)):
          return jsonify({'error': 'Unauthorized access'}), 403
 
-    items = History.query.filter_by(conversation_id=conversation_id).order_by(History.timestamp.asc()).all()
+    items = History.query.filter_by(conversation_id=conversation_id, is_deleted=False).order_by(History.timestamp.asc()).all()
     return jsonify({
         'conversation': serialize_conversation(conversation),
         'history': [serialize_history(h) for h in items]
@@ -4354,37 +4928,35 @@ def get_conversation(conversation_id):
 
 @app.route('/api/conversations/<int:conversation_id>', methods=['DELETE'])
 def delete_conversation(conversation_id):
-    conversation = Conversation.query.get_or_404(conversation_id)
+    try:
+        conversation = Conversation.query.filter_by(id=conversation_id, is_deleted=False).first_or_404()
+        user = get_current_user()
+        
+        # Güvenlik kontrolü
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        if conversation.user_id and user.id != conversation.user_id and not user.is_admin:
+             return jsonify({'error': 'Unauthorized access'}), 403
+        
+        # SaaS-Grade Deactivation Engine (Async)
+        LifecycleOrchestrator.deactivate_conversation(conversation_id)
+        
+        return jsonify({'status': 'deactivation_initiated', 'message': 'Sohbet siliniyor...'})
+    except Exception as e:
+        print(f"Error in delete_conversation: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/conversations/<int:conversation_id>/restore', methods=['POST'])
+@jwt_required()
+def restore_conversation(conversation_id):
+    """Geri yükleme motorunu tetikler."""
     user = get_current_user()
-    if conversation.user_id and (not user or (user.id != conversation.user_id and not user.is_admin)):
-         return jsonify({'error': 'Unauthorized access'}), 403
+    conversation = Conversation.query.filter_by(id=conversation_id, user_id=user.id, is_deleted=True).first_or_404()
     
-    # History'lere bağlı verileri önce sil
-    histories = History.query.filter_by(conversation_id=conversation_id).all()
-    history_ids = [h.id for h in histories]
-    
-    if history_ids:
-        # PostLike'ları sil
-        PostLike.query.filter(PostLike.history_id.in_(history_ids)).delete(synchronize_session=False)
-        
-        # Answer'lara bağlı AnswerLike'ları sil
-        answers = Answer.query.filter(Answer.history_id.in_(history_ids)).all()
-        answer_ids = [a.id for a in answers]
-        if answer_ids:
-            AnswerLike.query.filter(AnswerLike.answer_id.in_(answer_ids)).delete(synchronize_session=False)
-        
-        # Answer'ları sil
-        Answer.query.filter(Answer.history_id.in_(history_ids)).delete(synchronize_session=False)
-        
-        # History'leri sil
-        History.query.filter(History.id.in_(history_ids)).delete(synchronize_session=False)
-    
-    db.session.delete(conversation)
-    db.session.commit()
-    return jsonify({'status': 'deleted'})
-
-
-@app.route('/api/conversations/<int:conversation_id>/history', methods=['POST'])
+    # SaaS-Grade Restoration Engine (Async)
+    LifecycleOrchestrator.restore_conversation(conversation_id)
+    return jsonify({'status': 'restoration_initiated', 'message': 'Sohbet geri yükleniyor...'})
 @jwt_required()
 def add_history_item(conversation_id):
     """Konuşmaya manuel olarak (generate etmeden) bir geçmiş öğesi ekler."""
@@ -4420,65 +4992,16 @@ def add_history_item(conversation_id):
 @app.route('/api/posts/<int:post_id>', methods=['DELETE'])
 @jwt_required()
 def delete_post(post_id):
-    """Kullanıcının kendi gönderisini siler."""
+    """Kullanıcının kendi gönderisini (History kaydını) siler (deaktive eder)."""
     user = get_current_user()
+    history = History.query.filter_by(id=post_id, is_deleted=False).first_or_404()
     
-    # Gönderiyi (History kaydını) bul
-    history = History.query.get_or_404(post_id)
-    
-    # Gönderi sahibini kontrol et
-    # Gönderi sahibini kontrol et
-    # Orphaned post check (Conversation deleted but post remains)
-    if not history.conversation:
-         # If checking for orphaned posts, strictly speaking only admin should delete
-         # or we assume data corruption and allow delete if user is authed? 
-         # Let's say if no conversation, we can't verify owner easily unless we trust some other field.
-         # For now, let's allow Admin to clean it up.
-         if not user.is_admin:
-             return jsonify({'error': 'Post corrupted (no conversation link). Contact admin.'}), 404
-    else:
-        # Normal check
-        if not history.conversation.user:
-             # Conversation exists but user is None?
-             if not user.is_admin:
-                 return jsonify({'error': 'Post owner not found.'}), 404
-        elif history.conversation.user_id != user.id and not user.is_admin:
-            return jsonify({'error': 'You do not have permission to delete this post.'}), 403
-    
-    try:
-        # 1. PostLike'ları sil
-        PostLike.query.filter_by(history_id=post_id).delete(synchronize_session=False)
+    # Ownership Check
+    if not history.conversation or (history.conversation.user_id != user.id and not user.is_admin):
+        return jsonify({'error': 'Unauthorized access'}), 403
         
-        # 2. Answer'lara bağlı AnswerLike'ları sil
-        answers = Answer.query.filter_by(history_id=post_id).all()
-        answer_ids = [a.id for a in answers]
-        if answer_ids:
-            AnswerLike.query.filter(AnswerLike.answer_id.in_(answer_ids)).delete(synchronize_session=False)
-        
-        # 3. Answer'ları sil
-        Answer.query.filter_by(history_id=post_id).delete(synchronize_session=False)
-        
-        # 4. Gönderiyi (History) sil
-        db.session.delete(history)
-        
-        # Also clean up the Conversation if it was a community post created just for this
-        if history.selected_model == 'Community' and history.conversation:
-             # Check if this conversation has other history?
-             other_history = History.query.filter(
-                 History.conversation_id == history.conversation_id, 
-                 History.id != history.id
-             ).count()
-             if other_history == 0:
-                 db.session.delete(history.conversation)
-
-        db.session.commit()
-        
-        return jsonify({'message': 'Post deleted.'})
-    
-    except Exception as e:
-        db.session.rollback()
-        print(f"Gönderi silme hatası: {e}")
-        return jsonify({'error': 'An error occurred while deleting the post.'}), 500
+    LifecycleOrchestrator.deactivate_history_item(post_id)
+    return jsonify({'status': 'deleted', 'message': 'Gönderi silindi.'})
 
 
 @app.route('/api/posts/<int:post_id>', methods=['PUT'])
@@ -4709,13 +5232,15 @@ def delete_notification():
     return jsonify({'status': 'deleted'})
 @app.route('/api/history', methods=['GET'])
 def get_history():
-    items = History.query.order_by(History.timestamp.desc()).limit(20).all()
+    items = History.query.filter_by(is_deleted=False).order_by(History.timestamp.desc()).limit(20).all()
     return jsonify({'history':[serialize_history(h) for h in items]})
 
 
 @app.route('/api/popular', methods=['GET'])
 def get_popular():
-    items = History.query.order_by(History.likes.desc(), History.timestamp.desc()).limit(5).all()
+    items = History.query.filter_by(is_deleted=False)\
+        .order_by(History.likes.desc(), History.timestamp.desc())\
+        .limit(5).all()
     return jsonify({'popular':[serialize_history(h) for h in items]})
 
 
@@ -4840,9 +5365,13 @@ def like_answer(answer_id: int):
 
 @app.route('/api/history/<int:history_id>', methods=['DELETE'])
 def delete_history(history_id: int):
-    history = History.query.get_or_404(history_id)
-    db.session.delete(history)
-    db.session.commit()
+    history = History.query.filter_by(id=history_id, is_deleted=False).first_or_404()
+    # Güvenlik kontrolü genelde conversation üzerinden yapılır
+    user = get_current_user()
+    if history.conversation and history.conversation.user_id != user.id and not user.is_admin:
+        return jsonify({'error': 'Unauthorized access'}), 403
+        
+    LifecycleOrchestrator.deactivate_history_item(history_id)
     return jsonify({'status': 'deleted'})
 
 
@@ -5719,8 +6248,8 @@ def create_community_post():
 
 @app.route('/api/community/feed', methods=['GET'])
 def get_community_feed():
-    # Sadece 'Community' olarak işaretlenmiş postları getir
-    items = History.query.filter_by(selected_model='Community')\
+    # Sadece 'Community' olarak işaretlenmiş, silinmemiş postları getir
+    items = History.query.filter_by(selected_model='Community', is_deleted=False)\
         .order_by(History.timestamp.desc())\
         .limit(50)\
         .all()
@@ -6047,14 +6576,17 @@ def get_following_feed():
 @app.route('/api/notifications/all', methods=['GET'])
 @jwt_required()
 def get_all_notifications():
-    """Kullanıcının tüm bildirimlerini getir (eski + yeni format)."""
+    """Kullanıcının tüm bildirimlerini getir (active + non-deleted)."""
     current_user = get_current_user()
     
-    # Yeni format bildirimler (Notification tablosu)
-    notifications = Notification.query.filter_by(user_id=current_user.id)\
-        .order_by(Notification.created_at.desc())\
-        .limit(50)\
-        .all()
+    # Yeni format bildirimler (Notification tablosu) - Lifecycle Aware
+    notifications = Notification.query.filter_by(
+        user_id=current_user.id,
+        is_deleted=False,
+        lifecycle_state='active'
+    ).order_by(Notification.created_at.desc())\
+     .limit(50)\
+     .all()
     
     return jsonify({
         'notifications': [
@@ -6130,11 +6662,14 @@ def get_favorites():
     if not current_user:
         return jsonify({'error': 'User not found'}), 404
     
-    favorites = Favorite.query.filter_by(user_id=current_user.id).order_by(Favorite.created_at.desc()).all()
+    # Sadece silinmemiş favorileri getir
+    favorites = Favorite.query.filter_by(user_id=current_user.id, is_deleted=False)\
+        .order_by(Favorite.created_at.desc()).all()
     
     result = []
     for fav in favorites:
-        history = db.session.get(History, fav.history_id)
+        # Bağlı History kaydı silinmemiş olmalı
+        history = History.query.filter_by(id=fav.history_id, is_deleted=False).first()
         if history:
             conversation = db.session.get(Conversation, history.conversation_id)
             result.append({
@@ -7367,6 +7902,10 @@ def stripe_webhook():
         stripe_session_id = session_obj.get('id')
         stripe_payment_intent = session_obj.get('payment_intent')
 
+        if not stripe_session_id:
+            print('Webhook: missing stripe session id. Skipping event.')
+            return jsonify({'received': True}), 200
+
         # Satın alma kaydını bul
         purchase = TokenPurchase.query.filter_by(
             stripe_checkout_session_id=stripe_session_id
@@ -7407,10 +7946,40 @@ def stripe_webhook():
             print(f"Webhook: Purchase {purchase.id} already completed. Skipping.")
             return jsonify({'received': True}), 200
 
+        # Idempotency hardening: purchase row'unu atomik sekilde claim et.
+        # Sadece pending durumundaki ilk worker processing'e cekebilir.
+        claimed = (
+            TokenPurchase.query
+            .filter_by(id=purchase.id, status='pending')
+            .update({'status': 'processing'}, synchronize_session=False)
+        )
+        if claimed == 0:
+            db.session.rollback()
+            refreshed = TokenPurchase.query.filter_by(id=purchase.id).first()
+            current_status = refreshed.status if refreshed else 'missing'
+            print(f"Webhook: Purchase {purchase.id} already claimed (status={current_status}).")
+            return jsonify({'received': True}), 200
+
+        db.session.flush()
+
         user_id = purchase.user_id
         tokens_to_add = purchase.tokens_granted
 
         try:
+            existing_tx = TokenTransaction.query.filter_by(
+                user_id=user_id,
+                type='purchase',
+                reference_id=stripe_session_id,
+            ).first()
+            if existing_tx:
+                purchase.status = 'completed'
+                purchase.stripe_payment_intent_id = stripe_payment_intent
+                if not purchase.completed_at:
+                    purchase.completed_at = datetime.datetime.utcnow()
+                db.session.commit()
+                print(f"Webhook: Duplicate purchase event ignored for session {stripe_session_id}.")
+                return jsonify({'received': True}), 200
+
             # TokenBalance güncelle veya oluştur
             balance_record = TokenBalance.query.filter_by(user_id=user_id).first()
             if not balance_record:

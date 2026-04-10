@@ -1,1014 +1,825 @@
-\documentclass[12pt,a4paper]{article}
+\documentclass[11pt,a4paper]{article}
 
-% ─── Font & Encoding ───────────────────────────────────────────────────────────
-\usepackage{fontspec}
-\setmainfont{DejaVu Serif}
-\setsansfont{DejaVu Sans}
-\setmonofont{DejaVu Sans Mono}
-
-% ─── Sayfa Düzeni ──────────────────────────────────────────────────────────────
+% ─── Paketler ───────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
 \usepackage{geometry}
-\geometry{a4paper, left=24mm, right=24mm, top=30mm, bottom=30mm}
-
-% ─── Tipografi & Aralık ────────────────────────────────────────────────────────
-\usepackage{setspace}
-\onehalfspacing
-
-% ─── Tablo & Liste ─────────────────────────────────────────────────────────────
 \usepackage{booktabs}
+\usepackage{tabularx}
 \usepackage{longtable}
 \usepackage{array}
-\usepackage{enumitem}
-\usepackage{tabularx}
-\usepackage{multirow}
-
-% ─── Renk & Görsel ─────────────────────────────────────────────────────────────
 \usepackage{xcolor}
-\usepackage{mdframed}
-\usepackage{tcolorbox}
-\tcbuselibrary{skins, breakable}
-
-% ─── Başlık & İçerik ───────────────────────────────────────────────────────────
-\usepackage{titlesec}
-\usepackage{titletoc}
-\usepackage{hyperref}
 \usepackage{fancyhdr}
-\usepackage{lastpage}
-
-% ─── Kod Bloğu ─────────────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\usepackage{hyperref}
 \usepackage{listings}
+\usepackage{enumitem}
+\usepackage[stretch=10,shrink=10,activate=false]{microtype}
+\usepackage{graphicx}
+\usepackage{ragged2e}
+\usepackage{makecell}
+\usepackage{multirow}
+\usepackage{tcolorbox}
+\usepackage{parskip}
 
-% ─── Renk Tanımları ────────────────────────────────────────────────────────────
-\definecolor{primaryblue}{RGB}{0, 51, 179}
-\definecolor{secondaryblue}{RGB}{0, 102, 204}
-\definecolor{accentgray}{RGB}{245, 247, 250}
-\definecolor{bordergray}{RGB}{210, 218, 230}
-\definecolor{successgreen}{RGB}{0, 128, 80}
-\definecolor{warningorange}{RGB}{200, 100, 0}
-\definecolor{dangered}{RGB}{180, 30, 30}
-\definecolor{codemono}{RGB}{40, 40, 100}
-\definecolor{lightblue}{RGB}{230, 240, 255}
-\definecolor{midgray}{RGB}{100, 110, 130}
+% ─── Sayfa düzeni ────────────────────────────────────────────
+\geometry{
+  a4paper,
+  top=2.5cm,
+  bottom=2.5cm,
+  left=2.5cm,
+  right=2.5cm,
+  headheight=15pt
+}
 
-% ─── Başlık Biçimleri ──────────────────────────────────────────────────────────
-\titleformat{\section}
-  {\large\bfseries\color{primaryblue}}
-  {\thesection}{1em}{}[\vspace{-2pt}\color{bordergray}\rule{\linewidth}{0.4pt}]
+% ─── Renkler ─────────────────────────────────────────────────
+\definecolor{codeblue}{RGB}{30,100,180}
+\definecolor{codegray}{RGB}{245,245,245}
+\definecolor{codered}{RGB}{180,30,30}
+\definecolor{codegreen}{RGB}{30,130,80}
+\definecolor{warnorange}{RGB}{200,100,0}
+\definecolor{headerbg}{RGB}{240,242,246}
 
-\titleformat{\subsection}
-  {\normalsize\bfseries\color{secondaryblue}}
-  {\thesubsection}{1em}{}
+% ─── Başlık biçimleri ────────────────────────────────────────
+\titleformat{\section}{\large\bfseries\color{codeblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{\thesubsubsection}{1em}{}
 
-\titleformat{\subsubsection}
-  {\normalsize\bfseries\color{midgray}}
-  {\thesubsubsection}{1em}{}
-
-% ─── Sütun Tipleri ─────────────────────────────────────────────────────────────
-\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
-\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
-
-% ─── Sayfa Başlığı/Altı ────────────────────────────────────────────────────────
+% ─── Üst/Alt bilgi ───────────────────────────────────────────
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\color{midgray}CodeAlchemist — 8. Hafta Teknik Doküman}
-\fancyhead[R]{\small\color{midgray}Mart 2026}
-\fancyfoot[C]{\small\color{midgray}Sayfa \thepage\ / \pageref{LastPage}}
-\renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\footrulewidth}{0.4pt}
+\lhead{\small CodeAlchemist — 8. Hafta Teknik Doküman}
+\rhead{\small 10 Nisan 2026}
+\cfoot{\small CodeAlchemist Team • Dila KEMER \quad Sayfa \thepage}
 
-% ─── Özel Kutular ──────────────────────────────────────────────────────────────
-\tcbset{
-  infobox/.style={
-    colback=lightblue, colframe=primaryblue,
-    fonttitle=\bfseries\small\color{primaryblue},
-    boxrule=0.5pt, arc=3pt, breakable
-  },
-  warningbox/.style={
-    colback=yellow!10, colframe=warningorange,
-    fonttitle=\bfseries\small\color{warningorange},
-    boxrule=0.5pt, arc=3pt, breakable
-  },
-  successbox/.style={
-    colback=green!5, colframe=successgreen,
-    fonttitle=\bfseries\small\color{successgreen},
-    boxrule=0.5pt, arc=3pt, breakable
-  },
-  codebox/.style={
-    colback=accentgray, colframe=bordergray,
-    fonttitle=\bfseries\small\color{codemono},
-    boxrule=0.5pt, arc=3pt, breakable
-  }
-}
-
-% ─── Kod Listeleme ─────────────────────────────────────────────────────────────
+% ─── Listings (kod blokları) ─────────────────────────────────
 \lstset{
-  basicstyle=\small\ttfamily\color{codemono},
-  backgroundcolor=\color{accentgray},
-  frame=single, framesep=4pt,
-  rulecolor=\color{bordergray},
+  backgroundcolor=\color{codegray},
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen},
+  stringstyle=\color{codered},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  framerule=0.5pt,
   breaklines=true,
-  columns=flexible,
-  keepspaces=true,
-  showstringspaces=false
+  breakatwhitespace=false,
+  tabsize=4,
+  showstringspaces=false,
+  captionpos=b,
+  xleftmargin=1.5em,
+  xrightmargin=0.5em
 }
 
-% ─── Belge Başlığı ─────────────────────────────────────────────────────────────
-\title{%
-  \vspace{-10mm}%
-  {\LARGE\bfseries\color{primaryblue} CodeAlchemist}\\[6pt]
-  {\large\color{secondaryblue} 8. Hafta — Kapsamlı Teknik Doküman}\\[4pt]
-  {\normalsize\color{midgray} Uygulama Günlüğü \textbullet{} Kod Entegrasyonu \textbullet{} İzlenebilirlik Matrisi}
+% ─── tcolorbox ayarları ──────────────────────────────────────
+\tcbuselibrary{skins,breakable}
+\newtcolorbox{notebox}[1][]{
+  colback=headerbg, colframe=codeblue!60,
+  fonttitle=\bfseries\small, title={#1},
+  left=4pt, right=4pt, top=4pt, bottom=4pt,
+  breakable
 }
-\author{%
-  \textbf{CodeAlchemist Team} \quad\textbullet\quad \textbf{Dila KEMER}
+\newtcolorbox{warnbox}[1][]{
+  colback=orange!8, colframe=warnorange,
+  fonttitle=\bfseries\small, title={#1},
+  left=4pt, right=4pt, top=4pt, bottom=4pt,
+  breakable
 }
-\date{Mart 2026}
 
-% ───────────────────────────────────────────────────────────────────────────────
+% ─── Yardımcı sütun türleri ──────────────────────────────────
+\newcolumntype{L}[1]{>{\RaggedRight\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+% ─── Köprü ───────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=codeblue,
+  urlcolor=codeblue,
+  pdfauthor={CodeAlchemist Team — Dila KEMER},
+  pdftitle={CodeAlchemist 8. Hafta Teknik Doküman}
+}
+
+% ══════════════════════════════════════════════════════════════
 \begin{document}
-% ───────────────────────────────────────────────────────────────────────────────
 
-\maketitle
-\thispagestyle{fancy}
+% ─── Kapak ───────────────────────────────────────────────────
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries\color{codeblue} CodeAlchemist\par}
+  \vspace{0.5cm}
+  {\Large Teknik Doküman\par}
+  \vspace{0.3cm}
+  {\large 8. Hafta — 10 Nisan 2026\par}
+  \vspace{1.5cm}
+  \hrule height 1pt
+  \vspace{0.4cm}
+  {\normalsize Uygulama Günlüğü \quad • \quad Kod Entegrasyonu \quad • \quad İzlenebilirlik Matrisi\par}
+  \vspace{0.4cm}
+  \hrule height 1pt
+  \vspace{2cm}
+  {\normalsize\textbf{Hazırlayan:} CodeAlchemist Team • Dila KEMER\par}
+  \vspace{0.3cm}
+  {\normalsize\textbf{Tarih:} 10 Nisan 2026\par}
+  \vspace{0.3cm}
+  {\normalsize\textbf{Versiyon:} 8.0 — Final\par}
+  \vspace{0.3cm}
+  {\normalsize\textbf{Kapsam:} 5 Ana Özellik • 4 Dosya • 9 Uygulama Adımı\par}
+\end{titlepage}
 
-\vspace{4mm}
-\begin{tcolorbox}[infobox, title={Yönetici Özeti}]
-Bu doküman, \textbf{8. hafta} kapsamında hayata alınan \textbf{5 ana özelliğin}
-tüm katmanlarını—ürün gereksinimi, mimari karar, kod entegrasyon noktaları, API sözleşmeleri,
-uygulama günlüğü, güvenlik değerlendirmesi ve bilinen sınırlar—tek bir referans kaynağında birleştirir.
+% ─── Yönetici Özeti ──────────────────────────────────────────
+\section*{Yönetici Özeti}
+\addcontentsline{toc}{section}{Yönetici Özeti}
 
-İçerik şunları kapsar: Özellik 1 için \textbf{12 kategorilik optimizasyon tablosu ve UI davranış tanımı};
-Özellik 4 için \textbf{gerçek plan limitleri, kota muhasebesi ve API sözleşmesi};
-Özellik 5 için \textbf{Mart 2026'da yayımlanan Gemini 3.1 Flash-Lite Preview model entegrasyonu};
-tüm özellikler için \textbf{Önce/Şimdi karşılaştırması}; backend smoke test ve frontend manuel test planı.
-\end{tcolorbox}
-\clearpage
-\vspace{4mm}
+Bu doküman, 8. hafta kapsamında hayata alınan 5 ana özelliğin tüm katmanlarını — ürün gereksinimi, mimari karar, kod entegrasyon noktaları, API sözleşmeleri, uygulama günlüğü, güvenlik değerlendirmesi ve bilinen sınırlar — tek bir referans kaynağında birleştirir.
+
+İçerik şunları kapsar:
+\begin{itemize}[leftmargin=1.5em]
+  \item Özellik 1 için 12 kategorilik optimizasyon tablosu ve UI davranış tanımı
+  \item Özellik 4 için gerçek plan limitleri, kota muhasebesi ve API sözleşmesi
+  \item Özellik 5 için 10 Nisan 2026'da yayımlanan Gemini 3.1 Flash-Lite Preview model entegrasyonu
+  \item Tüm özellikler için Önce/Şimdi karşılaştırması
+  \item Backend smoke test ve frontend manuel test planı
+\end{itemize}
+
+% ─── İçindekiler ─────────────────────────────────────────────
+\newpage
 \tableofcontents
 \newpage
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Kapsam ve Amaç}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 Bu doküman iki temel amaca hizmet eder:
 
-\begin{enumerate}[leftmargin=*, label=\textbf{\arabic*.}]
-  \item \textbf{Teknik Referans} — Özelliklerin fonksiyonlar, endpoint'ler ve UI davranışıyla
-        doğrudan eşleştirilmesi; yeni katılacak geliştiricilerin sistemi hızlıca anlaması.
-  \item \textbf{Uygulama Günlüğü} — Her özelliğin başlangıç analizinden canlıya alınabilir
-        MVP'ye uzanan adımlarının kayıt altına alınması.
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Teknik Referans} — Özelliklerin fonksiyonlar, endpoint'ler ve UI davranışıyla doğrudan eşleştirilmesi; yeni katılacak geliştiricilerin sistemi hızlıca anlaması.
+  \item \textbf{Uygulama Günlüğü} — Her özelliğin başlangıç analizinden canlıya alınabilir MVP'ye uzanan adımlarının kayıt altına alınması.
 \end{enumerate}
 
 \subsection{Hafta 8 Özellik Listesi}
 
-\begin{center}
-\begin{tabular}{@{} C{0.5cm} P{4.5cm} P{9cm} @{}}
+\begin{tabularx}{\textwidth}{@{} C{0.5cm} L{3.2cm} X @{}}
 \toprule
 \textbf{\#} & \textbf{Özellik} & \textbf{Kısa Açıklama} \\
 \midrule
-1 & Bağlam Optimizasyon Asistanı &
-  Prompt gönderiminden önce token yükünü azaltan, otomatik/manuel öneri sunan yardımcı. \\[4pt]
-2 & Patch Güvenlik Seviyesi &
-  Patch uygulamadan önce risk skoru hesaplayan; güvenli/incele/blokla kararını veren katman. \\[4pt]
-3 & Paylaşımda Canlı İşbirliği &
-  Socket.io ile eş zamanlı AI token stream'i (Live Sync) ve takım içi inceleme döngüsü. \\[4pt]
-4 & Free/Premium Plan Ayrımı &
-  İstek ve token kotası ile plan yönetimi; limit aşımında yönlendirme. \\
-5 & Gemini 3.1 Flash-Lite Preview Entegrasyonu &
-  Mart 2026 model güncellemesi ile yeni Gemini varyantının model seçim, fallback ve maliyet görünürlüğüne eklenmesi. \\
+1 & Bağlam Optimizasyon Asistanı & Prompt gönderiminden önce token yükünü azaltan, otomatik/manuel öneri sunan yardımcı. \\
+\addlinespace
+2 & Patch Güvenlik Seviyesi & Patch uygulamadan önce risk skoru hesaplayan; güvenli/incele/blokla kararını veren katman. \\
+\addlinespace
+3 & Paylaşımda Canlı İşbirliği & Socket.io ile eş zamanlı AI token stream'i (Live Sync) ve takım içi inceleme döngüsü. \\
+\addlinespace
+4 & Free/Premium Plan Ayrımı & İstek ve token kotası ile plan yönetimi; limit aşımında yönlendirme. \\
+\addlinespace
+5 & Gemini 3.1 Flash-Lite Preview & 10 Nisan 2026 model güncellemesi; model seçim, fallback ve maliyet görünürlüğüne eklenmesi. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Başlangıç Analizi ve Kapsam Belirleme}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{İncelenen Dosyalar ve Entegrasyon Noktaları}
 
-8. hafta çalışmalarına başlamadan önce mevcut kod tabanı taranmış; entegrasyon noktaları
-aşağıdaki gibi netleştirilmiştir:
+8. hafta çalışmalarına başlamadan önce mevcut kod tabanı taranmış; entegrasyon noktaları aşağıdaki gibi netleştirilmiştir:
 
-\begin{center}
-\begin{tabular}{@{} P{5.5cm} P{9cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{5.5cm} X @{}}
 \toprule
 \textbf{Dosya} & \textbf{Kapsadığı Alan} \\
 \midrule
-\texttt{client/src/components/ChatInterface.jsx} &
-  Context bar, prompt gönderim akışı, patch uygulama/undo mekanizması \\[4pt]
-\texttt{client/src/App.jsx} &
-  Ana \texttt{onAsk} akışı, collaboration paylaşım akışı, araç çekmecesi \\[4pt]
-\texttt{server/app.py} &
-  \texttt{/api/ask}, \texttt{/api/blend}, collaboration endpoint'leri, kota katmanı \\[4pt]
-\texttt{server/models.py} &
-  SharedSession ve ilgili veri modelleri \\
+\texttt{client/src/components/ChatInterface.jsx} & Context bar, prompt gönderim akışı, patch uygulama/undo mekanizması \\
+\addlinespace
+\texttt{client/src/App.jsx} & Ana onAsk akışı, collaboration paylaşım akışı, araç çekmecesi \\
+\addlinespace
+\texttt{server/app.py} & \texttt{/api/ask}, \texttt{/api/blend}, collaboration endpoint'leri, kota katmanı \\
+\addlinespace
+\texttt{server/models.py} & SharedSession ve ilgili veri modelleri \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{MVP Stratejisi}
 
-\begin{tcolorbox}[warningbox, title={Tasarım Kararı}]
-Hafta 8 için seçilen strateji: \textbf{mevcut davranışı bozmadan, yeni özellikleri feature-level
-ek katman olarak sisteme almak.}
-
+\begin{notebox}[Tasarım Kararı]
+Hafta 8 için seçilen strateji: mevcut davranışı bozmadan, yeni özellikleri feature-level ek katman olarak sisteme almak.
 Bu sayede hafta 6/7 kazanımı korunurken yeni kabiliyetler devreye alındı.
-\end{tcolorbox}
+\end{notebox}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Hafta 7'den Hafta 8'e Dönüşüm (Önce / Şimdi)}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-Bu bölüm, 8. haftadaki geliştirmelerin neden değerli olduğunu göstermek için
-"önce nasıldı, şimdi nasıl çalışıyor" perspektifini verir.
+Bu bölüm, 8. haftadaki geliştirmelerin neden değerli olduğunu göstermek için ``önce nasıldı, şimdi nasıl çalışıyor'' perspektifini verir.
 
-\vspace{4pt}
-\begin{longtable}{@{} P{3.2cm} P{5.2cm} P{6.2cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{2.8cm} X X @{}}
 \toprule
 \textbf{Alan} & \textbf{Önce (Hafta 6--7)} & \textbf{Şimdi (Hafta 8)} \\
 \midrule
-\endhead
-Bağlam yönetimi &
-  Context bar bilgi veriyordu, kullanıcı elle düzenliyordu. &
-  Prompt öncesi optimize önerisi ve auto optimize akışı var. \\[6pt]
-Patch uygulama &
-  Patch doğrudan uygulanabiliyordu. &
-  Risk skoru ile \texttt{safe} / \texttt{review} / \texttt{block} kararı devreye girdi. \\[6pt]
-Paylaşım &
-  Link ile paylaşım ve görüntüleme odaklıydı. &
-  Socket.io destekli Live Sync, yorumlar ve eş zamanlı iterasyon eklendi. \\[6pt]
-Planlama / maliyet &
-  Tüketim görünürlüğü sınırlıydı. &
-  Free/Premium plan, günlük istek ve aylık token kotası aktif. \\
+Bağlam yönetimi & Context bar bilgi veriyordu, kullanıcı elle düzenliyordu. & Prompt öncesi optimize önerisi ve auto optimize akışı var. \\
+\addlinespace
+Patch uygulama & Patch doğrudan uygulanabiliyordu, risk kontrolü yoktu. & Risk skoru ile safe / review / block kararı devreye girdi. \\
+\addlinespace
+Paylaşım & Link ile paylaşım ve görüntüleme odaklıydı. & Socket.io destekli Live Sync, yorumlar ve eş zamanlı iterasyon eklendi. \\
+\addlinespace
+Planlama / maliyet & Tüketim görünürlüğü sınırlıydı. & Free/Premium plan, günlük istek ve aylık token kotası aktif. \\
 \bottomrule
-\end{longtable}
+\end{tabularx}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Mimari Özet}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{Frontend Katmanı}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{primaryblue}{\textbullet}]
-  \item \textbf{Ana orkestrasyon:} \texttt{client/src/App.jsx}
-        — Plan/kota akışı, collaboration paylaşım akışı, araç çekmecesi.
-  \item \textbf{Chat ve patch akışı:} \texttt{client/src/components/ChatInterface.jsx}
-        — Prompt optimize öneri kartı, patch güvenlik modalı, context bar.
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Ana orkestrasyon:} \texttt{client/src/App.jsx} — Plan/kota akışı, collaboration paylaşım akışı, araç çekmecesi.
+  \item \textbf{Chat ve patch akışı:} \texttt{client/src/components/ChatInterface.jsx} — Prompt optimize öneri kartı, patch güvenlik modalı, context bar.
 \end{itemize}
 
 \subsection{Backend Katmanı}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{primaryblue}{\textbullet}]
-  \item \textbf{API ve iş kuralları:} \texttt{server/app.py}
-        — Kota katmanı, collaboration endpoint'leri, billing endpoint'leri.
-  \item \textbf{Veri modelleri:} \texttt{server/models.py}
-        — \texttt{CollaborationReview}, \texttt{CollaborationComment}, \texttt{SharedSession}.
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{API ve iş kuralları:} \texttt{server/app.py} — Kota katmanı, collaboration endpoint'leri, billing endpoint'leri.
+  \item \textbf{Veri modelleri:} \texttt{server/models.py} — CollaborationReview ve CollaborationComment, SharedSession.
 \end{itemize}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Özellik 1: Bağlam Optimizasyon Asistanı}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{Ürün Gereksinimi}
-
-Prompt göndermeden önce, kaliteyi koruyarak gereksiz token yükünü azaltacak öneriler sunulması.
-Auto mode açık olduğunda sistemin bunu akış içinde otomatik uygulayabilmesi.
+Prompt göndermeden önce, kaliteyi koruyarak gereksiz token yükünü azaltacak öneriler sunulması. Auto mode açık olduğunda sistemin bunu akış içinde otomatik uygulayabilmesi.
 
 \subsection{Uygulama Günlüğü — Ne Eklendi?}
 
 \textbf{Dosya:} \texttt{client/src/components/ChatInterface.jsx}
 
-\begin{tcolorbox}[codebox, title={Eklenen Yardımcı İşlevler}]
-\begin{itemize}[leftmargin=*, nosep]
+\textbf{Eklenen Yardımcı İşlevler:}
+\begin{itemize}[leftmargin=1.5em]
   \item Tekrarlı satır temizleme
   \item Gereksiz boşlukları sıkıştırma
   \item Token öncesi/sonrası kestirimi
 \end{itemize}
-\end{tcolorbox}
 
 \textbf{Eklenen UI bileşenleri:}
-\begin{itemize}[leftmargin=*, label=\textcolor{secondaryblue}{\textbullet}]
-  \item \texttt{Auto Optimize: ON/OFF} anahtarı
+\begin{itemize}[leftmargin=1.5em]
+  \item Auto Optimize: ON/OFF anahtarı
   \item Yüksek bağlam baskısında gönderim öncesi öneri kartı
-  \item Üç aksiyon butonu: \texttt{Apply Optimized Text}, \texttt{Send Optimized}, \texttt{Send Original}
+  \item Üç aksiyon butonu: \textit{Apply Optimized Text}, \textit{Send Optimized}, \textit{Send Original}
 \end{itemize}
 
 \subsection{Kod Entegrasyon Noktaları}
 
-\begin{center}
-\begin{tabular}{@{} P{5.5cm} P{9cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{4.5cm} X @{}}
 \toprule
 \textbf{Dosya : Satır} & \textbf{Sorumluluk} \\
 \midrule
-\texttt{ChatInterface.jsx:194} &
-  \texttt{optimizePromptWithReport(prompt)} — Prompt için before/after token tahmini
-  ve iyileştirme raporu üretir. \\[4pt]
-\texttt{ChatInterface.jsx:876} &
-  Gönderim öncesi optimize raporu devreye alır. \\[4pt]
-\texttt{ChatInterface.jsx:1527} &
-  \texttt{Auto Optimize: ON/OFF} UI kontrolü. \\
+\texttt{ChatInterface.jsx:194} & \texttt{optimizePromptWithReport(prompt)} — Prompt için before/after token tahmini ve iyileştirme raporu üretir. \\
+\addlinespace
+\texttt{ChatInterface.jsx:876} & Gönderim öncesi optimize raporu devreye alır. \\
+\addlinespace
+\texttt{ChatInterface.jsx:1527} & Auto Optimize: ON/OFF UI kontrolü. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{Davranış Akışı}
 
-\begin{enumerate}[leftmargin=*, label=\textbf{Adım \arabic{enumi}.}]
-  \item Kullanıcı prompt yazar.
-  \item Auto optimize açıksa rapor oluşturulur; kapalıysa kullanıcı manuel olarak başlatabilir.
-  \item Kullanıcı üç seçenekten birini seçer:
-        optimize metni uygula, optimize haliyle gönder veya orijinal metinle devam et.
-  \item Kullanıcı, promptu göndermeden önce token tasarrufunu sayısal olarak görebilir.
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Adım 1.} Kullanıcı prompt yazar.
+  \item \textbf{Adım 2.} Auto optimize açıksa rapor otomatik oluşturulur; kapalıysa kullanıcı manuel olarak başlatabilir.
+  \item \textbf{Adım 3.} Kullanıcı üç seçenekten birini seçer: optimize metni uygula, optimize haliyle gönder veya orijinal metinle devam et.
+  \item \textbf{Adım 4.} Kullanıcı, promptu göndermeden önce tahmini token tasarrufunu sayısal olarak görebilir.
 \end{enumerate}
 
-\subsection{Kazanım}
-
-\begin{tcolorbox}[successbox, title={Hafta 8 Kazanımı}]
+\begin{notebox}[Hafta 8 Kazanımı]
 Context bar yalnızca gösteren bir widget olmaktan çıktı; aksiyon üreten bir yardımcıya dönüştü.
-\end{tcolorbox}
+\end{notebox}
 
 \subsection{Kısa Senaryo (Önce / Şimdi)}
 
-\begin{tcolorbox}[infobox, title={Gerçek Kullanım Farkı}]
-\begin{itemize}[leftmargin=*, nosep, label=\textbullet]
-  \item \textbf{Önce:} Kullanıcı 2--3 farklı kod parçası ve uzun açıklama ile prompt gönderiyor,
-        token yükünü ancak cevap geç gelince fark ediyordu.
-  \item \textbf{Şimdi:} Göndermeden hemen önce sistem tekrarlı kısımları sıkıştırıp
-        tahmini token kazancını gösteriyor; kullanıcı optimize veya orijinal metinle devam etmeyi seçiyor.
-\end{itemize}
-\end{tcolorbox}
+\begin{notebox}[Gerçek Kullanım Farkı]
+\textbf{Önce:} Kullanıcı 2--3 farklı kod parçası ve uzun açıklama ile prompt gönderiyor, token yükünü ancak cevap geç gelince fark ediyordu.\\[4pt]
+\textbf{Şimdi:} Göndermeden hemen önce sistem tekrarlı kısımları sıkıştırıp tahmini token kazancını gösteriyor; kullanıcı optimize veya orijinal metinle devam etmeyi seçiyor.
+\end{notebox}
 
-\subsection{Tekrar Dışı Optimizasyon Önerileri ve Örnek Hatalı Promptlar}
+\subsection{12 Kategorilik Optimizasyon Tablosu ve Örnek Hatalı Promptlar}
 
-Aşağıdaki maddeler, sadece tekrar tespiti dışında kalan bağlam optimizasyon alanlarıdır.
-Her madde için bir \textit{hatalı prompt} örneği verilmiş; sistemin önermesi beklenen iyileştirme de belirtilmiştir.
+Aşağıdaki maddeler, tekrar tespiti dışında kalan bağlam optimizasyon alanlarını kapsar. Her madde için hatalı prompt örneği ve sistemin önermesi beklenen iyileştirme belirtilmiştir.
 
-\vspace{4pt}
-\begin{longtable}{@{} C{0.55cm} P{3.5cm} P{5.0cm} P{4.5cm} @{}}
+\small
+\begin{longtable}{@{} C{0.5cm} L{2.8cm} L{4.5cm} L{4.5cm} @{}}
+\toprule
+\textbf{No} & \textbf{Optimizasyon Fikri} & \textbf{Örnek Hatalı Prompt} & \textbf{Beklenen Önerme} \\
+\midrule
+\endfirsthead
+\multicolumn{4}{l}{\small\itshape (devam)} \\
 \toprule
 \textbf{No} & \textbf{Optimizasyon Fikri} & \textbf{Örnek Hatalı Prompt} & \textbf{Beklenen Önerme} \\
 \midrule
 \endhead
-1 & Gereksiz bağlam budama &
-  \textit{"Bugün kahve içtim, toplantı yaptım, sonra markete gittim, bu arada kodu da düzelt."} &
-  Teknik hedefi tut, hikaye/gürültüyü kaldır \\[5pt]
-2 & Amaç netleştirme &
-  \textit{"Bunu hızlandır, güvenli yap, UI tasarla, deploy et, test yaz."} &
-  Tek ana hedef seç ve önceliklendir \\[5pt]
-3 & Çıktı formatı standardizasyonu &
-  \textit{"Nasıl uygun görürsen öyle cevapla."} &
-  Tablo / madde / kod bloğu gibi net format belirt \\[5pt]
-4 & Kısıt ekleme &
-  \textit{"Bu problemi çözer misin?"} &
-  Dil, uzunluk, kapsam, karmaşıklık sınırı ekle \\[5pt]
-5 & Rol ve hedef kitle uyumu &
-  \textit{"Bu kodu anlat."} &
-  Kime anlatıldığını belirt (junior / senior / PM) \\[5pt]
-6 & Kod sinyali güçlendirme &
-  \textit{"Aşağıdakini iyileştir: def f(x): return x*x"} &
-  Dil ve istenen çıktı tipini netleştir (diff / fonksiyon) \\[5pt]
-7 & Test odaklı tamamlama &
-  \textit{"Bu fonksiyonu düzelt."} &
-  Edge-case ve basit test maddeleri ekle \\[5pt]
-8 & Risk ve güvenlik filtresi &
-  \textit{"Auth token akışını komple değiştir, direkt patch ver."} &
-  Risk analizi + rollback planı ile ilerle \\[5pt]
-9 & Token maliyeti azaltma &
-  \textit{"1200 satır logu komple analiz et."} &
-  Yalnız ilgili log kesitlerini iste \\[5pt]
-10 & Çok adımlı görev ayrışımı &
-  \textit{"Bu ürünü baştan sona optimize et."} &
-  Analiz / çözüm / test adımlarına böl \\[5pt]
-11 & Belirsizlik tespiti &
-  \textit{"Çalışmıyor, düzelt."} &
-  Hata mesajı, tekrar adımı, ortam bilgisi iste \\[5pt]
-12 & Dil kalitesi sadeleme &
-  \textit{"Aynı şeyi tekrar ediyorum, iyi olsun, daha iyi olsun."} &
-  Tekrarı azalt, net ve kısa hedef cümlesi üret \\
 \bottomrule
+\endfoot
+1 & Gereksiz bağlam budama & ``Bugün kahve içtim, toplantı yaptım, sonra markete gittim, bu arada kodu da düzelt.'' & Teknik hedefi tut, hikaye/gürültüyü kaldır \\
+\addlinespace
+2 & Amaç netleştirme & ``Bunu hızlandır, güvenli yap, UI tasarla, deploy et, test yaz.'' & Tek ana hedef seç ve önceliklendir \\
+\addlinespace
+3 & Çıktı formatı standardizasyonu & ``Nasıl uygun görürsen öyle cevapla.'' & Tablo / madde / kod bloğu gibi net format belirt \\
+\addlinespace
+4 & Kısıt ekleme & ``Bu problemi çözer misin?'' & Dil, uzunluk, kapsam, karmaşıklık sınırı ekle \\
+\addlinespace
+5 & Rol ve hedef kitle uyumu & ``Bu kodu anlat.'' & Kime anlatıldığını belirt (junior / senior / PM) \\
+\addlinespace
+6 & Kod sinyali güçlendirme & ``Aşağıdakini iyileştir: \texttt{def f(x): return x*x}'' & Dil ve istenen çıktı tipini netleştir (diff / fonksiyon) \\
+\addlinespace
+7 & Test odaklı tamamlama & ``Bu fonksiyonu düzelt.'' & Edge-case ve basit test maddeleri ekle \\
+\addlinespace
+8 & Risk ve güvenlik filtresi & ``Auth token akışını komple değiştir, direkt patch ver.'' & Risk analizi + rollback planı ile ilerle \\
+\addlinespace
+9 & Token maliyeti azaltma & ``1200 satır logu komple analiz et.'' & Yalnız ilgili log kesitlerini iste \\
+\addlinespace
+10 & Çok adımlı görev ayrışımı & ``Bu ürünü baştan sona optimize et.'' & Analiz / çözüm / test adımlarına böl \\
+\addlinespace
+11 & Belirsizlik tespiti & ``Çalışmıyor, düzelt.'' & Hata mesajı, tekrar adımı, ortam bilgisi iste \\
+\addlinespace
+12 & Dil kalitesi sadeleme & ``Aynı şeyi tekrar ediyorum, iyi olsun, daha iyi olsun.'' & Tekrarı azalt, net ve kısa hedef cümlesi üret \\
 \end{longtable}
+\normalsize
 
-\subsection{UI Tarafında Beklenen Davranış (Özellik 1 için)}
+\subsection{UI Tarafında Beklenen Davranış}
 
-Yukarıdaki 12 durumdan biri algılandığında, optimize kartı aşağıdaki aksiyonlardan en az birini sunmalıdır:
+Yukarıdaki 12 durumdan biri algılandığında, optimize kartı aşağıdaki aksiyonları sunmalıdır:
 
-\begin{tcolorbox}[codebox, title={Optimize Kartı — Zorunlu Aksiyon Butonları}]
-\begin{itemize}[leftmargin=*, nosep, label=\textcolor{primaryblue}{\textbullet}]
-  \item \texttt{Apply Optimized Text} — Optimize metni prompt kutusuna uygular, kullanıcı göndermeden önce görebilir.
-  \item \texttt{Send Optimized} — Optimize edilmiş metni doğrudan gönderir.
-  \item \texttt{Send Original} — Orijinal metni değiştirmeden gönderir; önermeyi atlar.
+\begin{notebox}[Optimize Kartı — Zorunlu Aksiyon Butonları]
+\begin{itemize}[leftmargin=1.2em,nosep]
+  \item \textbf{Apply Optimized Text} — Optimize metni prompt kutusuna uygular; kullanıcı göndermeden önce görebilir.
+  \item \textbf{Send Optimized} — Optimize edilmiş metni doğrudan gönderir.
+  \item \textbf{Send Original} — Orijinal metni değiştirmeden gönderir; öneriyi atlar.
 \end{itemize}
-\end{tcolorbox}
+\end{notebox}
 
-\begin{tcolorbox}[warningbox, title={Önemli UX Notu}]
-Kullanıcıya \textbf{her zaman seçim hakkı} verilmeli; sistem asla otomatik olarak
-orijinal promptun üzerine yazmamalıdır. Auto Optimize açık olsa bile nihai karar kullanıcıya aittir.
-\end{tcolorbox}
+\begin{warnbox}[Önemli UX Notu]
+Kullanıcıya her zaman seçim hakkı verilmeli; sistem asla otomatik olarak orijinal promptun üzerine yazmamalıdır. Auto Optimize açık olsa bile nihai karar kullanıcıya aittir.
+\end{warnbox}
 
 \subsection{Sınırlar ve Sonraki Adımlar}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{warningorange}{\textbullet}]
+\begin{itemize}[leftmargin=1.5em]
   \item Prompt optimizasyonu şu an kural tabanlıdır; 12 kategori heuristic ile tespit edilmektedir.
-  \item İleride model destekli \textit{semantic compression} eklenebilir.
+  \item İleride model destekli semantic compression eklenebilir.
   \item Kategori listesi genişleyebilir; yeni prompt anti-pattern'ler tespit edildikçe tablo güncellenmelidir.
 \end{itemize}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Özellik 2: Patch Güvenlik Seviyesi}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{Ürün Gereksinimi}
-
-Patch uygulamadan önce risk skorlaması yapılarak 3 modda karar verilmesi:
-\textbf{güvenli uygula}, \textbf{incele}, \textbf{blokla}.
+Patch uygulamadan önce risk skorlaması yapılarak 3 modda karar verilmesi: güvenli uygula, incele, blokla.
 
 \subsection{Uygulama Günlüğü — Ne Eklendi?}
 
 \textbf{Dosya:} \texttt{client/src/components/ChatInterface.jsx}
 
 \textbf{Eklenen bileşenler:}
-\begin{itemize}[leftmargin=*, label=\textcolor{secondaryblue}{\textbullet}]
+\begin{itemize}[leftmargin=1.5em]
   \item Patch risk skoru hesabı (0--100 aralığı)
-  \item \textbf{Patch Safety Modal:} risk gerekçeleri listesi, review akışı için kontrollü devam,
-        block durumunda uygulamayı durdurma
+  \item Patch Safety Modal: risk gerekçeleri listesi, review akışı için kontrollü devam, block durumunda uygulamayı durdurma
 \end{itemize}
 
-\textbf{Ek düzeltme:}
-\begin{tcolorbox}[warningbox, title={Önemli Refactor}]
-Model karşılaştırma kutularındaki doğrudan \texttt{setCode} uygulaması kaldırıldı;
-tüm patch akışı risk kapısından geçirildi.
-\end{tcolorbox}
+\begin{warnbox}[Önemli Refactor]
+Model karşılaştırma kutularındaki doğrudan \texttt{setCode} uygulaması kaldırıldı; tüm patch akışı risk kapısından geçirildi.
+\end{warnbox}
 
 \subsection{Risk Faktörleri}
 
-\begin{center}
-\begin{tabular}{@{} P{4cm} P{10cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{4cm} X @{}}
 \toprule
 \textbf{Risk Faktörü} & \textbf{Açıklama} \\
 \midrule
-Değişim büyüklüğü &
-  Toplam değiştirilen satır sayısı. \\[4pt]
-Silinen satır oranı &
-  Silinen satır / toplam satır oranı yüksekse risk artar. \\[4pt]
-Kritik anahtar kelimeler &
-  \texttt{auth}, \texttt{token}, \texttt{secret}, \texttt{billing} gibi kelimeler
-  skoru otomatik yükseltir. \\[4pt]
-Test etkisi sinyali &
-  Test dosyalarının değiştirildiğine dair sinyal. \\[4pt]
-Büyük patch boyutu &
-  Eşik değerini aşan patch boyutu ek risk puanı ekler. \\
+Değişim büyüklüğü & Toplam değiştirilen satır sayısı. \\
+\addlinespace
+Silinen satır oranı & Silinen satır / toplam satır oranı yüksekse risk artar. \\
+\addlinespace
+Kritik anahtar kelimeler & \texttt{auth}, \texttt{token}, \texttt{secret}, \texttt{billing} gibi kelimeler skoru otomatik yükseltir. \\
+\addlinespace
+Test etkisi sinyali & Test dosyalarının değiştirildiğine dair sinyal. \\
+\addlinespace
+Büyük patch boyutu & Eşik değerini aşan patch boyutu ek risk puanı ekler. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{Mod Açıklamaları}
 
-\begin{center}
-\begin{tabular}{@{} C{2.5cm} C{2.5cm} P{9cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{2cm} L{2.5cm} X @{}}
 \toprule
 \textbf{Mod} & \textbf{Skor Aralığı} & \textbf{Davranış} \\
 \midrule
-\textcolor{successgreen}{\textbf{safe}} & 0 -- 39 &
-  Patch doğrudan uygulanır, kullanıcı onayı gerekmez. \\[4pt]
-\textcolor{warningorange}{\textbf{review}} & 40 -- 74 &
-  Modal açılır; kullanıcı risk gerekçelerini görerek devam edebilir. \\[4pt]
-\textcolor{dangered}{\textbf{block}} & 75 -- 100 &
-  Patch otomatik olarak engellenir; uygulama durdurulur. \\
+SAFE & 0 – 39 & Patch doğrudan uygulanır, kullanıcı onayı gerekmez. \\
+\addlinespace
+REVIEW & 40 – 74 & Modal açılır; kullanıcı risk gerekçelerini görerek devam edebilir veya iptal edebilir. \\
+\addlinespace
+BLOCK & 75 – 100 & Patch otomatik olarak engellenir; uygulama durdurulur. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{Kod Entegrasyon Noktaları}
 
-\begin{center}
-\begin{tabular}{@{} P{5.5cm} P{9cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{4.5cm} X @{}}
 \toprule
 \textbf{Dosya : Satır} & \textbf{Sorumluluk} \\
 \midrule
-\texttt{ChatInterface.jsx:241} &
-  \texttt{evaluatePatchRisk(currentCode, incomingCode)} — Risk skoru ve gerekçe listesi hesaplar. \\[4pt]
-\texttt{ChatInterface.jsx:436} &
-  Patch uygulama adımı risk değerlendirmesinden geçirilir. \\[4pt]
-\texttt{ChatInterface.jsx:2015} &
-  \texttt{Patch Safety Check} modal görünümü. \\
+\texttt{ChatInterface.jsx:241} & \texttt{evaluatePatchRisk(currentCode, incomingCode)} — Risk skoru ve gerekçe listesi hesaplar. \\
+\addlinespace
+\texttt{ChatInterface.jsx:436} & Patch uygulama adımı risk değerlendirmesinden geçirilir. \\
+\addlinespace
+\texttt{ChatInterface.jsx:2015} & Patch Safety Check modal görünümü. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-\subsection{Risk Skoru Hesaplama Örneği}
+\subsection{Risk Skoru Hesaplama Örnekleri}
 
-Aşağıda, aynı patch senaryosunun üç farklı profilde nasıl skorlandığı gösterilmektedir.
+Aşağıda, üç farklı patch senaryosunun nasıl skorlandığı gösterilmektedir.
 
-\vspace{4pt}
-\begin{center}
-\begin{tabular}{@{} P{3.2cm} C{1.8cm} C{1.8cm} C{1.8cm} C{1.8cm} C{1.8cm} P{1.8cm} @{}}
+\small
+\begin{tabularx}{\textwidth}{@{} L{2.8cm} L{1.5cm} L{1.3cm} L{1.5cm} L{1.8cm} L{1.6cm} L{2cm} @{}}
 \toprule
 \textbf{Senaryo} & \textbf{Satır farkı} & \textbf{Silme \%} & \textbf{Kritik kw.} & \textbf{Test sinyali} & \textbf{Büyük patch} & \textbf{Skor → Mod} \\
 \midrule
-CSS renk değişimi &
-  +3 / -2 & 8\% & Yok & Yok & Hayır &
-  \textcolor{successgreen}{\textbf{12 → safe}} \\[5pt]
-Servis fonk. refactor &
-  +40 / -35 & 47\% & Yok & Var & Evet &
-  \textcolor{warningorange}{\textbf{58 → review}} \\[5pt]
-Auth akışı değişimi &
-  +60 / -50 & 55\% & \texttt{auth, token} & Var & Evet &
-  \textcolor{dangered}{\textbf{91 → block}} \\
+CSS renk değişimi & +3 / -2 & 8\% & Yok & Yok & Hayır & 12 → SAFE \\
+\addlinespace
+Servis fonk. refactor & +40 / -35 & 47\% & Yok & Var & Evet & 58 → REVIEW \\
+\addlinespace
+Auth akışı değişimi & +60 / -50 & 55\% & auth, token & Var & Evet & 91 → BLOCK \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
+\normalsize
 
 \subsection{Kısa Senaryo (Önce / Şimdi)}
 
-\begin{tcolorbox}[infobox, title={Gerçek Kullanım Farkı}]
-\begin{itemize}[leftmargin=*, nosep, label=\textbullet]
-  \item \textbf{Önce:} Büyük bir patch tek tıkla uygulanabiliyor,
-        kritik dosya etkisi sonradan fark ediliyordu.
-  \item \textbf{Şimdi:} Uygulama öncesi risk skoru çıkıyor; sistem güvenli ise uygula,
-        orta riskte incelet, yüksek riskte blokla kararını veriyor.
-\end{itemize}
-\end{tcolorbox}
+\begin{notebox}[Gerçek Kullanım Farkı]
+\textbf{Önce:} Büyük bir patch tek tıkla uygulanabiliyor, kritik dosya etkisi sonradan fark ediliyordu.\\[4pt]
+\textbf{Şimdi:} Uygulama öncesi risk skoru çıkıyor; güvenli ise uygula, orta riskte kullanıcı inceletir, yüksek riskte otomatik blokla kararı verilir.
+\end{notebox}
 
 \subsection{Sınırlar ve Sonraki Adımlar}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{warningorange}{\textbullet}]
+\begin{itemize}[leftmargin=1.5em]
   \item Patch risk skoru şu an heuristic tabanlıdır.
-  \item İleride AST ve test graph ile güçlendirilebilir; dosya/AST tabanlı analizle hassasiyet artırılabilir.
+  \item İleride AST ve test graph analizi ile hassasiyet artırılabilir.
 \end{itemize}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Özellik 3: Paylaşımda Canlı İşbirliği Modu (Live Sync)}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{Ürün Gereksinimi}
+Sadece paylaşım linki yerine gerçek zamanlı (Socket.io) takım içi çalışma döngüsü: eş zamanlı AI yanıtı görüntüleme (Live Sync), yorum yazma, durum değiştirme ve revizyon süreci.
 
-Sadece paylaşım linki yerine gerçek zamanlı (Socket.io) takım içi çalışma döngüsü:
-eş zamanlı AI yanıtı görüntüleme (Live Sync), yorum yazma, durum değiştirme ve revizyon süreci.
-
-\begin{tcolorbox}[infobox, title={Bu Haftaki Fark}]
-Ekip üyeleri aynı oturumu açtıklarında \textbf{Socket.io} sayesinde 
-AI'nın ürettiği cevapları token token anlık görebilirler. Ayrıca 
-patch/revizyon kararlarını ve yorumlarını da aynı akış içinde yürütürken 
-birbirlerinin aktif durumlarını (online avatar/indikatör) görebilirler.
-\end{tcolorbox}
+\begin{notebox}[Bu Haftaki Fark]
+Ekip üyeleri aynı oturumu açtıklarında Socket.io sayesinde AI'nın ürettiği cevapları token token anlık görebilirler. Ayrıca patch/revizyon kararlarını ve yorumlarını da aynı akış içinde yürütürken birbirlerinin aktif durumlarını (online avatar/indikatör) görebilirler.
+\end{notebox}
 
 \subsection{Veri Modeli}
 
 \textbf{Dosya:} \texttt{server/models.py}
 
-\begin{center}
-\begin{tabular}{@{} P{4cm} C{2cm} P{8.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{4.5cm} C{1.5cm} X @{}}
 \toprule
 \textbf{Model} & \textbf{Satır} & \textbf{Açıklama} \\
 \midrule
-\texttt{CollaborationReview} & 72 &
-  Oturum review durumunu tutar (\texttt{open}, \texttt{revision\_requested}, \texttt{approved}). \\[4pt]
-\texttt{CollaborationComment} & 85 &
-  Yorum akışını tutar; reviewer adı, içerik, zaman damgası. \\
+\texttt{CollaborationReview} & 72 & Oturum review durumunu tutar (\texttt{open}, \texttt{revision\_requested}, \texttt{approved}). \\
+\addlinespace
+\texttt{CollaborationComment} & 85 & Yorum akışını tutar; reviewer adı, içerik, zaman damgası. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{API \& Socket Katmanı}
 
-\textbf{Dosya:} \texttt{server/app.py} ve \texttt{client/src/hooks/useCollabSocket.js}
-
-Collaboration özelliği, REST API (paylaşım, review) ile Socket.io (Live Sync) katmanlarının birleşimidir.
+\textbf{Dosyalar:} \texttt{server/app.py} ve \texttt{client/src/hooks/useCollabSocket.js}
 
 \subsubsection{REST API Endpoints}
 
-\begin{center}
-\begin{tabular}{@{} P{2.5cm} P{5cm} P{5.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{1.5cm} L{6.5cm} X @{}}
 \toprule
 \textbf{Metod} & \textbf{Endpoint} & \textbf{Açıklama} \\
 \midrule
-\texttt{POST} &
-  \texttt{/api/collaboration/share} &
-  Konuşma için UUID paylaşım token'ı oluştur; ownership kontrolü ile (JWT gerekli). \\[4pt]
-\texttt{GET} &
-  \texttt{/api/collaboration/session/<token>} &
-  Token'a ait konuşmanın history'sini ve owner bilgisini döndür. \\[4pt]
-\texttt{POST} &
-  \texttt{/api/collaboration/session/<token>/send} &
-  Soruyu gönderi, background thread başlat, Live Sync stream başlat. \\[4pt]
-\texttt{GET} &
-  \texttt{/api/collaboration/session/<token>/review} &
-  Review durumunu ve yorum listesini döndür. \\[4pt]
-\texttt{POST} &
-  \texttt{/api/collaboration/session/<token>/review/comment} &
-  Review'a yorum ekle. \\[4pt]
-\texttt{POST} &
-  \texttt{/api/collaboration/session/<token>/review/status} &
-  Review durumunu (open/revision\_requested/approved) değiştir. \\
+POST & \texttt{/api/collaboration/share} & Konuşma için UUID paylaşım token'ı oluştur; ownership kontrolü (JWT gerekli). \\
+\addlinespace
+GET & \texttt{/api/collaboration/session/<token>} & Token'a ait konuşmanın history'sini ve owner bilgisini döndür. \\
+\addlinespace
+POST & \texttt{/api/collaboration/session/<token>/send} & Soruyu gönder, background thread başlat, Live Sync stream başlat. \\
+\addlinespace
+GET & \texttt{/api/collaboration/session/<token>/review} & Review durumunu ve yorum listesini döndür. \\
+\addlinespace
+POST & \texttt{/api/collaboration/session/<token>/review/comment} & Review'a yorum ekle. \\
+\addlinespace
+POST & \texttt{/api/collaboration/session/<token>/review/status} & Review durumunu (\texttt{open}/\texttt{revision\_requested}/\texttt{approved}) değiştir. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsubsection{Socket.io Events (Real-Time)}
 
-\begin{center}
-\begin{tabular}{@{} P{3cm} P{7.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{3.8cm} X @{}}
 \toprule
 \textbf{Event} & \textbf{Açıklama ve Payload} \\
 \midrule
-\texttt{join\_room} &
-  Frontend üzerinden backend Session.io room'una giriş; \texttt{token} ile room adı tanımlanır. \\[4pt]
-\texttt{leave\_room} &
-  Oturumdan ayrılış; socketio otomatik clean-up yapar. \\[4pt]
-\texttt{collab\_question} &
-  Yeni soru gönderildiğinde emit; \texttt{\{question, sender, history\_id, token, client\_nonce\}}. \\[4pt]
-\texttt{collab\_stream\_chunk} &
-  AI yanıtının her token'ı canlı yayınlanır; \texttt{\{chunk: string, history\_id, token\}}. \\[4pt]
-\texttt{collab\_stream\_done} &
-  Stream tamamlandığında; full response ve metadata yayınlanır. \\
+\texttt{join\_room} & Frontend üzerinden backend Socket.io room'una giriş; token ile room adı tanımlanır. \\
+\addlinespace
+\texttt{leave\_room} & Oturumdan ayrılış; Socket.io otomatik clean-up yapar. \\
+\addlinespace
+\texttt{collab\_question} & Yeni soru gönderildiğinde emit; \texttt{\{question, sender, history\_id, token, client\_nonce\}}. \\
+\addlinespace
+\texttt{collab\_stream\_chunk} & AI yanıtının her token'ı canlı yayınlanır; \texttt{\{chunk: string, history\_id, token\}}. \\
+\addlinespace
+\texttt{collab\_stream\_done} & Stream tamamlandığında; full response ve metadata yayınlanır. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{Frontend Entegrasyonu}
 
-\textbf{Dosya:} \texttt{client/src/App.jsx} ve \texttt{client/src/hooks/useCollabSocket.js}
+\textbf{Dosyalar:} \texttt{client/src/App.jsx} ve \texttt{client/src/hooks/useCollabSocket.js}
 
-\subsubsection{Ana Akış (App.jsx)}
-
-\begin{center}
-\begin{tabular}{@{} P{5.5cm} C{2.5cm} P{7cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{4cm} L{1.5cm} X @{}}
 \toprule
 \textbf{Fonksiyon / UI Parçası} & \textbf{Satır} & \textbf{Sorumluluk} \\
 \midrule
-\texttt{handleShareSession} & 376 & POST \texttt{/api/collaboration/share} ile link oluştur. \\[4pt]
-\texttt{loadSharedSession} & 247 & Token'dan session yükle; \texttt{isCollabView} aktif et. \\[4pt]
-\texttt{handleAsk} (collab mod) & 833 & Collaboration oturumunda soru gönderi; Socket yayınını bekle. \\[4pt]
-\texttt{useCollabSocket} (hook) & — & Socket.io bağlantısını yönet; stream chunk'ları topla, optimize et. \\[4pt]
-Share Butonları (UI) & 2720 & Collaborate butonları ve paylaşım medyaları (WhatsApp, Email vb). \\
+\texttt{handleShareSession} & 376 & POST \texttt{/api/collaboration/share} ile link oluştur. \\
+\addlinespace
+\texttt{loadSharedSession} & 247 & Token'dan session yükle; isCollabView aktif et. \\
+\addlinespace
+\texttt{handleAsk} (collab mod) & 833 & Collaboration oturumunda soru gönder; Socket yayınını bekle. \\
+\addlinespace
+\texttt{useCollabSocket} (hook) & — & Socket.io bağlantısını yönet; stream chunk'ları topla. \\
+\addlinespace
+Share Butonları (UI) & 2720 & Collaborate butonları ve paylaşım medyaları. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-\subsubsection{Live Sync Implementation Detayları}
+\subsubsection{Live Sync Uygulama Adımları}
 
-Collaboration oturumunda kullanıcı soru göndertiğinde şu adımlar gerçekleşir:
-
-\begin{enumerate}[leftmargin=*, label=\textbf{Adım \arabic{enumi}:}]
-  \item \textbf{Optimistic UI Update} — Soru hemen chat history'ye eklenir (optimistic render).
-  \item \textbf{3-Attempt Retry Loop} — Render cold-start ve transient ağ hatalarına karşı dayanıklılık (600ms + 1200ms delay ile exponential backoff).
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Optimistic UI Update} — Soru hemen chat history'ye eklenir.
+  \item \textbf{3-Attempt Retry Loop} — Cold-start ve geçici ağ hatalarına karşı dayanıklılık (600ms + 1200ms exponential backoff).
   \item \textbf{HTTP POST to /send} — Payload: \texttt{\{question, model, sender\_name, client\_nonce\}}.
-  \item \textbf{Backend Session Oluşturma} — History kaydı yaratılır; response olarak \texttt{history\_id} döner.
-  \item \textbf{Background Thread Başlatma} — ServerSocket.io emit için background thread başlar.
-  \item \textbf{Stream Token Akışı} — Backend, seçilen modele göre stream başlar:
-  \begin{itemize}[leftmargin=*, label=—]
-    \item \textbf{Gemini:} \texttt{genai.GenerativeModel(...).generate\_content(stream=True)} ile iter.
-    \item \textbf{GPT:} OpenAI SDK ile stream completions.
-    \item \textbf{Claude:} Anthropic SDK ile messages.stream loop.
-  \end{itemize}
-  \item \textbf{Socket Emit (Per Chunk)} — Her alınan chunk, Socket.io ile room'a broadcast edilir: \texttt{collab\_stream\_chunk}.
-  \item \textbf{Frontend Socket Listener} — \texttt{useCollabSocket} hook, chunk'ları local state'e toplar; React UI otomatik güncellenmelidir.
-  \item \textbf{Stream Tamamlanma} — \texttt{collab\_stream\_done} event ile full response ve metadata gönderilir.
-  \item \textbf{Database Persist} — Backend, stream tamamlandıktan sonra full response'u History kaydında commit eder.
+  \item \textbf{Backend Session Oluşturma} — History kaydı yaratılır; \texttt{history\_id} döner.
+  \item \textbf{Background Thread Başlatma} — Socket.io emit için background thread başlar.
+  \item \textbf{Stream Token Akışı} — Backend, seçilen modele göre stream başlar:\\
+        — Gemini: \texttt{generate\_content(stream=True)} ile iter.\\
+        — GPT: OpenAI SDK ile stream completions.\\
+        — Claude: Anthropic SDK ile \texttt{messages.stream} loop.
+  \item \textbf{Socket Emit (Per Chunk)} — Her chunk, Socket.io ile room'a broadcast edilir: \texttt{collab\_stream\_chunk}.
+  \item \textbf{Frontend Socket Listener} — \texttt{useCollabSocket} hook, chunk'ları local state'e toplar.
+  \item \textbf{Stream Tamamlanma} — \texttt{collab\_stream\_done} event ile full response gönderilir.
+  \item \textbf{Database Persist} — Backend, stream tamamlandıktan sonra full response'u commit eder.
 \end{enumerate}
 
 \subsection{Durum Makinesi}
 
-\begin{center}
-\begin{tabular}{@{} P{4cm} P{10.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{3.5cm} X @{}}
 \toprule
 \textbf{Durum} & \textbf{Açıklama} \\
 \midrule
-\texttt{open} &
-  Review açık; yorum yapılabilir, durum değiştirilebilir. \\[4pt]
-\texttt{revision\_requested} &
-  Gözden geçirme talep edildi; içerik sahibi düzenleme yapmalıdır. \\[4pt]
-\texttt{approved} &
-  Reviewer onayladı; içerik kabul edilmiş sayılır. \\
+\texttt{open} & Review açık; yorum yapılabilir, durum değiştirilebilir. \\
+\addlinespace
+\texttt{revision\_requested} & Gözden geçirme talep edildi; içerik sahibi düzenleme yapmalıdır. \\
+\addlinespace
+\texttt{approved} & Reviewer onayladı; içerik kabul edilmiş sayılır. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{Review Akış Döngüsü}
 
-\begin{enumerate}[leftmargin=*, label=\textbf{Adım \arabic{enumi}.}]
+\begin{enumerate}[leftmargin=1.5em]
   \item İçerik sahibi konuşmayı paylaşır; \texttt{share\_token} üretilir.
   \item Reviewer paylaşım linkini açar; review durumu otomatik olarak \texttt{open} başlar.
-  \item Reviewer inline yorum ekler (\texttt{POST .../review/comment}).
-  \item Reviewer durumu \texttt{revision\_requested} olarak işaretler;
-        içerik sahibi bilgilendirilir.
+  \item Reviewer inline yorum ekler (POST \texttt{.../review/comment}).
+  \item Reviewer durumu \texttt{revision\_requested} olarak işaretler; içerik sahibi bilgilendirilir.
   \item İçerik sahibi düzenleme yapar, gerekirse yeni paylaşım turu başlatır.
   \item Reviewer inceleyip \texttt{approved} olarak işaretler; döngü kapanır.
-  \item Panel polling ile güncellenir; tüm taraflar son durumu görebilir.
 \end{enumerate}
 
 \subsection{Kısa Senaryo (Önce / Şimdi)}
 
-\begin{tcolorbox}[infobox, title={Gerçek Kullanım Farkı}]
-\begin{itemize}[leftmargin=*, nosep, label=\textbullet]
-  \item \textbf{Önce:} Reviewer linki açıyor, sadece tamamlanmış cevapları okuyor, güncellemeler için sayfayı yenilemesi veya beklemeye dair pasif kalması gerekiyordu.
-  \item \textbf{Şimdi:} Soru sorulduğu anda \textbf{Live Sync} devreye girer; AI yanıtı her iki kullanıcının ekranında aynı anda akar. Kullanıcılar sidebar üzerinden birbirlerinin \textit{online} olduklarını görebilir.
-\end{itemize}
-\end{tcolorbox}
+\begin{notebox}[Gerçek Kullanım Farkı]
+\textbf{Önce:} Reviewer linki açıyor, sadece tamamlanmış cevapları okuyor; güncellemeler için sayfayı yenilemesi gerekiyordu.\\[4pt]
+\textbf{Şimdi:} Soru sorulduğu anda Live Sync devreye girer; AI yanıtı her iki kullanıcının ekranında aynı anda akar.
+\end{notebox}
 
-\subsection{Sınırlar ve Sonraki Adımlar}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{warningorange}{\textbullet}]
-  \item Live Sync için backend tarafında platform bağımsız olması amacıyla \texttt{eventlet} worker kullanılmaktadır; Render.com üzerinde WebSocket veya Polling transport ile otomatik çalışacak şekilde yapılandırılmıştır.
-  \item Collaboration endpoint'leri şu an \textbf{sahip doğrulaması} (ownership check) yapmamaktadır;
-        token'ı bilen herkes yorum ekleyebilir ve durum değiştirebilir.
-        Sonraki iterasyonda reviewer kimlik doğrulaması eklenmesi önerilir.
-\end{itemize}
-
-\subsection{Teknik İyileştirmeler (Hafta 8 Yapımı)}
-
-Bu bölüm, Collaboration özelliğinin production hazırlığı sırasında yapılan yazılım İyileştirmelerini belgeler.
+\subsection{Teknik İyileştirmeler}
 
 \subsubsection{1. Gemini SDK Modernizasyonu}
 
-\textbf{Problem:} Deprecated \texttt{google-generativeai} paketi FutureWarning üretiyordu; Render deployment loglarında sürekli uyarı mesajları.
+\textbf{Problem:} Deprecated \texttt{google-generativeai} paketi \texttt{FutureWarning} üretiyordu.
 
-\textbf{Çözüm:} Tamamen \texttt{google-genai} 1.10.0+ SDK'ya migrate edildi. Backward compatibility wrapper oluşturuldu:
+\textbf{Çözüm:} \texttt{google-genai 1.10.0+} SDK'ya migrate; backward compatibility wrapper oluşturuldu.
 
-\begin{tcolorbox}[codebox, title={Compat Layer (app.py Satırlar 47--104)}]
-\begin{itemize}[leftmargin=*, nosep]
+\begin{notebox}[Compat Layer (app.py:47--104)]
+\begin{itemize}[leftmargin=1.2em,nosep]
   \item \texttt{\_GeminiCompat} sınıfı: eski \texttt{genai.configure()} API'sini yeni Client API'ye çevirir.
   \item \texttt{\_GeminiCompatModel.generate\_content()}: Stream/non-stream branching düzgün yönetir.
-  \item Tüm mevcut call sites gitti aylaştırılmadı; backward-compatible.
+  \item Tüm mevcut call sites değiştirilmeden korundu; backward-compatible.
 \end{itemize}
-\end{tcolorbox}
+\end{notebox}
 
-\textbf{Dosyalar değişen:}
-\begin{itemize}[leftmargin=*, label=—]
-  \item \texttt{server/app.py}: Compat wrapper + session/send endpoint'lerdeki Gemini calls.
+\textbf{Değişen dosyalar:}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{server/app.py}: Compat wrapper + Gemini calls.
   \item \texttt{server/utils/language\_detector.py}: \texttt{google\_genai.Client()} ile re-init.
   \item \texttt{server/requirements.txt}: \texttt{google-generativeai} → \texttt{google-genai>=1.10.0}.
 \end{itemize}
 
-\textbf{Sonuç:} ✅ FutureWarning eliminasyonu; Render deploy logları temiz.
+\subsubsection{2. Generator Response Type Hatası Düzeltmesi}
 
-\subsubsection{2. Generator Response Type Bug Fix}
-
-\textbf{Problem:} Collaboration mesaj gönderimi sırasında "Hata: 'generator' object has no attribute 'text'" hatası ortaya çıkıyordu.
-
-\textbf{Root Cause:} Compat wrapper'daki \texttt{generate\_content()} metodunda \texttt{yield} statement'i non-stream modunda da generator döndürüyordu:
-
-\begin{lstlisting}[language=Python, caption={Eski (Hatalı) Kod}]
-def generate_content(self, prompt, stream=False):
-    # HATA: yield statement'i HER YOLDA generator'ı tetikliyor
-    for chunk in self.client.models.generate_content(prompt, stream=True):
-        yield chunk
-    
-    # Non-stream istekler de generator döner → property access hataları
-\end{lstlisting}
+\textbf{Problem:} \texttt{'generator' object has no attribute 'text'} — Compat wrapper'daki \texttt{yield} statement, non-stream modunda da generator döndürüyordu.
 
 \textbf{Çözüm:} Stream iterator'ü inner generator function'a wrap edildi:
 
-\begin{lstlisting}[language=Python, caption={Yeni (Sabit) Kod}]
+\begin{lstlisting}[language=Python, caption={Düzeltilmiş Kod (app.py:80--91)}]
 def generate_content(self, prompt, stream=False):
     if stream:
         def _iter_stream():
-            for chunk in self.client.models.generate_content(prompt, stream=True):
+            for chunk in self.client.models.generate_content(
+                prompt, stream=True):
                 yield chunk
         return _iter_stream()
     else:
-        # Non-stream: normal response döner, yield yok
-        return self.client.models.generate_content(prompt, stream=False)
+        # Non-stream: normal response, yield yok
+        return self.client.models.generate_content(
+            prompt, stream=False)
 \end{lstlisting}
-
-\textbf{Dosya:} \texttt{server/app.py}, satırlar 80--91.
-
-\textbf{Sonuç:} ✅ Collaboration mesajları başarıyla streaming; response attribute access hataları çözüldü.
 
 \subsubsection{3. Transient Network Resilience (Retry Loop)}
 
-\textbf{Problem:} Render cold-start ve DNS gecikmeleri sırasında collaboration mesaj gönderimi başarısız oluyordu; kullanıcı "Load failed" hatasıyla karşılaşıyordu.
+\textbf{Problem:} Render cold-start ve DNS gecikmeleri sırasında collaboration mesaj gönderimi başarısız oluyordu.
 
-\textbf{Çözüm:} Frontend'de 3-attempt retry loop with exponential backoff (600ms, 1200ms):
+\textbf{Çözüm:} 3-attempt retry loop ile exponential backoff (600ms → 1200ms):
 
-\begin{lstlisting}[language=JavaScript, caption={client/src/App.jsx Satırlar 857--885}]
-const collabUrl = `/api/collaboration/session/${collabToken}/send`;
+\begin{lstlisting}[language=Java, caption={App.jsx:857--885}]
+const collabUrl =
+    /api/collaboration/session/${collabToken}/send;
 for (let attempt = 0; attempt < 3; attempt += 1) {
-  try {
-    resp = await fetch(collabUrl, { method: 'POST', ... });
-    break; // Success
-  } catch (err) {
-    lastErr = err;
-    if (attempt < 2) {
-      // 600ms (attempt 1), 1200ms (attempt 2)
-      await new Promise(resolve => 
-        setTimeout(resolve, 600 * (attempt + 1))
-      );
+    try {
+        resp = await fetch(collabUrl, { method: 'POST', ...opts });
+        break; // Basarili
+    } catch (err) {
+        lastErr = err;
+        if (attempt < 2) {
+            // attempt=0: 600ms, attempt=1: 1200ms
+            await new Promise(resolve =>
+                setTimeout(resolve, 600 * (attempt + 1)));
+        }
     }
-  }
 }
 \end{lstlisting}
 
-\textbf{Sonuç:} ✅ Transient ağ hataları otomatik kurtarılır; UX düzeltilmiş.
+\subsubsection{4. Global Exception Handler HTTP Status Koruması}
 
-\subsubsection{4. Global Exception Handler HTTP Status Preservation}
+\textbf{Problem:} Flask global exception handler tüm hataları 500'e dönüştürüyordu; 404 hataları da 500 olarak görünüyordu.
 
-\textbf{Problem:} Flask global exception handler, tüm HTTP errors'ları 500'e dönüştürüyordu; 404 hataları ürün tarafında 500 olarak görünüyordu.
+\textbf{Çözüm:} HTTPException type check eklendi:
 
-\textbf{Çözüm:} Exception handler'a HTTPException check'i eklendi (app.py satırlar 532--547):
-
-\begin{lstlisting}[language=Python]
+\begin{lstlisting}[language=Python, caption={app.py:532--547}]
 @app.errorhandler(Exception)
 def handle_exception(e):
     from werkzeug.exceptions import HTTPException
-    
     if isinstance(e, HTTPException):
-        # Preserve orginal status code
         return jsonify({'error': str(e.description)}), e.code
-    else:
-        # Only non-HTTP exceptions become 500
-        return jsonify({'error': 'Internal server error'}), 500
+    return jsonify({'error': 'Internal server error'}), 500
 \end{lstlisting}
 
-\textbf{Sonuç:} ✅ HTTP 404/405 properly returned; error logging accurate.
+\subsubsection{5. NPM Güvenlik Açıkları Giderildi}
 
-\subsubsection{5. NPM Vulnerability Remediation}
-
-\textbf{Problem:} npm audit 10 vulnerabilité buldu: 1 critical (jsPDF), 4 high, 5 moderate.
+\textbf{Problem:} \texttt{npm audit} 10 vulnerability tespit etti (1 critical jsPDF, 4 high, 5 moderate).
 
 \textbf{Çözüm:}
-\begin{itemize}[leftmargin=*, label=—]
-  \item \texttt{npm audit fix} → Otomatik patchable vulnerability'ler düzeltildi.
-  \item Forced upgrade: \texttt{jspdf@^4.2.1} (critical LFI/DoS fixes).
-  \item Override: \texttt{dompurify@^3.3.3} (XSS mitigation).
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{npm audit fix} ile otomatik düzeltilebilir açıklar kapandı.
+  \item Forced upgrade: \texttt{jspdf@\^{}4.2.1} (critical LFI/DoS düzeltmesi).
+  \item Override: \texttt{dompurify@\^{}3.3.3} (XSS mitigation).
 \end{itemize}
 
-\textbf{Sonuç:} ✅ 0 vulnerabilities (audit clean); production deployment güvenli.
+\textbf{Sonuç:} 0 vulnerability — production deployment güvenli.
 
-%═══════════════════════════════════════════════════════════════════════════════
+\subsection{Sınırlar ve Sonraki Adımlar}
+\begin{itemize}[leftmargin=1.5em]
+  \item Backend'de eventlet worker kullanılmaktadır; Render.com'da WebSocket veya Polling transport otomatik seçilir.
+  \item Collaboration endpoint'leri şu an sahip doğrulaması (ownership check) yapmamaktadır; token'ı bilen herkes yorum ekleyebilir ve durum değiştirebilir. Sonraki iterasyonda reviewer kimlik doğrulaması eklenmesi önerilir.
+\end{itemize}
 
+% ══════════════════════════════════════════════════════════════
 \section{Özellik 4: Free/Premium Plan Ayrımı}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{Ürün Gereksinimi}
-
-Kullanıcıların plan bazlı istek ve token limitleriyle yönetilmesi;
-limit aşımında premium'a geçiş mesajı verilmesi.
-
-\subsection{Önce / Şimdi}
-
-\begin{tcolorbox}[infobox, title={Gerçek Kullanım Farkı}]
-\begin{itemize}[leftmargin=*, nosep, label=\textbullet]
-  \item \textbf{Önce:} Her kullanıcı aynı akışla devam ediyor,
-        yoğun kullanımda maliyet kontrolü ürün tarafında net görünmüyordu.
-  \item \textbf{Şimdi:} Free kullanıcı limitte HTTP 429 + yönlendirme mesajı alıyor,
-        Premium kullanıcı daha yüksek limitlerle kesintisiz devam edebiliyor.
-\end{itemize}
-\end{tcolorbox}
+Kullanıcıların plan bazlı istek ve token limitleriyle yönetilmesi; limit aşımında premium'a geçiş mesajı verilmesi.
 
 \subsection{Plan Modeli ve Limitler}
 
 \texttt{PLAN\_LIMITS} sabiti ile iki plan tanımlı:
 
-\vspace{4pt}
-\begin{center}
-\begin{tabular}{@{} P{4cm} C{4cm} C{6.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{2.5cm} L{4cm} X @{}}
 \toprule
 \textbf{Plan} & \textbf{Günlük İstek Limiti} & \textbf{Aylık Token Limiti} \\
 \midrule
-\textbf{Free}    & \texttt{daily\_requests = 30}  & \texttt{monthly\_tokens = 120\,000} \\[4pt]
-\textbf{Premium} & \texttt{daily\_requests = 250} & \texttt{monthly\_tokens = 1\,200\,000} \\
+Free & \texttt{daily\_requests = 30} & \texttt{monthly\_tokens = 120\,000} \\
+\addlinespace
+Premium & \texttt{daily\_requests = 250} & \texttt{monthly\_tokens = 1\,200\,000} \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-\vspace{2pt}
-Bu model hem kısa vadeli suistimali (günlük istek) hem de uzun vadeli maliyeti
-(aylık token) aynı anda kontrol eder.
+Bu model hem kısa vadeli suistimali (günlük istek) hem de uzun vadeli maliyeti (aylık token) aynı anda kontrol eder.
 
 \subsection{Kota Muhasebesi Nasıl Çalışıyor?}
 
-\begin{enumerate}[leftmargin=*, label=\textbf{\arabic*.}]
+\begin{enumerate}[leftmargin=1.5em]
   \item Sistem kullanıcının \texttt{preferences} alanından plan bilgisini okur.
   \item Günlük sayaç (tarih bazlı) ve aylık token sayacı (ay bazlı) init/reset edilir.
-  \item İstek gelince tahmini token hesaplanır:
-        \textit{yaklaşık: toplam karakter / 4}
+  \item İstek gelince tahmini token hesaplanır: yaklaşık: toplam karakter / 4.
   \item \texttt{consume\_plan\_quota(...)} fonksiyonu ile projected değerler limitlerle karşılaştırılır.
   \item Limit aşılmazsa sayaçlar commit edilir ve istek devam eder.
-  \item Limit aşılırsa \textbf{HTTP 429} döner; sebep kodu ve kalan limit bilgisi payload'a eklenir.
+  \item Limit aşılırsa HTTP 429 döner; sebep kodu ve kalan limit bilgisi payload'a eklenir.
 \end{enumerate}
 
 \subsection{Ask ve Blend İçin Farklı Maliyet Yaklaşımı}
 
-\begin{center}
-\begin{tabular}{@{} P{3.5cm} C{2.5cm} P{8.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{3cm} C{3cm} X @{}}
 \toprule
 \textbf{Endpoint} & \textbf{request\_weight} & \textbf{Açıklama} \\
 \midrule
-\texttt{/api/ask}   & \texttt{1} &
-  Standart tek model isteği. \\[4pt]
-\texttt{/api/blend} & \texttt{$\geq$ 2} &
-  Model sayısı kadar daha maliyetli kabul edilir; token tahmini model sayısıyla çarpılır,
-  ağırlık en az 2 olacak şekilde artar. \\
+\texttt{/api/ask} & 1 & Standart tek model isteği. \\
+\addlinespace
+\texttt{/api/blend} & $\geq 2$ & Model sayısı kadar daha maliyetli kabul edilir; token tahmini model sayısıyla çarpılır, ağırlık en az 2 olacak şekilde artar. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-Bu sayede blend gibi çoklu-model akışlarında kota tüketimi gerçeğe daha yakın yansıtılır.
+\subsection{API Sözleşmesi}
 
-\subsection{API Sözleşmesi (Frontend İçin Anlaşılır Özet)}
-
-\begin{tcolorbox}[codebox, title={Billing Endpoint Davranışları}]
-\begin{itemize}[leftmargin=*, nosep, label=\textcolor{primaryblue}{\textbullet}]
-  \item \textbf{\texttt{GET /api/billing/usage}} — Plan, limitler, kullanılan ve kalan değerleri döner.
-  \item \textbf{\texttt{POST /api/billing/plan}} — \texttt{plan=free|premium} alır, planı günceller,
-        yeni usage özetini döner.
+\begin{notebox}[Billing Endpoint Davranışları]
+\begin{itemize}[leftmargin=1.2em,nosep]
+  \item \textbf{GET /api/billing/usage} — Plan, limitler, kullanılan ve kalan değerleri döner.
+  \item \textbf{POST /api/billing/plan} — \texttt{plan=free|premium} alır, planı günceller, yeni usage özetini döner.
   \item \textbf{Kota aşımında (ask/blend):}
-  \begin{itemize}[leftmargin=*, nosep]
-    \item HTTP \texttt{429}
-    \item \texttt{reason}: \texttt{daily\_requests\_exceeded} veya \texttt{monthly\_tokens\_exceeded}
-    \item \texttt{upgrade\_required}: free planda \texttt{true}
-  \end{itemize}
+    \begin{itemize}[leftmargin=1.2em,nosep]
+      \item HTTP 429
+      \item \texttt{reason}: \texttt{daily\_requests\_exceeded} veya \texttt{monthly\_tokens\_exceeded}
+      \item \texttt{upgrade\_required}: free planda \texttt{true}
+    \end{itemize}
 \end{itemize}
-\end{tcolorbox}
+\end{notebox}
 
 \subsection{Kullanıcı Deneyimi Tarafı}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{secondaryblue}{\textbullet}]
+\begin{itemize}[leftmargin=1.5em]
   \item Tool drawer'da plan kartı ve Free/Premium geçiş butonları bulunur.
   \item Kullanıcı planı değiştirdiğinde UI anlık olarak usage verisini yeniler.
-  \item Limit aşımında kullanıcıya teknik hata yerine yönlendirici mesaj verilir:
-        \textit{"Daha fazlası için Premium'a geç"} akışı.
+  \item Limit aşımında teknik hata yerine yönlendirici mesaj verilir: \textit{``Daha fazlası için Premium'a geç''}.
 \end{itemize}
 
 \subsection{Backend Kota Katmanı}
 
 \textbf{Dosya:} \texttt{server/app.py}
 
-\begin{center}
-\begin{tabular}{@{} P{6cm} C{2cm} P{6.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{5cm} L{1.8cm} X @{}}
 \toprule
 \textbf{Fonksiyon / Endpoint} & \textbf{Satır} & \textbf{Sorumluluk} \\
 \midrule
-\texttt{consume\_plan\_quota(user, est\_tokens, req\_weight)} & 1741 &
-  Kota tüketim ve kontrol yardımcısı. \\[4pt]
-\texttt{GET /api/billing/usage} & 1797 &
-  Güncel kullanım bilgisini döndürür. \\[4pt]
-\texttt{POST /api/billing/plan} & 1814 &
-  Plan değiştirme işlemini uygular. \\[4pt]
-\texttt{/api/ask} kota kontrolü & 3008 &
-  Ask isteği öncesi kota kapısı. \\[4pt]
-\texttt{/api/blend} kota kontrolü & 3396 &
-  Blend isteği öncesi kota kapısı. \\
+\texttt{consume\_plan\_quota(user, est\_tokens, req\_weight)} & 1741 & Kota tüketim ve kontrol yardımcısı. \\
+\addlinespace
+\texttt{GET /api/billing/usage} & 1797 & Güncel kullanım bilgisini döndürür. \\
+\addlinespace
+\texttt{POST /api/billing/plan} & 1814 & Plan değiştirme işlemini uygular. \\
+\addlinespace
+\texttt{/api/ask} kota kontrolü & 3008 & Ask isteği öncesi kota kapısı. \\
+\addlinespace
+\texttt{/api/blend} kota kontrolü & 3396 & Blend isteği öncesi kota kapısı. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
 \subsection{Frontend Plan Arayüzü}
 
 \textbf{Dosya:} \texttt{client/src/App.jsx}
 
-\begin{center}
-\begin{tabular}{@{} P{6cm} C{2cm} P{6.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{4.5cm} L{2.5cm} X @{}}
 \toprule
 \textbf{Fonksiyon / UI} & \textbf{Satır} & \textbf{Sorumluluk} \\
 \midrule
-\texttt{fetchUsageLimits} & 216 & Plan ve kullanım bilgisini çeker. \\[4pt]
-\texttt{switchSubscriptionPlan} & 231 & Plan geçiş akışını tetikler. \\[4pt]
-Free/Premium geçiş butonları & 2630--2636 & MVP simüle plan geçişi, tool drawer içinde. \\
+\texttt{fetchUsageLimits} & 216 & Plan ve kullanım bilgisini çeker. \\
+\addlinespace
+\texttt{switchSubscriptionPlan} & 231 & Plan geçiş akışını tetikler. \\
+\addlinespace
+Free/Premium geçiş butonları & 2630--2636 & MVP plan geçişi, tool drawer içinde. \\
 \bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Davranış Akışı}
-
-\begin{enumerate}[leftmargin=*, label=\textbf{Adım \arabic{enumi}.}]
-  \item Kullanıcı her istek öncesi mevcut kota durumuna göre değerlendirilir.
-  \item Limit aşımında istek reddedilir; \textbf{HTTP 429} döner ve premium'a geçiş mesajı iletilir.
-  \item Kullanıcı araç panelinden plan ve kullanım bilgisini görebilir.
-\end{enumerate}
+\end{tabularx}
 
 \subsection{Kısa Senaryo (Önce / Şimdi)}
 
-\begin{tcolorbox}[infobox, title={Gerçek Kullanım Farkı}]
-\begin{itemize}[leftmargin=*, nosep, label=\textbullet]
-  \item \textbf{Önce:} Her kullanıcı aynı akışla devam ediyor,
-        yoğun kullanımda maliyet kontrolü ürün tarafında net görünmüyordu.
-  \item \textbf{Şimdi:} Free kullanıcı limitte HTTP 429 + yönlendirme mesajı alıyor,
-        Premium kullanıcı daha yüksek limitlerle kesintisiz devam edebiliyor.
-\end{itemize}
-\end{tcolorbox}
+\begin{notebox}[Gerçek Kullanım Farkı]
+\textbf{Önce:} Her kullanıcı aynı akışla devam ediyor, yoğun kullanımda maliyet kontrolü ürün tarafında net görünmüyordu.\\[4pt]
+\textbf{Şimdi:} Free kullanıcı limitte HTTP 429 + yönlendirme mesajı alıyor, Premium kullanıcı daha yüksek limitlerle kesintisiz devam edebiliyor.
+\end{notebox}
 
 \subsection{Sınırlar ve Sonraki Adımlar}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{warningorange}{\textbullet}]
+\begin{itemize}[leftmargin=1.5em]
   \item Plan geçişi şu an uygulama içi MVP toggle'dır; ödeme altyapısı bağlantısı sonraki fazdadır.
 \end{itemize}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Özellik 5: Gemini 3.1 Flash-Lite Preview Entegrasyonu}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{Ürün Gereksinimi}
-
-Mart 2026'da Google tarafından duyurulan \texttt{gemini-3.1-flash-lite-preview}
-modelinin uygulama model seçeneklerine eklenmesi; quota veya servis sorunlarında
-mevcut fallback zinciriyle birlikte güvenli şekilde kullanılabilmesi.
+10 Nisan 2026'da Google tarafından duyurulan \texttt{gemini-3.1-flash-lite-preview} modelinin uygulama model seçeneklerine eklenmesi; kota veya servis sorunlarında mevcut fallback zinciriyle birlikte güvenli şekilde kullanılabilmesi.
 
 \subsection{Uygulama Kapsamı}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{secondaryblue}{\textbullet}]
+\begin{itemize}[leftmargin=1.5em]
   \item Model seçim arayüzlerine yeni seçenek eklendi (ana model seçici, model karşılaştırma, model blend, proje çalışma alanı).
   \item Backend model eşleme ve Gemini fallback zinciri \texttt{gemini-3.1-flash-lite-preview} modelini deneyecek şekilde genişletildi.
   \item Maliyet panelinde model adı tanımlanarak kullanım görünürlüğü sağlandı.
@@ -1016,345 +827,238 @@ mevcut fallback zinciriyle birlikte güvenli şekilde kullanılabilmesi.
 
 \subsection{Kod Entegrasyon Noktaları}
 
-\begin{center}
-\begin{tabular}{@{} P{6cm} C{2cm} P{6.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{6cm} L{1.5cm} X @{}}
 \toprule
 \textbf{Dosya / Bileşen} & \textbf{Tip} & \textbf{Sorumluluk} \\
 \midrule
-\texttt{client/src/components/ModelSelector.jsx} & UI & Ana model dropdown seçeneği eklendi. \\[4pt]
-\texttt{client/src/components/ModelCompare.jsx} & UI & Karşılaştırma ekranı model listesine eklendi. \\[4pt]
-\texttt{client/src/components/ModelBlend.jsx} & UI & Multi-model blend seçeneklerine eklendi. \\[4pt]
-\texttt{client/src/components/ProjectWorkspace.jsx} & UI & Proje bazlı model seçimine eklendi. \\[4pt]
-\texttt{server/app.py} & Backend & \texttt{model\_mapping} ve fallback zinciri güncellendi. \\[4pt]
+\texttt{client/src/components/ModelSelector.jsx} & UI & Ana model dropdown seçeneği eklendi. \\
+\addlinespace
+\texttt{client/src/components/ModelCompare.jsx} & UI & Karşılaştırma ekranı model listesine eklendi. \\
+\addlinespace
+\texttt{client/src/components/ModelBlend.jsx} & UI & Multi-model blend seçeneklerine eklendi. \\
+\addlinespace
+\texttt{client/src/components/ProjectWorkspace.jsx} & UI & Proje bazlı model seçimine eklendi. \\
+\addlinespace
+\texttt{server/app.py} & Backend & model\_mapping ve fallback zinciri güncellendi. \\
+\addlinespace
 \texttt{client/src/components/ModelCostDashboard.jsx} & UI/Analitik & Model maliyet sözlüğüne yeni anahtar eklendi. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-\subsection{Free Tier Kullanılabilirlik Notu}
+\begin{warnbox}[Operasyonel Not]
+\texttt{gemini-3.1-flash-lite-preview} bir preview modelidir. Free tier'da kullanılabilir; ancak model bazlı RPM/RPD limitleri proje ve tier'e göre değişir. Bu nedenle uygulama fallback zinciri korunmuştur.
+\end{warnbox}
 
-\begin{tcolorbox}[infobox, title={Operasyonel Not}]
-\texttt{gemini-3.1-flash-lite-preview} bir \textbf{preview} modelidir. Free tier'da
-kullanılabilir; ancak model bazlı RPM/RPD limitleri proje ve tier'e göre değişir.
-Bu nedenle uygulama fallback zinciri korunmuştur.
-\end{tcolorbox}
-
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Güvenlik Değerlendirmesi}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-Bu bölüm, 8. hafta özelliklerinin her birinde güvenlik açısından dikkat edilen
-noktaları özetler.
-
-\vspace{4pt}
-\begin{center}
-\begin{tabular}{@{} P{3.8cm} P{10.8cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{3.5cm} X @{}}
 \toprule
 \textbf{Alan} & \textbf{Güvenlik Notu} \\
 \midrule
-JWT Doğrulama &
-  Tüm \texttt{/api/*} endpoint'leri mevcut JWT middleware'den geçiyor;
-  yeni billing ve collaboration endpoint'leri bu zincire dahil edildi. \\[6pt]
-Collaboration Token &
-  \texttt{share\_token} her oturum için tekil üretilir; token bilinmeden
-  review/comment endpoint'lerine erişim sağlanamaz. \\[6pt]
-Kota Bypass Koruması &
-  \texttt{consume\_plan\_quota} kontrolü \texttt{/api/ask} ve \texttt{/api/blend}
-  içinde istek işlenmeden önce çalışır; sunucu tarafı kontrol, istemci
-  tarafından atlatılamaz. \\[6pt]
-Patch Blok Kararı &
-  Risk \texttt{block} modunda patch backend'e gönderilmez;
-  engelleme kararı istemci tarafında alınır, dolayısıyla yüksek riskli kod
-  hiç sunucuya ulaşmadan durdurulur. \\[6pt]
-Kritik Kelime Tespiti &
-  \texttt{auth}, \texttt{token}, \texttt{secret}, \texttt{billing} içeren
-  patch'ler her durumda risk puanını yükseltir; yanlışlıkla \texttt{safe}
-  sınıfına düşmesi önlenir. \\
+JWT Doğrulama & Tüm \texttt{/api/*} endpoint'leri mevcut JWT middleware'den geçiyor; yeni billing ve collaboration endpoint'leri bu zincire dahil edildi. \\
+\addlinespace
+Collaboration Token & \texttt{share\_token} her oturum için tekil üretilir; token bilinmeden review/comment endpoint'lerine erişim sağlanamaz. \\
+\addlinespace
+Kota Bypass Koruması & \texttt{consume\_plan\_quota} kontrolü \texttt{/api/ask} ve \texttt{/api/blend} içinde istek işlenmeden önce çalışır; sunucu tarafı kontrol, istemci tarafından atlatılamaz. \\
+\addlinespace
+Patch Blok Kararı & Risk block modunda patch uygulaması istemci tarafında durdurulur. Not: Sunucu tarafı doğrulama eklenmesi, güvenliği artıracaktır. \\
+\addlinespace
+Kritik Kelime Tespiti & \texttt{auth}, \texttt{token}, \texttt{secret}, \texttt{billing} içeren patch'ler her durumda risk puanını yükseltir; yanlışlıkla safe sınıfına düşmesi önlenir. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-\begin{tcolorbox}[warningbox, title={MVP Güvenlik Sınırı}]
-Collaboration review endpoint'leri şu an sahip doğrulaması (\textit{ownership check})
-yapmamaktadır; token'ı bilen herkes yorum ekleyebilir ve durum değiştirebilir.
-Sonraki iterasyonda reviewer kimlik doğrulaması eklenmesi önerilir.
-\end{tcolorbox}
+\begin{warnbox}[MVP Güvenlik Sınırı]
+Collaboration review endpoint'leri şu an sahip doğrulaması (ownership check) yapmamaktadır; token'ı bilen herkes yorum ekleyebilir ve durum değiştirebilir. Sonraki iterasyonda reviewer kimlik doğrulaması eklenmesi zorunludur.
+\end{warnbox}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Değiştirilen Dosyalar Özeti}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-Aşağıdaki tablo, 8. hafta kapsamında dokunan tüm dosyaları ve her dosyada
-yapılan değişikliğin türünü özetler. Yeni başlayan bir geliştirici için
-hızlı yön bulmayı sağlar.
-
-\vspace{4pt}
-\begin{longtable}{@{} P{6.2cm} C{2.2cm} P{6.2cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{5.5cm} L{2cm} X @{}}
 \toprule
 \textbf{Dosya} & \textbf{Değişim Türü} & \textbf{Ne Eklendi / Değişti} \\
 \midrule
-\endhead
-\texttt{client/src/components/ChatInterface.jsx} &
-  \textcolor{warningorange}{\textbf{Genişletme}} &
-  Prompt optimizasyon fonksiyonları, Auto Optimize UI, patch risk skoru, Patch Safety Modal \\[6pt]
-\texttt{client/src/App.jsx} &
-  \textcolor{warningorange}{\textbf{Genişletme}} &
-  Plan/kota çekme, plan değiştirme, collaboration review fonksiyonları, tool drawer plan kartı \\[6pt]
-\texttt{server/app.py} &
-  \textcolor{warningorange}{\textbf{Genişletme}} &
-  \texttt{consume\_plan\_quota}, billing endpoint'leri, collaboration review/comment/status endpoint'leri, ask/blend kota kapısı \\[6pt]
-\texttt{server/models.py} &
-  \textcolor{successgreen}{\textbf{Yeni Model}} &
-  \texttt{CollaborationReview} ve \texttt{CollaborationComment} tabloları \\
+\texttt{client/src/components/ChatInterface.jsx} & GENİŞLEME & Prompt optimizasyon fonksiyonları, Auto Optimize UI, patch risk skoru, Patch Safety Modal \\
+\addlinespace
+\texttt{client/src/App.jsx} & GENİŞLEME & Plan/kota çekme, plan değiştirme, collaboration review fonksiyonları, tool drawer plan kartı \\
+\addlinespace
+\texttt{server/app.py} & GENİŞLEME & \texttt{consume\_plan\_quota}, billing endpoint'leri, collaboration review/comment/status endpoint'leri, ask/blend kota kapısı \\
+\addlinespace
+\texttt{server/models.py} & YENİ & \texttt{CollaborationReview} ve \texttt{CollaborationComment} tabloları \\
 \bottomrule
-\end{longtable}
+\end{tabularx}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Uygulama Süreci Günlüğü}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-Aşağıdaki tablo, iki dokümanın birleştirilmesiyle oluşturulan uçtan uca uygulama adımlarını özetler:
-
-\vspace{4pt}
-\begin{longtable}{@{} C{1cm} P{3.8cm} P{9.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} C{0.8cm} L{3.5cm} X @{}}
 \toprule
 \textbf{Adım} & \textbf{İşlem} & \textbf{Sonuç} \\
 \midrule
-\endhead
-1 & Kod tabanı taraması &
-  Mevcut context, patch, collaboration, ask/blend akışları netleştirildi. \\[4pt]
-2 & Veri modeli genişletme &
-  \texttt{CollaborationReview} ve \texttt{CollaborationComment} tabloları eklendi. \\[4pt]
-3 & Sunucu kota katmanı &
-  Plan bazlı günlük/aylık limit kontrolü aktif edildi. \\[4pt]
-4 & Ask/Blend entegrasyonu &
-  Kota aşımında kontrollü HTTP 429 + yönlendirme mesajı eklendi. \\[4pt]
-5 & Chat optimizasyonu &
-  Prompt öncesi optimize önerileri ve manuel/otomatik seçenekler eklendi. \\[4pt]
-6 & Patch güvenlik kapısı &
-  Risk skoru ve review/block modal mekanizması eklendi. \\[4pt]
-7 & Collaboration paneli &
-  Canlı yorum + onay/revizyon döngüsü UI'a eklendi. \\[4pt]
-8 & Gemini 3.1 entegrasyonu &
-  Yeni model UI seçeneklerine ve backend fallback zincirine dahil edildi. \\[4pt]
-9 & Doğrulama &
-  Değişen dosyalarda statik hata kontrolü temiz çıktı; yeni sözdizimi/derleme hatası tespit edilmedi. \\
+1 & Kod tabanı taraması & Mevcut context, patch, collaboration, ask/blend akışları netleştirildi. \\
+\addlinespace
+2 & Veri modeli genişletme & \texttt{CollaborationReview} ve \texttt{CollaborationComment} tabloları eklendi. \\
+\addlinespace
+3 & Sunucu kota katmanı & Plan bazlı günlük/aylık limit kontrolü aktif edildi. \\
+\addlinespace
+4 & Ask/Blend entegrasyonu & Kota aşımında kontrollü HTTP 429 + yönlendirme mesajı eklendi. \\
+\addlinespace
+5 & Chat optimizasyonu & Prompt öncesi optimize önerileri ve manuel/otomatik seçenekler eklendi. \\
+\addlinespace
+6 & Patch güvenlik kapısı & Risk skoru ve review/block modal mekanizması eklendi. \\
+\addlinespace
+7 & Collaboration paneli & Canlı yorum + onay/revizyon döngüsü UI'a eklendi. \\
+\addlinespace
+8 & Gemini 3.1 entegrasyonu & Yeni model UI seçeneklerine ve backend fallback zincirine dahil edildi. \\
+\addlinespace
+9 & Doğrulama & Değişen dosyalarda statik hata kontrolü temiz çıktı; yeni sözdizimi/derleme hatası tespit edilmedi. \\
 \bottomrule
-\end{longtable}
+\end{tabularx}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Kod Seviyesi İzlenebilirlik Matrisi}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-\begin{longtable}{@{} P{3.8cm} P{5cm} P{6.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{3.5cm} L{4cm} X @{}}
 \toprule
 \textbf{Özellik} & \textbf{Kod Noktası} & \textbf{Sorumluluk} \\
 \midrule
-\endhead
-Bağlam optimizasyonu &
-  \texttt{ChatInterface.jsx:194} &
-  Prompt sıkıştırma ve rapor üretimi \\[4pt]
-Bağlam optimizasyonu &
-  \texttt{ChatInterface.jsx:876} &
-  Gönderim öncesi otomatik devreye alma \\[4pt]
-Bağlam optimizasyonu &
-  \texttt{ChatInterface.jsx:1527} &
-  Auto mode UI kontrolü \\[4pt]
-Patch risk skoru &
-  \texttt{ChatInterface.jsx:241} &
-  Risk analizi ve skor hesaplama \\[4pt]
-Patch güvenlik modal &
-  \texttt{ChatInterface.jsx:436} &
-  Risk kapısından geçirme \\[4pt]
-Patch güvenlik modal &
-  \texttt{ChatInterface.jsx:2015} &
-  Safe/Review/Block karar arayüzü \\[4pt]
-Canlı review verisi &
-  \texttt{models.py:72, 85} &
-  Review ve comment tabloları \\[4pt]
-Canlı AI Streaming &
-  \texttt{app.py} ve \texttt{useCollabSocket.js} &
-  SocketIO chunk yayını ve Live Sync UI hook'u \\[4pt]
-Plan kota kontrolü &
-  \texttt{app.py:1741, 3008, 3396} &
-  Ask/blend öncesi kota enforcement \\[4pt]
-Plan API &
-  \texttt{app.py:1797, 1814} &
-  Kullanımı çekme ve plan değiştirme \\[4pt]
-Plan UI &
-  \texttt{App.jsx:216, 231, 2630} &
-  Kullanım gösterimi ve plan geçiş butonları \\
+Bağlam optimizasyonu & \texttt{ChatInterface.jsx:194} & Prompt sıkıştırma ve rapor üretimi \\
+Bağlam optimizasyonu & \texttt{ChatInterface.jsx:876} & Gönderim öncesi otomatik devreye alma \\
+Bağlam optimizasyonu & \texttt{ChatInterface.jsx:1527} & Auto mode UI kontrolü \\
+\addlinespace
+Patch risk skoru & \texttt{ChatInterface.jsx:241} & Risk analizi ve skor hesaplama \\
+Patch güvenlik modal & \texttt{ChatInterface.jsx:436} & Risk kapısından geçirme \\
+Patch güvenlik modal & \texttt{ChatInterface.jsx:2015} & Safe/Review/Block karar arayüzü \\
+\addlinespace
+Canlı review verisi & \texttt{models.py:72, 85} & Review ve comment tabloları \\
+Canlı AI Streaming & \texttt{app.py + useCollabSocket.js} & SocketIO chunk yayını ve Live Sync UI hook'u \\
+\addlinespace
+Plan kota kontrolü & \texttt{app.py:1741, 3008, 3396} & Ask/blend öncesi kota enforcement \\
+Plan API & \texttt{app.py:1797, 1814} & Kullanımı çekme ve plan değiştirme \\
+Plan UI & \texttt{App.jsx:216, 231, 2630} & Kullanım gösterimi ve plan geçiş butonları \\
 \bottomrule
-\end{longtable}
+\end{tabularx}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Eklenen Endpoint Özeti}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-\begin{tcolorbox}[codebox, title={Yeni REST Endpoint'leri — Hafta 8}]
-\begin{itemize}[leftmargin=*, nosep, label=\textcolor{primaryblue}{\textbullet}]
-  \item \texttt{GET\quad\, /api/billing/usage}
-        \hfill\textit{— Plan kullanım bilgisi}
-  \item \texttt{POST /api/billing/plan}
-        \hfill\textit{— Plan değiştirme}
-  \item \texttt{GET\quad\, /api/collaboration/session/<token>/review}
-        \hfill\textit{— Review getir}
-  \item \texttt{POST /api/collaboration/session/<token>/review/comment}
-        \hfill\textit{— Yorum ekle}
-  \item \texttt{POST /api/collaboration/session/<token>/review/status}
-        \hfill\textit{— Durum güncelle}
+\textbf{Yeni REST Endpoint'leri — Hafta 8}
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{GET /api/billing/usage} — Plan kullanım bilgisi
+  \item \texttt{POST /api/billing/plan} — Plan değiştirme
+  \item \texttt{GET /api/collaboration/session/<token>/review} — Review getir
+  \item \texttt{POST /api/collaboration/session/<token>/review/comment} — Yorum ekle
+  \item \texttt{POST /api/collaboration/session/<token>/review/status} — Durum güncelle
 \end{itemize}
-\end{tcolorbox}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{MVP Sınırları ve Sonraki Adımlar}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-\begin{center}
-\begin{tabular}{@{} P{3.8cm} P{3.8cm} P{4.2cm} C{2.5cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{2.8cm} L{3.2cm} L{3.8cm} L{1.8cm} @{}}
 \toprule
 \textbf{Alan} & \textbf{Mevcut Durum} & \textbf{Sonraki Adım} & \textbf{Öncelik} \\
 \midrule
-Plan geçişi &
-  MVP toggle (ödeme yok) &
-  Stripe / ödeme altyapısı entegrasyonu &
-  \textcolor{dangered}{\textbf{Yüksek}} \\[5pt]
-Collaboration ownership &
-  Token bilenin erişimi var &
-  Reviewer kimlik doğrulaması &
-  \textcolor{dangered}{\textbf{Yüksek}} \\[5pt]
-Patch risk skoru &
-  Heuristic tabanlı &
-  AST ve test graph tabanlı analiz &
-  \textcolor{warningorange}{\textbf{Orta}} \\[5pt]
-Prompt optimizasyonu &
-  Kural tabanlı &
-  Model destekli semantic compression &
-  \textcolor{warningorange}{\textbf{Orta}} \\[5pt]
-Collaboration paneli &
-  Socket.io ile anlık (Live Sync) &
-  Birden fazla imleç (Live Cursor) &
-  \textcolor{successgreen}{\textbf{Düşük}} \\
+Plan geçişi & MVP toggle (ödeme yok) & Stripe / ödeme altyapısı entegrasyonu & YÜKSEK \\
+\addlinespace
+Collaboration ownership & Token bilenin erişimi var & Reviewer kimlik doğrulaması & YÜKSEK \\
+\addlinespace
+Patch risk skoru & Heuristic tabanlı & AST ve test graph tabanlı analiz & ORTA \\
+\addlinespace
+Prompt optimizasyonu & Kural tabanlı & Model destekli semantic compression & ORTA \\
+\addlinespace
+Collaboration paneli & Socket.io Live Sync aktif & Birden fazla imleç (Live Cursor) & DÜŞÜK \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Test ve Doğrulama Sonuçları}
-% ═══════════════════════════════════════════════════════════════════════════════
 
 \subsection{Backend Smoke Test (Gerçek API Çağrısı)}
 
-Aşağıdaki kontroller, çalışan backend üzerinden HTTP çağrıları ile doğrulanmıştır.
-
-\vspace{4pt}
-\begin{longtable}{@{} P{4.4cm} C{2.4cm} P{7.4cm} @{}}
+\begin{tabularx}{\textwidth}{@{} L{3.5cm} C{1.5cm} X @{}}
 \toprule
 \textbf{Test Adımı} & \textbf{Sonuç} & \textbf{Kanıt / Beklenen Davranış} \\
 \midrule
-\endhead
-Kullanıcı kaydı ve JWT alma &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  \texttt{register\_ok=true} \\[4pt]
-Plan kullanım bilgisi &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  Başlangıç planı \texttt{free} \\[4pt]
-Plan değiştirme (free$\to$premium$\to$free) &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  \texttt{after\_premium=premium}, \texttt{after\_free=free} \\[4pt]
-Kota aşımı (büyük prompt) &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  HTTP \texttt{429}; \texttt{reason=monthly\_tokens\_exceeded}; \texttt{upgrade\_required=true} \\[4pt]
-Collaboration share token üretimi &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  \texttt{share\_token\_exists=true} \\[4pt]
-Review başlangıç durumu &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  \texttt{review\_initial=open} \\[4pt]
-Review yorum ekleme &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  \texttt{comment\_author=smoke-guest} \\[4pt]
-Review durum güncelleme &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  \texttt{status\_after\_update=approved} \\[4pt]
-Review final kontrol &
-  \textcolor{successgreen}{\textbf{PASS}} &
-  \texttt{review\_final=approved}, \texttt{comment\_count=1} \\
+Kullanıcı kaydı ve JWT alma & PASS & \texttt{register\_ok=true} \\
+\addlinespace
+Plan kullanım bilgisi & PASS & Başlangıç planı free \\
+\addlinespace
+Plan değiştirme (free→premium→free) & PASS & \texttt{after\_premium=premium}, \texttt{after\_free=free} \\
+\addlinespace
+Kota aşımı (büyük prompt) & PASS & HTTP 429; \texttt{reason=monthly\_tokens\_exceeded}; \texttt{upgrade\_required=true} \\
+\addlinespace
+Collaboration share token üretimi & PASS & \texttt{share\_token\_exists=true} \\
+\addlinespace
+Review başlangıç durumu & PASS & \texttt{review\_initial=open} \\
+\addlinespace
+Review yorum ekleme & PASS & \texttt{comment\_author=smoke-guest} \\
+\addlinespace
+Review durum güncelleme & PASS & \texttt{status\_after\_update=approved} \\
+\addlinespace
+Review final kontrol & PASS & \texttt{review\_final=approved}, \texttt{comment\_count=1} \\
 \bottomrule
-\end{longtable}
+\end{tabularx}
 
-\subsection{Frontend Manuel Test Planı (Kullanıcı Tarafı)}
+\subsection{Frontend Manuel Test Planı}
 
-Aşağıdaki adımlar UI davranışını birebir doğrulamak için hazırlanmıştır.
-
-\vspace{6pt}
-\begin{tcolorbox}[codebox, title={Test-1: Bağlam Optimizasyon Asistanı}]
-\begin{enumerate}[leftmargin=*, nosep, label=\textbf{\arabic*.}]
-  \item Chat ekranında \texttt{Auto Optimize} seçeneğini \texttt{ON} yapın.
+\textbf{Test-1: Bağlam Optimizasyon Asistanı}
+\begin{enumerate}[leftmargin=1.5em]
+  \item Chat ekranında Auto Optimize seçeneğini ON yapın.
   \item Tekrarlı satırlar içeren uzun bir prompt yazın.
-  \item \textit{Beklenen:} optimize önerisi kartı açılır, token azalımı raporlanır.
-  \item \textit{Beklenen:} \texttt{Apply Optimized Text}, \texttt{Send Optimized}, \texttt{Send Original} butonları görünür.
+  \item \textbf{Beklenen:} Optimize önerisi kartı açılır, token azalımı raporlanır.
+  \item \textbf{Beklenen:} Apply Optimized Text, Send Optimized, Send Original butonları görünür.
 \end{enumerate}
-\end{tcolorbox}
 
-\vspace{4pt}
-\begin{tcolorbox}[codebox, title={Test-2: Patch Güvenlik Seviyesi}]
-\begin{enumerate}[leftmargin=*, nosep, label=\textbf{\arabic*.}]
+\textbf{Test-2: Patch Güvenlik Seviyesi}
+\begin{enumerate}[leftmargin=1.5em]
   \item Kod değişikliği önerisi üretecek bir patch akışı tetikleyin.
-  \item \textit{Beklenen:} \texttt{Patch Safety Check} modal açılır.
-  \item \textit{Beklenen:} Risk gerekçeleri listelenir ve sonuca göre \texttt{safe} / \texttt{review} / \texttt{block} davranışı çalışır.
+  \item \textbf{Beklenen:} Patch Safety Check modal açılır.
+  \item \textbf{Beklenen:} Risk gerekçeleri listelenir; safe / review / block davranışı risk skoruna göre çalışır.
 \end{enumerate}
-\end{tcolorbox}
 
-\vspace{4pt}
-\begin{tcolorbox}[codebox, title={Test-3: Canlı İşbirliği (Live Sync) Döngüsü}]
-\begin{enumerate}[leftmargin=*, nosep, label=\textbf{\arabic*.}]
+\textbf{Test-3: Canlı İşbirliği (Live Sync) Döngüsü}
+\begin{enumerate}[leftmargin=1.5em]
   \item Bir konuşma için paylaşım linki üretin ve iki cihazda/sekmede açın.
   \item İlk sekmeden soru gönderin.
-  \item \textit{Beklenen:} İkinci sekmede de "AI yanıtlıyor" ibaresi çıkar ve token'lar eş zamanlı akar.
-  \item Paylaşım panelinden durumu \texttt{revision\_requested} olarak değiştirin ve \textit{UI'ın güncellendiğini} doğrulayın.
+  \item \textbf{Beklenen:} İkinci sekmede de ``AI yanıtlıyor'' ibaresi çıkar ve token'lar eş zamanlı akar.
+  \item Paylaşım panelinden durumu \texttt{revision\_requested} olarak değiştirin; UI'ın güncellendiğini doğrulayın.
 \end{enumerate}
-\end{tcolorbox}
 
-\vspace{4pt}
-\begin{tcolorbox}[codebox, title={Test-4: Free/Premium Plan ve Kota}]
-\begin{enumerate}[leftmargin=*, nosep, label=\textbf{\arabic*.}]
-  \item Tool drawer üzerinden planı \texttt{free} ve \texttt{premium} arasında değiştirin.
-  \item \textit{Beklenen:} Kullanım kartında plan bilgisi anlık güncellenir.
+\textbf{Test-4: Free/Premium Plan ve Kota}
+\begin{enumerate}[leftmargin=1.5em]
+  \item Tool drawer üzerinden planı free ve premium arasında değiştirin.
+  \item \textbf{Beklenen:} Kullanım kartında plan bilgisi anlık güncellenir.
   \item Free planda yüksek tokenli istek deneyin.
-  \item \textit{Beklenen:} Limit aşımında premium'a yönlendiren hata mesajı görünür.
+  \item \textbf{Beklenen:} Limit aşımında premium'a yönlendiren hata mesajı görünür.
 \end{enumerate}
-\end{tcolorbox}
 
-% ═══════════════════════════════════════════════════════════════════════════════
+% ══════════════════════════════════════════════════════════════
 \section{Sonuç}
-% ═══════════════════════════════════════════════════════════════════════════════
 
-8. hafta implementasyonu ile sistem, \textbf{görünürlük} seviyesinden
-\textbf{aksiyonlanabilir güvenlik ve maliyet kontrolü} seviyesine taşındı.
+8. hafta implementasyonu ile sistem, görünürlük seviyesinden aksiyonlanabilir güvenlik ve maliyet kontrolü seviyesine taşındı.
 
-\begin{tcolorbox}[successbox, title={Hafta 8 — Genel Değerlendirme}]
-\begin{itemize}[leftmargin=*, nosep, label=\textcolor{successgreen}{\textbullet}]
-  \item Context görünürlüğünden \textbf{optimize edilebilir prompt akışına} geçildi.
-  \item Patch uygulamadan önce \textbf{güvenlik karar mekanizması} devreye alındı.
-  \item Tekil paylaşımdan \textbf{Socket.io destekli gerçek zamanlı (Live Sync) takım döngüsüne} geçildi.
-  \item Sınırsız kullanımdan \textbf{plan/kota kontrollü ürün modeline} geçildi.
+\begin{notebox}[Hafta 8 — Genel Değerlendirme]
+\begin{itemize}[leftmargin=1.2em,nosep]
+  \item Context görünürlüğünden optimize edilebilir prompt akışına geçildi.
+  \item Patch uygulamadan önce güvenlik karar mekanizması devreye alındı.
+  \item Tekil paylaşımdan Socket.io destekli gerçek zamanlı (Live Sync) takım döngüsüne geçildi.
+  \item Sınırsız kullanımdan plan/kota kontrollü ürün modeline geçildi.
 \end{itemize}
-\end{tcolorbox}
+\end{notebox}
 
-\vspace{6mm}
-\noindent Kullanıcı artık:
-\begin{itemize}[leftmargin=*, label=\textcolor{primaryblue}{\textbullet}]
+Kullanıcı artık:
+\begin{itemize}[leftmargin=1.5em]
   \item promptu optimize ederek gönderebiliyor,
   \item riskli patch'leri kontrollü uygulatabiliyor,
   \item paylaşılan oturumlarda yorum-onay döngüsü yürütebiliyor,
   \item plan ve kota durumunu net olarak görebiliyor.
 \end{itemize}
 
-\vspace{10mm}
-\noindent\color{midgray}\small
-\textit{Bu doküman, hafta 8 kapsamındaki iki ayrı teknik dokümanın (Teknik Doküman + Uygulama Günlüğü)
-birleştirilip genişletilmesiyle oluşturulmuştur. Güvenlik, dosya özeti ve senaryo bölümleri
-kapsamlı referans için eklenmiştir. — CodeAlchemist Team, Mart 2026}
+\vfill
+\begin{center}
+\small CodeAlchemist Team • Dila KEMER \quad|\quad 10 Nisan 2026 • Hafta 8 • v8.0 Final
+\end{center}
 
 \end{document}

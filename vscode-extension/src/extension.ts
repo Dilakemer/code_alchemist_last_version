@@ -6,11 +6,114 @@ type AskResponse = {
   details?: string;
 };
 
+const API_KEY_SECRET_NAME = 'codeAlchemist.apiKey';
+
+async function readApiKey(context: vscode.ExtensionContext): Promise<string> {
+  const fromSecrets = (await context.secrets.get(API_KEY_SECRET_NAME))?.trim();
+  if (fromSecrets) {
+    return fromSecrets;
+  }
+
+  // Backward compatibility: migrate legacy key from settings to SecretStorage.
+  const fromSettings = (vscode.workspace.getConfiguration('codeAlchemist').get<string>('apiKey') || '').trim();
+  if (fromSettings) {
+    await context.secrets.store(API_KEY_SECRET_NAME, fromSettings);
+    await vscode.workspace
+      .getConfiguration('codeAlchemist')
+      .update('apiKey', '', vscode.ConfigurationTarget.Global);
+    return fromSettings;
+  }
+
+  return '';
+}
+
+async function streamSseToOutput(res: Response, output: vscode.OutputChannel): Promise<string> {
+  const body = res.body;
+  if (!body) {
+    return '';
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let fullAnswer = '';
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data:')) {
+        continue;
+      }
+
+      const raw = line.slice(5).trim();
+      if (!raw || raw === '[DONE]') {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as {
+          text?: string;
+          chunk?: string;
+          delta?: string;
+          answer?: string;
+          done?: boolean;
+        };
+        if (parsed.done) {
+          continue;
+        }
+        const chunk = parsed.chunk ?? parsed.text ?? parsed.delta ?? parsed.answer ?? '';
+        if (chunk) {
+          fullAnswer += chunk;
+          output.append(chunk);
+        }
+      } catch {
+        fullAnswer += raw;
+        output.append(raw);
+      }
+    }
+  }
+
+  if (buffer.startsWith('data:')) {
+    const trailing = buffer.slice(5).trim();
+    if (trailing && trailing !== '[DONE]') {
+      try {
+        const parsed = JSON.parse(trailing) as {
+          text?: string;
+          chunk?: string;
+          delta?: string;
+          answer?: string;
+          done?: boolean;
+        };
+        if (!parsed.done) {
+          const chunk = parsed.chunk ?? parsed.text ?? parsed.delta ?? parsed.answer ?? '';
+          if (chunk) {
+            fullAnswer += chunk;
+            output.append(chunk);
+          }
+        }
+      } catch {
+        fullAnswer += trailing;
+        output.append(trailing);
+      }
+    }
+  }
+
+  return fullAnswer;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const output = vscode.window.createOutputChannel('CodeAlchemist');
 
   const setApiKeyCmd = vscode.commands.registerCommand('codeAlchemist.setApiKey', async () => {
-    const current = vscode.workspace.getConfiguration('codeAlchemist').get<string>('apiKey') || '';
+    const current = await context.secrets.get(API_KEY_SECRET_NAME) || '';
     const next = await vscode.window.showInputBox({
       title: 'CodeAlchemist API Key',
       prompt: 'Paste your ca-... API key',
@@ -20,13 +123,23 @@ export function activate(context: vscode.ExtensionContext) {
     });
     if (typeof next !== 'string') return;
 
-    await vscode.workspace.getConfiguration('codeAlchemist').update('apiKey', next.trim(), vscode.ConfigurationTarget.Global);
-    vscode.window.showInformationMessage('CodeAlchemist API key saved.');
+    const trimmed = next.trim();
+    if (!trimmed) {
+      await context.secrets.delete(API_KEY_SECRET_NAME);
+      vscode.window.showInformationMessage('CodeAlchemist API key removed from SecretStorage.');
+      return;
+    }
+
+    await context.secrets.store(API_KEY_SECRET_NAME, trimmed);
+    await vscode.workspace
+      .getConfiguration('codeAlchemist')
+      .update('apiKey', '', vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage('CodeAlchemist API key saved in SecretStorage.');
   });
 
   const askCmd = vscode.commands.registerCommand('codeAlchemist.ask', async () => {
     const cfg = vscode.workspace.getConfiguration('codeAlchemist');
-    const apiKey = (cfg.get<string>('apiKey') || '').trim();
+    const apiKey = await readApiKey(context);
     const endpoint = (cfg.get<string>('endpoint') || '').trim();
 
     if (!apiKey) {
@@ -69,6 +182,7 @@ export function activate(context: vscode.ExtensionContext) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'text/event-stream, application/json',
           'X-API-Key': apiKey,
         },
         body: JSON.stringify({
@@ -77,26 +191,44 @@ export function activate(context: vscode.ExtensionContext) {
         }),
       });
 
-      const text = await res.text();
-      let data: AskResponse = {};
-      try {
-        data = JSON.parse(text) as AskResponse;
-      } catch {
-        // leave as raw
-      }
-
       output.appendLine('');
       output.appendLine(`Status: ${res.status} ${res.statusText}`);
       output.appendLine('');
 
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+
       if (!res.ok) {
-        output.appendLine(typeof data === 'object' ? JSON.stringify(data, null, 2) : text);
+        const errorText = await res.text();
+        let errorData: AskResponse = {};
+        try {
+          errorData = JSON.parse(errorText) as AskResponse;
+        } catch {
+          // leave as raw
+        }
+        output.appendLine(typeof errorData === 'object' ? JSON.stringify(errorData, null, 2) : errorText);
         vscode.window.showErrorMessage(`CodeAlchemist request failed (${res.status}). See Output → CodeAlchemist.`);
         return;
       }
 
-      const answer = data.answer ?? text;
-      output.appendLine(answer);
+      if (contentType.includes('text/event-stream')) {
+        output.appendLine('Streaming response:');
+        const streamedText = await streamSseToOutput(res, output);
+        if (!streamedText.trim()) {
+          output.appendLine('[No streamed text received]');
+        }
+        output.appendLine('');
+      } else {
+        const text = await res.text();
+        let data: AskResponse = {};
+        try {
+          data = JSON.parse(text) as AskResponse;
+        } catch {
+          // leave as raw
+        }
+        const answer = data.answer ?? text;
+        output.appendLine(answer);
+      }
+
       vscode.window.showInformationMessage('CodeAlchemist: answer received (see Output).');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

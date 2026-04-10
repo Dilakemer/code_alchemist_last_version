@@ -11,23 +11,23 @@ class LanguageDetector:
     
     # Static list of language keywords for fast detection
     LANG_KEYWORDS = {
-        'python': ['def ', 'import ', 'print(', 'numpy', 'pandas', 'flask', 'django', 'pip install', 'venv', 'python', 'if __name__ ==', 'try:', 'except:', 'elif ', 'async def', 'await ', 'List[', 'Dict[', 'Optional['],
-        'javascript': ['const ', 'let ', 'var ', 'function', 'console.log', '=>', 'react', 'next.js', 'node.js', 'npm', 'yarn', 'jsx', 'javascript', 'js', 'document.get', 'window.', 'async ', 'await ', 'export ', 'import ', 'default '],
-        'typescript': ['interface ', 'type ', 'readonly ', 'enum ', 'namespace ', 'as ', 'is ', 'satisfies', 'unknown', 'any', 'never', 'private ', 'public ', 'protected ', 'implements ', 'extends ', 'tsx', 'typescript', 'ts', ': number', ': string', ': boolean', ': any', ': void', ': never', 'Array<', 'Promise<'],
-        'java': ['public class', 'class ', 'system.out.println', 'psvm', 'maven', 'gradle', 'spring boot', 'java', 'javada', 'public static void', 'extends ', 'implements '],
-        'csharp': ['namespace', 'using system', 'console.writeline', 'public static void', 'c#', 'dotnet', '.net', 'var ', 'async task'],
-        'cpp': ['#include', 'std::cout', 'int main', 'c++', 'cpp', 'std::vector', 'std::string', 'using namespace std;'],
-        'c': ['#include <stdio.h>', 'printf', 'scanf', 'malloc', 'struct', 'int main', 'void main', 'c languge', 'c dili'],
-        'html': ['<!doctype html>', '<html>', '<div>', '<body>', 'html', '<head>', '<script>', '<style>'],
-        'css': ['body {', 'margin:', 'padding:', 'color:', 'css', 'background-color:', 'font-size:', '.class', '#id'],
-        'sql': ['select ', 'from ', 'where ', 'insert into', 'update ', 'delete from', 'sql', 'create table', 'join ', 'group by'],
-        'bash': ['sudo ', 'apt-get', 'docker', 'kubectl', 'git ', 'bash', 'shell', 'echo ', 'ls -', 'cd '],
-        'go': ['func ', 'package main', 'fmt.println', 'go func', 'struct', 'interface'],
-        'rust': ['fn ', 'let mut', 'println!', 'impl', 'struct', 'enum', 'match '],
-        'php': ['<?php', 'echo', '$', 'function', 'class', 'public function', 'composer'],
-        'ruby': ['def ', 'end', 'puts', 'class ', 'module ', 'require', 'gem install'],
-        'swift': ['func ', 'var ', 'let ', 'class ', 'struct ', 'import uikit', 'swiftui'],
-        'kotlin': ['fun ', 'val ', 'var ', 'class ', 'data class', 'import kotlin']
+        'python': ['def ', 'import ', 'print(', 'numpy', 'pandas', 'flask', 'django', 'pip install', 'venv', 'python', 'if __name__ ==', 'try:', 'except:', 'elif ', 'async def', 'await ', 'List[', 'Dict[', 'Optional[', 'fastapi', 'sqlalchemy', 'pytest', 'requirements.txt'],
+        'javascript': ['const ', 'let ', 'var ', 'function', 'console.log', '=>', 'react', 'next.js', 'node.js', 'npm', 'yarn', 'jsx', 'javascript', 'js', 'document.get', 'window.', 'async ', 'await ', 'export ', 'import ', 'default ', 'useEffect', 'useState', 'axios', 'express', 'package.json'],
+        'typescript': ['interface ', 'type ', 'readonly ', 'enum ', 'namespace ', 'as ', 'is ', 'satisfies', 'unknown', 'any', 'never', 'private ', 'public ', 'protected ', 'implements ', 'extends ', 'tsx', 'typescript', 'ts', ': number', ': string', ': boolean', ': any', ': void', ': never', 'Array<', 'Promise<', 'Record<', 'Partial<'],
+        'java': ['public class', 'class ', 'system.out.println', 'psvm', 'maven', 'gradle', 'spring boot', 'java', 'javada', 'public static void', 'extends ', 'implements ', '@Autowired', '@RestController', '@Service'],
+        'csharp': ['namespace', 'using system', 'console.writeline', 'public static void', 'c#', 'dotnet', '.net', 'var ', 'async task', 'yield return', 'public override'],
+        'cpp': ['#include', 'std::cout', 'int main', 'c++', 'cpp', 'std::vector', 'std::string', 'using namespace std;', 'std::endl', 'iostream'],
+        'c': ['#include <stdio.h>', 'printf', 'scanf', 'malloc', 'struct', 'int main', 'void main', 'c languge', 'c dili', 'exit(0)'],
+        'html': ['<!doctype html>', '<html>', '<div>', '<body>', 'html', '<head>', '<script>', '<style>', '<a>', '<img>', '<span>', '<ul>', '<li>', '<footer>', '<header>'],
+        'css': ['body {', 'margin:', 'padding:', 'color:', 'css', 'background-color:', 'font-size:', '.class', '#id', 'display: flex', 'display: grid', 'position: relative', '@media'],
+        'sql': ['select ', 'from ', 'where ', 'insert into', 'update ', 'delete from', 'sql', 'create table', 'join ', 'group by', 'order by', 'count(', 'sum(', 'primary key'],
+        'bash': ['sudo ', 'apt-get', 'docker', 'kubectl', 'git ', 'bash', 'shell', 'echo ', 'ls -', 'cd ', 'mkdir ', 'rm -rf', 'chown ', 'chmod '],
+        'go': ['func ', 'package main', 'fmt.println', 'go func', 'struct', 'interface', 'chan ', 'defer ', 'select {'],
+        'rust': ['fn ', 'let mut', 'println!', 'impl', 'struct', 'enum', 'match ', 'use std::', 'cargo', 'unwrap()'],
+        'php': ['<?php', 'echo', '$', 'function', 'class', 'public function', 'composer', 'laravel', 'symfony', 'mysqli_'],
+        'ruby': ['def ', 'end', 'puts', 'class ', 'module ', 'require', 'gem install', 'rails', 'attr_accessor'],
+        'swift': ['func ', 'var ', 'let ', 'class ', 'struct ', 'import uikit', 'swiftui', 'guard let', '@State'],
+        'kotlin': ['fun ', 'val ', 'var ', 'class ', 'data class', 'import kotlin', 'suspend fun', 'lateinit var']
     }
 
     def __init__(self, gemini_api_key=None):

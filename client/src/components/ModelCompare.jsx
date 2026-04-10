@@ -8,7 +8,6 @@ const modelOptions = [
     { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite (Preview)', color: '#5f9cf9', element: '🧊' },
     { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', color: '#8ab4f8', element: '⚡' },
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', color: '#34a853', element: '🔮' },
-    { value: 'gemini-3-flash', label: 'Gemini 3.0 Flash', color: '#ea4335', element: '🔥' },
 
     // OpenAI
     { value: 'gpt-4o', label: 'GPT-4o', color: '#10a37f', element: '🌿' },

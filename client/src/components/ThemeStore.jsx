@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 
 const THEMES = [
-  { id: 'dark', name: 'Alchemist Dark (Default)', cost: 0, isPremium: false, colors: ['#0f172a', '#3fabe5', '#a855f7'], description: 'Standard sleek dark interface.' },
-  { id: 'light', name: 'Alchemist Light (Default)', cost: 0, isPremium: false, colors: ['#f8fafc', '#0ea5e9', '#9333ea'], description: 'Clean and bright aesthetic.' },
-  { id: 'dracula', name: 'Dracula', cost: 20, isPremium: true, colors: ['#282a36', '#ff79c6', '#bd93f9'], description: 'A dark theme for vampires.' },
-  { id: 'monokai', name: 'Monokai', cost: 30, isPremium: true, colors: ['#272822', '#f92672', '#a6e22e'], description: 'Vibrant colors on a dark background.' },
-  { id: 'nord', name: 'Nord', cost: 40, isPremium: true, colors: ['#2e3440', '#88c0d0', '#5e81ac'], description: 'An arctic, north-bluish color palette.' },
-  { id: 'github-dark', name: 'GitHub Dark', cost: 50, isPremium: true, colors: ['#0d1117', '#58a6ff', '#238636'], description: 'Familiar GitHub dark styling.' },
-  { id: 'synthwave', name: 'Synthwave 84', cost: 75, isPremium: true, colors: ['#262335', '#f92aad', '#36f9f6'], description: 'Retro-futuristic neon glow.' },
-  { id: 'cyberpunk', name: 'Cyberpunk 2077', cost: 100, isPremium: true, colors: ['#fcee0a', '#00f0ff', '#ff003c'], description: 'High tech, low life. Extremely vibrant.' }
+  { id: 'dark', name: 'Alchemist Dark (Default)', cost: 0, isPremium: false, colors: ['#0f141d', '#7f8bb0', '#6a769b'], description: 'Balanced dark interface with muted accents.' },
+  { id: 'light', name: 'Alchemist Light (Default)', cost: 0, isPremium: false, colors: ['#f5f7fa', '#66789d', '#5a6a8d'], description: 'Soft light palette with calm contrast.' },
+  { id: 'dracula', name: 'Dracula', cost: 20, isPremium: true, colors: ['#2a2e3c', '#8c98bb', '#a3acc4'], description: 'Moody dark palette, toned and readable.' },
+  { id: 'monokai', name: 'Monokai', cost: 30, isPremium: true, colors: ['#2c2e2a', '#b88f64', '#8ca07b'], description: 'Warm, low-saturation coding vibe.' },
+  { id: 'nord', name: 'Nord', cost: 40, isPremium: true, colors: ['#2f3642', '#7f9eb1', '#6f879f'], description: 'Cool arctic palette with soft blues.' },
+  { id: 'github-dark', name: 'GitHub Dark', cost: 50, isPremium: true, colors: ['#131821', '#6f8da8', '#5c7a95'], description: 'Professional dark with muted steel accents.' },
+  { id: 'synthwave', name: 'Synthwave 84', cost: 75, isPremium: true, colors: ['#2a2a3a', '#8d84aa', '#768ca6'], description: 'Retro atmosphere with softened neon tones.' },
+  { id: 'cyberpunk', name: 'Cyberpunk 2077', cost: 100, isPremium: true, colors: ['#1f2126', '#8b96a8', '#6f7a8e'], description: 'Urban dark theme with restrained accents.' }
 ];
 
 const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefreshCoins }) => {
@@ -18,6 +18,7 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
   const [message, setMessage] = useState({ text: '', type: '' });
+  const currentCoins = Number.isFinite(userCoins) ? userCoins : 0;
 
   useEffect(() => {
     fetchThemes();
@@ -69,7 +70,12 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
       
       // Backend'den yeniden fetch et (state senkronizasyonu için)
       await fetchThemes();
-      onThemeChange(themeId);
+      if (typeof onThemeChange === 'function') {
+        onThemeChange(themeId);
+      } else {
+        document.documentElement.setAttribute('data-theme', themeId);
+        localStorage.setItem('codebrain_theme', themeId);
+      }
       showMessage(data.message, 'success');
     } catch (err) {
       showMessage(err.message, 'error');
@@ -84,8 +90,8 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
       return;
     }
     
-    if (userCoins < theme.cost) {
-      showMessage(`Need ${theme.cost} Coin. You have ${userCoins} Coin.`, 'error');
+    if (currentCoins < theme.cost) {
+      showMessage(`Need ${theme.cost} Coin. You have ${currentCoins} Coin.`, 'error');
       return;
     }
 
@@ -130,7 +136,7 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
             <i className="fas fa-palette"></i> 
             Theme Store
           </h2>
-          <p className="text-sm text-gray-400 mt-1">Customize your workspace. Current Balance: <strong className="text-fuchsia-400">{userCoins ?? userXP} Coin</strong></p>
+          <p className="text-sm text-gray-400 mt-1">Customize your workspace. Current Balance: <strong className="text-fuchsia-400">{currentCoins} Coin</strong></p>
         </div>
         {onClose && (
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
@@ -151,7 +157,7 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
           const isUnlocked = unlockedThemes.includes(theme.id);
           const isActive = activeTheme === theme.id;
           const isProcessing = processingId === theme.id;
-          const canAfford = userXP >= theme.cost;
+          const canAfford = currentCoins >= theme.cost;
 
           return (
             <div 

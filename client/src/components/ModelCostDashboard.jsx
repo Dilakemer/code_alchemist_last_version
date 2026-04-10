@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   Cell, PieChart, Pie, Legend
@@ -7,15 +7,26 @@ import {
 const MODEL_PRICING = {
   'gpt-4o': { input: 2.50, output: 10.00 },
   'gpt-4o-mini': { input: 0.15, output: 0.60 },
+  // Claude 4.5 Pricing (Per 1M tokens)
+  'claude-sonnet-4-5': { input: 3.00, output: 15.00 },
+  'claude-opus-4-5': { input: 5.00, output: 25.00 },
+  'claude-sonnet': { input: 3.00, output: 15.00 }, // Alias
+  'claude-opus': { input: 5.00, output: 25.00 },   // Alias
   'claude-3-5-sonnet': { input: 3.00, output: 15.00 },
   'claude-3-opus': { input: 15.00, output: 75.00 },
-  'gemini-1.5-pro': { input: 0.00, output: 0.00 }, // Free tier requested by user
-  'gemini-1.5-flash': { input: 0.00, output: 0.00 }, // Free tier
-  'gemini-2.0-flash': { input: 0.00, output: 0.00 }, // Free tier
-  'gemini-2.5-flash': { input: 0.00, output: 0.00 }, // Free tier
-  'gemini-3.1-flash-lite-preview': { input: 0.00, output: 0.00 }, // Free tier (preview limits apply)
+  'gemini-2.5-flash': { input: 0.00, output: 0.00 },
+  'gemini-3-flash-preview': { input: 0.00, output: 0.00 },
+  'gemini-2.5-flash-lite': { input: 0.00, output: 0.00 },
+  'gemini-3.1-flash-lite-preview': { input: 0.00, output: 0.00 },
+  'text-embedding-004': { input: 0.00, output: 0.00 },
   'dall-e-3': { cost_per_img: 0.040 },
   'Unknown': { input: 0, output: 0 }
+};
+
+const resolvePricing = (modelName) => {
+  if (!modelName) return MODEL_PRICING.Unknown;
+  const key = String(modelName).trim().toLowerCase();
+  return MODEL_PRICING[key] || MODEL_PRICING[modelName] || MODEL_PRICING.Unknown;
 };
 
 const COLORS = ['#d946ef', '#a855f7', '#8b5cf6', '#6366f1', '#3b82f6', '#0ea5e9'];
@@ -40,9 +51,11 @@ const ModelCostDashboard = ({ onClose, apiBase, authHeaders }) => {
           const AVG_OUTPUT_TOKENS = 300;
 
           const enriched = data.stats.map(s => {
-            const pricing = MODEL_PRICING[s.model] || MODEL_PRICING['Unknown'];
+            const pricing = resolvePricing(s.model);
             let cost = 0;
-            if (pricing.cost_per_img) {
+            if (pricing.per_request) {
+              cost = s.count * pricing.per_request;
+            } else if (pricing.cost_per_img) {
               cost = s.count * pricing.cost_per_img;
             } else {
               cost = (s.count * AVG_INPUT_TOKENS * pricing.input / 1000000) +
@@ -64,6 +77,12 @@ const ModelCostDashboard = ({ onClose, apiBase, authHeaders }) => {
 
   const totalCost = stats.reduce((acc, s) => acc + s.cost, 0);
   const totalRequests = stats.reduce((acc, s) => acc + s.count, 0);
+
+  // Safely calculate most active model without mutating the original stats state array
+  const mostActiveModel = useMemo(() => {
+    if (!stats || stats.length === 0) return null;
+    return [...stats].sort((a, b) => b.count - a.count)[0];
+  }, [stats]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
@@ -135,11 +154,11 @@ const ModelCostDashboard = ({ onClose, apiBase, authHeaders }) => {
                 <div className="bg-gray-800/40 border border-gray-700 p-6 rounded-2xl">
                   <p className="text-sm text-gray-400 font-medium mb-1 uppercase tracking-wider">Most Active Model</p>
                   <p className="text-2xl font-black text-white truncate">
-                    {stats.sort((a,b) => b.count - a.count)[0]?.model || 'None'}
+                    {mostActiveModel?.model || 'None'}
                   </p>
                   <div className="mt-4 flex items-center gap-2 text-xs text-fuchsia-400">
                     <div className="w-2 h-2 rounded-full bg-fuchsia-500 animate-pulse"></div>
-                    <span>{stats.sort((a,b) => b.count - a.count)[0]?.count || 0} calls processed</span>
+                    <span>{mostActiveModel?.count || 0} calls processed</span>
                   </div>
                 </div>
               </div>
@@ -206,7 +225,7 @@ const ModelCostDashboard = ({ onClose, apiBase, authHeaders }) => {
                     <tr>
                       <th className="px-6 py-4">AI Model</th>
                       <th className="px-6 py-4">Request Count</th>
-                      <th className="px-6 py-4">Est. Avg Cost</th>
+                      <th className="px-6 py-4">Est. Total Cost</th>
                       <th className="px-6 py-4 text-right">Status</th>
                     </tr>
                   </thead>

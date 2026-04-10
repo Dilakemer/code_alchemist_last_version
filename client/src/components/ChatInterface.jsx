@@ -449,7 +449,7 @@ const evaluatePatchRisk = (currentCode = '', incomingCode = '') => {
 
 
 
-const ContextBar = ({ question, code, image, linkedRepo }) => {
+const ContextBar = ({ question, code, image, linkedRepo, debug }) => {
   const inputProfile = useMemo(() => {
     const text = (question || '').trim();
     if (!text) {
@@ -487,15 +487,20 @@ const ContextBar = ({ question, code, image, linkedRepo }) => {
   };
 
   const contexts = [
+    { id: 'm', active: debug?.carryover, icon: '🧠', label: 'Memory' },
     { id: 'q', active: inputProfile.hasPromptText, icon: '💬', label: 'Prompt' },
     { id: 'c', active: (code?.trim()?.length > 0) || inputProfile.hasInlineCode, icon: '💻', label: 'Code' },
     { id: 'i', active: image != null, icon: '🖼️', label: 'Image' },
     { id: 'r', active: linkedRepo != null, icon: '🌐', label: 'Repo' },
   ];
 
+  const hasContext = contexts.some(c => c.active);
+
   return (
     <div className="flex items-center gap-2 px-2 py-1">
-      <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest mr-2 select-none">Context AI</span>
+      <span className={`text-[9px] font-black uppercase tracking-widest mr-2 select-none transition-colors duration-500 ${hasContext ? 'text-emerald-400' : 'text-gray-500'}`}>
+        Context AI
+      </span>
       {/* Token progress mini bar */}
       <div className="flex items-center gap-1.5 shrink-0">
         <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden border border-white/5">
@@ -529,6 +534,8 @@ const ChatInterface = ({
   user,
   onAuthRequired,
   model,
+  includePreviousModules,
+  setIncludePreviousModules,
   apiBase,
   authHeaders,
   theme,
@@ -549,7 +556,8 @@ const ChatInterface = ({
   socketIsStreaming = false,
   liveStreamText = '',
   streamingHistoryId = null,
-  tokenErrorNotice = null
+  tokenErrorNotice = null,
+  debug = null
 }) => {
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -1094,6 +1102,7 @@ const ChatInterface = ({
     }
 
     const report = optimizePromptWithReport(question);
+
     const shouldGate = mode === 'auto' && autoOptimizeEnabled && report.shouldSuggest;
 
     if (shouldGate) {
@@ -1337,6 +1346,11 @@ const ChatInterface = ({
                       {turn.persona && (
                         <span className="bg-fuchsia-500/20 text-fuchsia-400 px-1.5 py-0.5 rounded border border-fuchsia-500/30 text-[10px] animate-pulse">
                           ✨ Personalized ({turn.persona})
+                        </span>
+                      )}
+                      {turn.memory_used && Number(turn.memory_hits || 0) > 0 && (
+                        <span className="bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 text-[10px]">
+                          🧠 {turn.memory_hits} onceki karar dahil edildi
                         </span>
                       )}
                     </span>
@@ -1757,7 +1771,19 @@ const ChatInterface = ({
               >
                 {autoOptimizeEnabled ? 'Auto Optimize: ON' : 'Auto Optimize: OFF'}
               </button>
-              <ContextBar question={question} code={code} image={image} linkedRepo={linkedRepo} />
+              <button
+                type="button"
+                onClick={() => setIncludePreviousModules(v => !v)}
+                className={`text-[10px] px-2 py-1 rounded-full border transition-colors whitespace-nowrap ${
+                  includePreviousModules
+                    ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+                    : 'border-gray-700 bg-gray-900/50 text-gray-400'
+                }`}
+                title="Include previous module decisions in the prompt memory"
+              >
+                {includePreviousModules ? 'Onceki moduller: ON' : 'Onceki moduller: OFF'}
+              </button>
+              <ContextBar question={question} code={code} image={image} linkedRepo={linkedRepo} debug={debug} />
             </div>
           </div>
 

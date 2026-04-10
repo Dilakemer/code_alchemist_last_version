@@ -8,7 +8,6 @@ const options = [
   { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite (Preview)' },
   { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (Fast)' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (New)' },
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3.0 Flash (Preview)' },
 
   // OpenAI
   { value: 'gpt-4o', label: 'GPT-4o (OpenAI)' },

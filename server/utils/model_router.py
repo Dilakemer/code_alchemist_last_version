@@ -25,11 +25,11 @@ class ModelRouter:
     - Bash/Shell → Gemini 2.5 Flash Lite
     """
 
-    # Claude Sonnet model name
+    # Claude 4.5 model names
     CLAUDE_SONNET = 'claude-sonnet-4-5'
     CLAUDE_OPUS   = 'claude-opus-4-5'
 
-    def __init__(self, default_model='gemini-2.5-flash-lite'):
+    def __init__(self, default_model='gemini-3.1-flash-lite-preview'):
         self.default_model = default_model
 
     def route(self, language: str, intent: str, user_prefs: dict = None) -> tuple[str, str]:
@@ -43,7 +43,7 @@ class ModelRouter:
         if preferred_model != 'auto':
             model_type_map = {
                 'claude': self.CLAUDE_SONNET,    # Prefer Sonnet, not Opus, as default Claude
-                'gemini': 'gemini-2.5-flash-lite',
+                'gemini': 'gemini-3.1-flash-lite-preview',
                 'gpt':    'gpt-4o'
             }
             chosen = model_type_map.get(preferred_model, preferred_model)
@@ -63,7 +63,7 @@ class ModelRouter:
             return 'gpt-4o', f"💻 {language}: **GPT-4o** chosen (Claude quota protected)."
 
         elif language == 'bash':
-            return 'gemini-2.5-flash-lite', "🐚 Bash/Shell: **Gemini 2.5 Flash Lite** chosen (Fast for DevOps & scripting)."
+            return 'gemini-3.1-flash-lite-preview', "🐚 Bash/Shell: **Gemini 3.1 Flash Lite Preview** chosen (Fast for DevOps & scripting)."
 
         # ── 3. Intent-Based Routing ───────────────────────────────────────────
 
@@ -73,7 +73,7 @@ class ModelRouter:
 
         # Basic algorithms, trivial code gen → Gemini 2.5 Flash Lite (free tier, fast)
         elif intent == 'simple_code':
-            return 'gemini-2.5-flash-lite', "🔹 Simple Code: **Gemini 2.5 Flash Lite** chosen (Fast for basic algorithms)."
+            return 'gemini-3.1-flash-lite-preview', "🔹 Simple Code: **Gemini 3.1 Flash Lite Preview** chosen (Fast for basic algorithms)."
 
         # Debugging, error tracing → GPT-4o (best at structured error analysis)
         elif intent == 'debug':
@@ -98,5 +98,5 @@ class ModelRouter:
             return 'dall-e-3', "🎨 Image Generation: **DALL-E 3** chosen."
 
         # ── 4. Default Fallback ───────────────────────────────────────────────
-        return self.default_model, "🚀 General Query: **Gemini 2.5 Flash Lite** (Best free-tier quota & fast)."
+        return self.default_model, "🚀 General Query: **Gemini 3.1 Flash Lite Preview** (Best free-tier quota & fast)."
 

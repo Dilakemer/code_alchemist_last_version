@@ -1,1225 +1,552 @@
-\documentclass[12pt,a4paper]{article}
+\documentclass[11pt,a4paper]{article}
 
-% ─── Font & Encoding ───────────────────────────────────────────────────────────
-\usepackage{fontspec}
-\setmainfont{DejaVu Serif}
-\setsansfont{DejaVu Sans}
-\setmonofont{DejaVu Sans Mono}
-
-% ─── Sayfa Düzeni ──────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[turkish]{babel}
 \usepackage{geometry}
-\geometry{a4paper, left=24mm, right=24mm, top=30mm, bottom=30mm}
-
-% ─── Tipografi & Aralık ────────────────────────────────────────────────────────
-\usepackage{setspace}
-\onehalfspacing
-
-% ─── Tablo & Liste ─────────────────────────────────────────────────────────────
 \usepackage{booktabs}
-\usepackage{longtable}
-\usepackage{array}
-\usepackage{enumitem}
 \usepackage{tabularx}
-\usepackage{multirow}
-
-% ─── Renk & Görsel ─────────────────────────────────────────────────────────────
+\usepackage{array}
+\usepackage{longtable}
 \usepackage{xcolor}
-\usepackage{mdframed}
-\usepackage{tcolorbox}
-\tcbuselibrary{skins, breakable}
-
-% ─── Başlık & İçerik ───────────────────────────────────────────────────────────
-\usepackage{titlesec}
-\usepackage{titletoc}
-\usepackage{hyperref}
 \usepackage{fancyhdr}
-\usepackage{lastpage}
-
-% ─── Kod Bloğu ─────────────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\usepackage{hyperref}
 \usepackage{listings}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{tcolorbox}
 
-% ─── Renk Tanımları ────────────────────────────────────────────────────────────
-\definecolor{primaryblue}{RGB}{0, 51, 179}
-\definecolor{secondaryblue}{RGB}{0, 102, 204}
-\definecolor{accentgray}{RGB}{245, 247, 250}
-\definecolor{bordergray}{RGB}{210, 218, 230}
-\definecolor{successgreen}{RGB}{0, 128, 80}
-\definecolor{warningorange}{RGB}{200, 100, 0}
-\definecolor{dangered}{RGB}{180, 30, 30}
-\definecolor{codemono}{RGB}{40, 40, 100}
-\definecolor{lightblue}{RGB}{230, 240, 255}
-\definecolor{midgray}{RGB}{100, 110, 130}
-\definecolor{extensionpurple}{RGB}{106, 27, 154}
+\geometry{
+	a4paper,
+	top=2.5cm,
+	bottom=2.5cm,
+	left=2.5cm,
+	right=2.5cm,
+	headheight=15pt
+}
 
-% ─── Başlık Biçimleri ──────────────────────────────────────────────────────────
-\titleformat{\section}
-  {\large\bfseries\color{primaryblue}}
-  {\thesection}{1em}{}[\vspace{-2pt}\color{bordergray}\rule{\linewidth}{0.4pt}]
+\definecolor{codeblue}{RGB}{32,78,145}
+\definecolor{codegray}{RGB}{245,246,248}
+\definecolor{codegreen}{RGB}{35,120,80}
+\definecolor{codered}{RGB}{170,45,45}
+\definecolor{headerbg}{RGB}{238,243,250}
 
-\titleformat{\subsection}
-  {\normalsize\bfseries\color{secondaryblue}}
-  {\thesubsection}{1em}{}
+\titleformat{\section}{\large\bfseries\color{codeblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
 
-\titleformat{\subsubsection}
-  {\normalsize\bfseries\color{midgray}}
-  {\thesubsubsection}{1em}{}
-
-% ─── Sütun Tipleri ─────────────────────────────────────────────────────────────
-\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
-\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
-
-% ─── Sayfa Başlığı/Altı ────────────────────────────────────────────────────────
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\color{midgray}CodeAlchemist — 9. Hafta Teknik Doküman}
-\fancyhead[R]{\small\color{midgray}Nisan 2026}
-\fancyfoot[C]{\small\color{midgray}Sayfa \thepage\ / \pageref{LastPage}}
-\renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\footrulewidth}{0.4pt}
+\lhead{\small CodeAlchemist -- 9. Hafta Teknik Dokuman}
+\rhead{\small 9 Nisan 2026}
+\cfoot{\small CodeAlchemist Team \quad Sayfa \thepage}
 
-% ─── Özel Kutular ──────────────────────────────────────────────────────────────
-\tcbset{
-  infobox/.style={
-    colback=lightblue, colframe=primaryblue,
-    fonttitle=\bfseries\small\color{primaryblue},
-    boxrule=0.5pt, arc=3pt, breakable
-  },
-  warningbox/.style={
-    colback=yellow!10, colframe=warningorange,
-    fonttitle=\bfseries\small\color{warningorange},
-    boxrule=0.5pt, arc=3pt, breakable
-  },
-  successbox/.style={
-    colback=green!5, colframe=successgreen,
-    fonttitle=\bfseries\small\color{successgreen},
-    boxrule=0.5pt, arc=3pt, breakable
-  },
-  codebox/.style={
-    colback=accentgray, colframe=bordergray,
-    fonttitle=\bfseries\small\color{codemono},
-    boxrule=0.5pt, arc=3pt, breakable
-  },
-  extensionbox/.style={
-    colback=purple!5, colframe=extensionpurple,
-    fonttitle=\bfseries\small\color{extensionpurple},
-    boxrule=0.5pt, arc=3pt, breakable
-  }
-}
-
-% ─── Kod Listeleme ─────────────────────────────────────────────────────────────
 \lstset{
-  basicstyle=\small\ttfamily\color{codemono},
-  backgroundcolor=\color{accentgray},
-  frame=single, framesep=4pt,
-  rulecolor=\color{bordergray},
-  breaklines=true,
-  columns=flexible,
-  keepspaces=true,
-  showstringspaces=false,
-  numbers=left,
-  numberstyle=\tiny\color{midgray},
-  numbersep=8pt
+	backgroundcolor=\color{codegray},
+	basicstyle=\ttfamily\footnotesize,
+	keywordstyle=\color{codeblue}\bfseries,
+	commentstyle=\color{codegreen},
+	stringstyle=\color{codered},
+	numbers=left,
+	numberstyle=\tiny\color{gray},
+	frame=single,
+	framerule=0.5pt,
+	breaklines=true,
+	showstringspaces=false,
+	xleftmargin=1.2em,
+	xrightmargin=0.3em,
+	tabsize=2
 }
 
-% ─── Belge Başlığı ─────────────────────────────────────────────────────────────
-\title{%
-  \vspace{-10mm}%
-  {\LARGE\bfseries\color{primaryblue} CodeAlchemist}\\[6pt]
-  {\large\color{secondaryblue} 9. Hafta — API Key Altyapısı \& VS Code Eklentisi}\\[4pt]
-  {\normalsize\color{midgray} Programatik Erişim \textbullet{} Güvenli Anahtar Yönetimi \textbullet{} Editör Entegrasyonu}
+\tcbuselibrary{skins,breakable}
+\newtcolorbox{notebox}[1][] {
+	colback=headerbg,
+	colframe=codeblue!60,
+	fonttitle=\bfseries\small,
+	title={#1},
+	breakable
 }
-\author{%
-  \textbf{CodeAlchemist Team} \quad\textbullet\quad \textbf{Dila KEMER}
-}
-\date{Nisan 2026}
 
-% ───────────────────────────────────────────────────────────────────────────────
+\hypersetup{
+	colorlinks=true,
+	linkcolor=codeblue,
+	urlcolor=codeblue,
+	pdftitle={CodeAlchemist 9. Hafta Teknik Dokuman},
+	pdfauthor={CodeAlchemist Team}
+}
+
 \begin{document}
-% ───────────────────────────────────────────────────────────────────────────────
 
-\maketitle
-\thispagestyle{fancy}
+\begin{titlepage}
+	\centering
+	\vspace*{3cm}
+	{\Huge\bfseries\color{codeblue} CodeAlchemist\par}
+	\vspace{0.5cm}
+	{\Large 9. Hafta Teknik Dokuman\par}
+	\vspace{0.3cm}
+	{\large VS Code Extension Yol Haritasi ve Token Satin Alma Mekanizmasi\par}
+	\vspace{1.8cm}
+	\hrule height 1pt
+	\vspace{0.4cm}
+	{\normalsize Uygulama Adimlari \quad $\bullet$ \quad API Sozlesmeleri \quad $\bullet$ \quad Odeme Akisi\par}
+	\vspace{0.4cm}
+	\hrule height 1pt
+	\vfill
+	{\normalsize\textbf{Tarih:} 9 Nisan 2026\par}
+	\vspace{0.2cm}
+	{\normalsize\textbf{Versiyon:} 9.1\par}
+	\vspace{0.2cm}
+	{\normalsize\textbf{Kapsam:} VS Code extension MVP + Guvenlik ve dayaniklilik iyilestirmeleri\par}
+\end{titlepage}
 
-\vspace{4mm}
-\begin{tcolorbox}[infobox, title={Yönetici Özeti}]
-Bu doküman, \textbf{9. hafta} kapsamında hayata alınan \textbf{4 bileşenin}
-tüm katmanlarını—veri modeli, güvenlik mimarisi, API sözleşmeleri, TypeScript
-eklenti implementasyonu ve uçtan uca test akışını—tek bir referans kaynağında birleştirir.
+\section*{Yonetici Ozeti}
+\addcontentsline{toc}{section}{Yonetici Ozeti}
 
-Hafta 9'un temel hedefi: CodeAlchemist'i yalnızca tarayıcıdan erişilebilen bir uygulama
-olmaktan çıkarıp, harici araçların (VS Code eklentisi, CI/CD pipeline, script)
-güvenle kullanabileceği bir \textbf{platforma} dönüştürmek.
-\end{tcolorbox}
-\clearpage
-\vspace{4mm}
+Bu rapor, iki kritik eksenin teknik durumunu birlestirir:
+\begin{itemize}[leftmargin=1.5em]
+	\item VS Code extension tarafinda kullanicinin secili kod ile soru gonderebildigi, API anahtari ile dogrulanan ve ciktiyi Output panelinde gosteren MVP akisinin tamamlanmasi.
+	\item Uygulama ici token satin alma tarafinda paket listeleme, Stripe checkout olusturma, webhook ile bakiye guncelleme ve islem gecmisi gorunurlugunun devreye alinmasi.
+\end{itemize}
+
+Bu iki eksen birlikte ele alindiginda, urun hem editor-ici kullanim (extension) hem de ekonomik surdurulebilirlik (token ekonomisi) acisindan calisir bir omurga kazanmistir.
+
+\newpage
 \tableofcontents
 \newpage
 
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Kapsam ve Amaç}
-% ═══════════════════════════════════════════════════════════════════════════════
+\section{Kapsam ve Referans Noktalari}
 
-Bu doküman iki temel amaca hizmet eder:
+Hafta 9 kapsaminda raporlanan ana dosyalar:
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{vscode-extension/src/extension.ts}
+	\item \texttt{vscode-extension/package.json}
+	\item \texttt{server/app.py}
+	\item \texttt{client/src/components/TokenDashboardModal.jsx}
+\end{itemize}
 
-\begin{enumerate}[leftmargin=*, label=\textbf{\arabic*.}]
-  \item \textbf{Teknik Referans} — Özellik bileşenlerinin fonksiyonlar, endpoint'ler ve
-        dosya satırlarıyla doğrudan eşleştirilmesi.
-  \item \textbf{Uygulama Günlüğü} — Her bileşenin neden eklendi, nasıl eklendi ve
-        nasıl test edildi bilgisinin kayıt altına alınması.
+\begin{notebox}[Neden Bu Kapsam?]
+Extension akisinda komut, dogrulama ve istek gonderimi; token akisinda paket, checkout ve webhook adimlari birbiriyle bagimli oldugu icin dokumanin odagi bu dosyalardir.
+\end{notebox}
+
+\section{VS Code Extension Adimlari}
+
+\subsection{Adim 1 -- Uzanti kontratinin tanimlanmasi}
+
+\texttt{vscode-extension/package.json} uzerinde extension kontrati netlestirilmistir:
+\begin{itemize}[leftmargin=1.5em]
+	\item Iki komut tanimlanmistir: \texttt{codeAlchemist.setApiKey} ve \texttt{codeAlchemist.ask}.
+	\item Aktivasyon tetikleyicileri bu komutlara baglanmistir.
+	\item Ayarlar altinda \texttt{codeAlchemist.apiKey} ve \texttt{codeAlchemist.endpoint} konfigurasyon anahtarlari acilmistir.
+\end{itemize}
+
+Bu adimla extension'in calisma kosullari, koddan once manifest seviyesinde garanti altina alinmistir.
+
+\subsection{Adim 2 -- API anahtari yonetimi}
+
+\texttt{extension.ts} icinde \texttt{CodeAlchemist: Set API Key} komutu su davranisi saglar:
+\begin{itemize}[leftmargin=1.5em]
+	\item Kullaniciya gizli giris kutusu acar.
+	\item API anahtarini \texttt{VS Code SecretStorage} icinde saklar.
+	\item Eski surumlerde settings icinde saklanmis \texttt{codeAlchemist.apiKey} degeri varsa ilk kullanimda otomatik migrate eder.
+	\item Basarili kayitta kullaniciya bilgi mesaji gosterir.
+\end{itemize}
+
+Bu tasarimla anahtar hem hard-code edilmez hem de plain settings yerine guvenli kasada tutulur.
+
+\subsection{Adim 3 -- Soru gonderim akisi (Ask komutu)}
+
+\texttt{codeAlchemist.ask} komutu calistiginda asagidaki siralama izlenir:
+\begin{enumerate}[leftmargin=1.5em]
+	\item Ayarlardan API key ve endpoint okunur.
+	\item Eksik degilse aktif editor secimi alinir (varsa secili kod da mesaja eklenir).
+	\item Kullanicidan soru metni alinir.
+	\item \texttt{POST} istegi ile endpoint'e JSON govde gonderilir: \texttt{\{question, code\}}.
+	\item Sunucu \texttt{text/event-stream} donuyorsa cevap parca parca (SSE) canli olarak Output kanalina akar.
+	\item Stream yoksa JSON fallback ile toplu cevap yazdirilir.
 \end{enumerate}
 
-\subsection{Hafta 9 Bileşen Listesi}
+\subsection{Adim 4 -- Sunucu tarafi extension endpoint'i}
 
-\begin{center}
-\begin{tabular}{@{} C{0.5cm} P{5cm} P{8.5cm} @{}}
-\toprule
-\textbf{\#} & \textbf{Bileşen} & \textbf{Kısa Açıklama} \\
-\midrule
-1 & ApiKey Veri Modeli &
-  Soft-delete destekli, kullanıcıya bağlı API anahtarı veritabanı modeli. \\[4pt]
-2 & API Key CRUD Endpoint'leri &
-  Anahtar listeleme, oluşturma ve iptal (revoke) endpoint'leri. \\[4pt]
-3 & \texttt{/v1/ask} Harici Köprü Endpoint'i &
-  API anahtarı doğrulayan, harici araçlardan (eklenti, script) istek alan köprü. \\[4pt]
-4 & VS Code Eklentisi &
-  TypeScript ile yazılmış; API anahtarı ayarlama ve seçili kodla soru sorma komutları. \\
-\bottomrule
-\end{tabular}
-\end{center}
+\texttt{server/app.py} icindeki \texttt{/v1/ask} endpoint'i extension icin dis entegrasyon katmanidir.
 
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Başlangıç Analizi ve Motivasyon}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\subsection{Problem Tanımı}
-
-Hafta 8 sonunda CodeAlchemist, yalnızca tarayıcı oturumu (JWT cookie) üzerinden
-erişilebilen bir uygulama durumundaydı. Bu mimari;
-
-\begin{itemize}[leftmargin=*, label=\textcolor{dangered}{\textbullet}]
-  \item Terminal script veya CI/CD pipeline'ından doğrudan API çağrısı yapılamamasına,
-  \item VS Code gibi harici geliştirici araçlarının sisteme bağlanamamasına,
-  \item Programatik erişim için kullanıcının her seferinde şifresini paylaşmak
-        zorunda kalmasına yol açıyordu.
+Beklenen sozlesme:
+\begin{itemize}[leftmargin=1.5em]
+	\item Header: \texttt{X-API-Key}
+	\item Body: \texttt{question} ve/veya \texttt{code}
 \end{itemize}
 
-\begin{tcolorbox}[warningbox, title={Tasarım Kararı}]
-Çözüm: \textbf{API Key altyapısı} ile programatik erişimde JWT yerine,
-kullanıcıya özgü, iptal edilebilir, son kullanım tarihi izlenebilir
-bir kimlik doğrulama katmanı oluşturmak.
-\end{tcolorbox}
-
-\subsection{Hafta 8'den Hafta 9'a Dönüşüm (Önce / Şimdi)}
-
-\begin{longtable}{@{} P{3.2cm} P{5.5cm} P{5.5cm} @{}}
-\toprule
-\textbf{Alan} & \textbf{Önce (Hafta 8)} & \textbf{Şimdi (Hafta 9)} \\
-\midrule
-\endhead
-Kimlik doğrulama & Yalnızca JWT (tarayıcı oturumu). &
-  JWT + API Key; harici araçlar \texttt{X-API-Key} header'ı ile istek gönderebilir. \\[6pt]
-Harici erişim & Mümkün değildi. &
-  \texttt{/v1/ask} endpoint'i ile herhangi bir araçtan AI yanıtı alınabilir. \\[6pt]
-VS Code desteği & Yoktu. &
-  TypeScript eklentisi; komut paleti üzerinden soru sorma ve Output kanalı. \\[6pt]
-Anahtar yönetimi & Yoktu. &
-  Kullanıcı profil panelinde anahtar listesi, oluşturma ve iptal (soft-delete). \\
-\bottomrule
-\end{longtable}
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Mimari Özet}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\subsection{Genel Mimari}
-
-\begin{tcolorbox}[extensionbox, title={Veri Akışı}]
-\textbf{VS Code Eklentisi} (TypeScript) \\
-\hspace*{8mm} $\downarrow$ \texttt{POST /v1/ask} + \texttt{X-API-Key: ca-...} \\
-\textbf{Flask Backend} (Python) \\
-\hspace*{8mm} $\downarrow$ ApiKey tablosunda doğrulama \\
-\textbf{Gemini / GPT / Claude} modeli çağrısı \\
-\hspace*{8mm} $\downarrow$ JSON yanıt \\
-\textbf{VS Code Output Kanalı} — Cevap ekrana düşer.
-\end{tcolorbox}
-
-\subsection{İlgili Dosyalar}
-
-\begin{center}
-\begin{tabular}{@{} P{6cm} P{8.5cm} @{}}
-\toprule
-\textbf{Dosya} & \textbf{Kapsadığı Alan} \\
-\midrule
-\texttt{server/models.py} &
-  \texttt{ApiKey} modeli (satır 26--36). \\[4pt]
-\texttt{server/app.py} &
-  \texttt{/api/keys} CRUD endpoint'leri (satır 6769--6825) ve
-  \texttt{/v1/ask} köprü endpoint'i (satır 6828--6888). \\[4pt]
-\texttt{vscode-extension/src/extension.ts} &
-  VS Code eklentisi aktivasyon, komut kayıtları, fetch çağrıları. \\[4pt]
-\texttt{vscode-extension/package.json} &
-  Eklenti manifest; komut tanımları, ayar şeması, engine versiyonu. \\[4pt]
-\texttt{.vscode/launch.json} &
-  Kök dizinden Extension Development Host başlatma yapılandırması. \\[4pt]
-\texttt{.vscode/tasks.json} &
-  \texttt{build-extension} görevi; TypeScript otomatik derleme. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Bileşen 1: ApiKey Veri Modeli}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\subsection{Ürün Gereksinimi}
-
-Kullanıcıya özgü, soft-delete destekli, son kullanım tarihi izlenebilir bir
-API anahtarı tablosuna ihtiyaç vardı. Anahtarlar, hesap şifresiyle değil
-bağımsız olarak iptal edilebilmelidir.
-
-\subsection{Uygulama — Kod Entegrasyonu}
-
-\textbf{Dosya:} \texttt{server/models.py}, satırlar 26--36.
-
-\begin{lstlisting}[language=Python, caption={ApiKey Modeli — models.py}]
-class ApiKey(db.Model):
-    """VS Code Extension ve harici araçlar icin API anahtari."""
-    id         = db.Column(db.Integer, primary_key=True)
-    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'),
-                           nullable=False, index=True)
-    name       = db.Column(db.String(100), nullable=False)  # e.g. "My VS Code"
-    key        = db.Column(db.String(128), unique=True,
-                           nullable=False, index=True)       # token degeri
-    is_active  = db.Column(db.Boolean, default=True)        # soft-delete
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_used_at = db.Column(db.DateTime, nullable=True)    # izlenebilirlik
-
-    user = db.relationship('User',
-                           backref=db.backref('api_keys', lazy='dynamic'))
-\end{lstlisting}
-
-\subsection{Tasarım Kararları}
-
-\begin{center}
-\begin{tabular}{@{} P{4cm} P{10cm} @{}}
-\toprule
-\textbf{Karar} & \textbf{Gerekçe} \\
-\midrule
-Soft-delete (\texttt{is\_active}) &
-  Anahtarın iptal edilmesi durumunda kayıt tarihçesi korunur;
-  muhasebe ve denetim izleri kaybolmaz. \\[4pt]
-\texttt{last\_used\_at} alanı &
-  Aktif olmayan anahtarlar periyodik olarak tespit edilerek
-  güvenlik ihlaline karşı önlem alınabilir. \\[4pt]
-\texttt{ca-} ön eki &
-  Anahtar, \textit{CodeAlchemist} kökenli olduğunu kendisi
-  ifade eder; yanlış yapılandırmalarda hızlı tespit sağlar. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\begin{tcolorbox}[successbox, title={Hafta 9 Kazanımı}]
-\texttt{ApiKey} modeli \texttt{db.create\_all()} ile otomatik oluşturulur.
-Hem Supabase PostgreSQL (production) hem yerel SQLite (development) üzerinde
-çalışır; migration gerektirmez.
-\end{tcolorbox}
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Bileşen 2: API Key CRUD Endpoint'leri}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\subsection{Ürün Gereksinimi}
-
-Kullanıcının kendi anahtarlarını listeleyebilmesi, yeni anahtar oluşturabilmesi
-ve eski anahtarı iptal edebilmesi gerekir. Tüm operasyonlar JWT (kullanıcı oturumu)
-ile korunur.
-
-\subsection{API Sözleşmesi}
-
-\begin{center}
-\begin{tabular}{@{} P{2cm} P{4.5cm} P{7.5cm} @{}}
-\toprule
-\textbf{Metod} & \textbf{Endpoint} & \textbf{Açıklama} \\
-\midrule
-\texttt{GET} & \texttt{/api/keys} &
-  Kullanıcıya ait aktif anahtarları listele.
-  Token değeri gizlenerek yalnızca son 4 karakter gösterilir
-  (\texttt{ca-***-xxxx}). \\[6pt]
-\texttt{POST} & \texttt{/api/keys} &
-  Yeni anahtar oluştur; tam token değeri \textbf{yalnızca bir kez} döndürülür.
-  Sonraki sorgularda tekrar görüntülenemez. \\[6pt]
-\texttt{DELETE} & \texttt{/api/keys/<id>} &
-  Anahtarı soft-delete ile iptal et (\texttt{is\_active = False}).
-  Fiziksel silme yapılmaz. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Kod Entegrasyon Noktaları}
-
-\textbf{Dosya:} \texttt{server/app.py}, satırlar 6769--6825.
-
-\begin{lstlisting}[language=Python, caption={GET /api/keys — Anahtar Listeleme}]
-@app.route('/api/keys', methods=['GET'])
-@jwt_required()
-def get_api_keys():
-    user_id = get_jwt_identity()
-    keys = ApiKey.query.filter_by(
-        user_id=user_id, is_active=True
-    ).order_by(ApiKey.created_at.desc()).all()
-    return jsonify({
-        'keys': [{
-            'id': k.id,
-            'name': k.name,
-            # Guvenlik: son 4 karakter haric gosterilmez
-            'key_preview': f"ca-***-{k.key[-4:]}",
-            'created_at': k.created_at.isoformat(),
-            'last_used_at': k.last_used_at.isoformat()
-                             if k.last_used_at else None
-        } for k in keys]
-    })
-\end{lstlisting}
-
-\begin{lstlisting}[language=Python, caption={POST /api/keys — Anahtar Oluşturma}]
-@app.route('/api/keys', methods=['POST'])
-@jwt_required()
-def create_api_key():
-    user_id = get_jwt_identity()
-    data    = request.get_json() or {}
-    name    = data.get('name', 'My API Key').strip()
-
-    # "ca-" on eki ile benzersiz token uret
-    token   = f"ca-{secrets.token_hex(16)}"
-
-    new_key = ApiKey(user_id=user_id, name=name, key=token)
-    db.session.add(new_key)
-    db.session.commit()
-
-    # Tam token YALNIZCA burada donus yapar
-    return jsonify({'key': {'id': new_key.id, 'token': token}})
-\end{lstlisting}
-
-\begin{lstlisting}[language=Python, caption={DELETE /api/keys/<id> — Anahtar İptali}]
-@app.route('/api/keys/<int:key_id>', methods=['DELETE'])
-@jwt_required()
-def revoke_api_key(key_id):
-    user_id    = get_jwt_identity()
-    key_record = ApiKey.query.filter_by(
-        id=key_id, user_id=user_id
-    ).first()
-    if not key_record:
-        return jsonify({'error': 'Key not found'}), 404
-    key_record.is_active = False   # Soft-delete
-    db.session.commit()
-    return jsonify({'message': 'Key revoked successfully'})
-\end{lstlisting}
-
-\subsection{Güvenlik Değerlendirmesi}
-
-\begin{center}
-\begin{tabular}{@{} P{4.5cm} P{9.5cm} @{}}
-\toprule
-\textbf{Risk} & \textbf{Alınan Önlem} \\
-\midrule
-Anahtar ifşası &
-  Tam token yalnızca \texttt{POST} yanıtında bir kez döner;
-  sonraki \texttt{GET} çağrıları son 4 karakteri gösterir. \\[4pt]
-Çapraz kullanıcı silmesi &
-  \texttt{user\_id} ile çapraz kontrol; başkasının anahtarını
-  silme girişimi 404 hatası döndürür. \\[4pt]
-Orphan erişim &
-  \texttt{is\_active = False} kontrolü; iptal edilen anahtar
-  \texttt{/v1/ask}'ta 401 döner. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Bileşen 3: /v1/ask Harici Köprü Endpoint'i}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\subsection{Ürün Gereksinimi}
-
-VS Code eklentisi, terminal script veya CI/CD pipeline gibi araçların
-JWT oturumu gerektirmeden, yalnızca bir API anahtarı ile CodeAlchemist'e
-soru sorabilmesi gerekir.
-
-\subsection{API Sözleşmesi}
-
-\begin{tcolorbox}[codebox, title={Endpoint: POST /v1/ask}]
-\textbf{Header:}\\
-\hspace*{4mm}\texttt{X-API-Key: ca-<token>}\\
-\hspace*{4mm}\texttt{Content-Type: application/json}\\[4pt]
-\textbf{Body (JSON):}\\
-\hspace*{4mm}\texttt{\{"question": "...", "code": "..."\}}\\[4pt]
-\textbf{Başarılı Yanıt (200):}\\
-\hspace*{4mm}\texttt{\{"answer": "<AI yaniti>"\}}\\[4pt]
-\textbf{Hata Yanıtları:}\\
-\hspace*{4mm}\texttt{401} — Header eksik veya anahtar geçersiz/iptal edilmiş.\\
-\hspace*{4mm}\texttt{400} — \texttt{question} ve \texttt{code} alanları birden boş.
-\end{tcolorbox}
-
-\subsection{Kod Entegrasyonu}
-
-\textbf{Dosya:} \texttt{server/app.py}, satırlar 6828--6888.
-
-\begin{lstlisting}[language=Python, caption={/v1/ask — Harici Koprosu Endpoint}]
-@app.route('/v1/ask', methods=['POST'])
-def external_ask():
-    # 1. Kimlik Dogrulama
-    api_key_header = request.headers.get('X-API-Key')
-    if not api_key_header:
-        return jsonify({'error': 'X-API-Key header is missing'}), 401
-
-    key_record = ApiKey.query.filter_by(
-        key=api_key_header, is_active=True
-    ).first()
-    if not key_record:
-        return jsonify({'error': 'Invalid or revoked API Key'}), 401
-
-    # 2. Izlenebilirlik: Son kullanim tarihini guncelle
-    key_record.last_used_at = datetime.datetime.utcnow()
-    db.session.commit()
-
-    # 3. Istegi isle
-    data     = request.get_json(silent=True) or {}
-    question = data.get('question', '')
-    code     = data.get('code', '')
-
-    if not question and not code:
-        return jsonify({'error': 'question or code required'}), 400
-
-    # 4. Kullanici tercihlerini al (kisisellestirme)
-    user  = User.query.get(key_record.user_id)
-    prefs = json.loads(user.preferences) if user and user.preferences else {}
-
-    # 5. AI yaniti uret (Gemini fallback zinciri)
-    full_text = ""
-    for chunk in generate_gemini_answer(question=question,
-                                        code=code, prefs=prefs):
-        full_text += chunk
-
-    return jsonify({'answer': full_text})
-\end{lstlisting}
-
-\subsection{Streaming Desteği}
-
-Endpoint, \texttt{Accept: text/event-stream} header'ı gönderildiğinde
-Server-Sent Events (SSE) ile akış desteği sunar:
-
-\begin{lstlisting}[language=Python, caption={SSE Stream Modu}]
-if request.headers.get('Accept') == 'text/event-stream':
-    def generate():
-        for chunk in generator:
-            yield f"data: {json.dumps({'text': chunk})}\n\n"
-        yield "data: [DONE]\n\n"
-    return Response(stream_with_context(generate()),
-                    mimetype='text/event-stream')
-\end{lstlisting}
-
-\begin{tcolorbox}[infobox, title={Tasarım Notu}]
-\textbf{/v1/ask} endpoint'i bilerek JWT'den bağımsız tasarlandı.
-Böylece CI/CD pipeline veya cron job gibi oturum kavramı olmayan
-ortamlar JWT olmadan çağrı yapabilir.
-\end{tcolorbox}
-
-\subsection{Kullanıcı Tercihleri Entegrasyonu}
-
-\texttt{/v1/ask}, kullanıcının kaydedilmiş tercihlerini
-(\texttt{preferred\_model}, \texttt{response\_style}, \texttt{expertise}) okur.
-Bu sayede VS Code eklentisinden yapılan sorgular da kişiselleştirilmiş
-yanıtlar alır.
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Bileşen 4: VS Code Eklentisi}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\subsection{Ürün Gereksinimi}
-
-Geliştirici, VS Code editöründen çıkmadan seçtiği kod bloğunu ve sorusunu
-doğrudan CodeAlchemist'e gönderebilmeli; yanıtı Output kanalında görebilmelidir.
-
-\subsection{Eklenti Yapılandırması — package.json}
-
-\textbf{Dosya:} \texttt{vscode-extension/package.json}
-
-\begin{lstlisting}[language=bash, caption={Eklenti Manifest — Komut ve Ayar Şeması}]
-{
-  "name": "code-alchemist",
-  "displayName": "CodeAlchemist",
-  "engines": { "vscode": "^1.90.0" },
-  "activationEvents": [
-    "onCommand:codeAlchemist.setApiKey",
-    "onCommand:codeAlchemist.ask"
-  ],
-  "contributes": {
-    "commands": [
-      { "command": "codeAlchemist.setApiKey",
-        "title": "CodeAlchemist: Set API Key" },
-      { "command": "codeAlchemist.ask",
-        "title": "CodeAlchemist: Ask (Send Selected Code)" }
-    ],
-    "configuration": {
-      "properties": {
-        "codeAlchemist.apiKey":  { "type": "string", "default": "" },
-        "codeAlchemist.endpoint": {
-          "type": "string",
-          "default": "https://code-alchemist-last-version.onrender.com/v1/ask"
-        }
-      }
-    }
-  }
-}
-\end{lstlisting}
-
-\subsection{Eklenti Aktivasyonu — extension.ts}
-
-\textbf{Dosya:} \texttt{vscode-extension/src/extension.ts}
-
-\subsubsection{Komut 1: API Anahtarı Kaydetme}
-
-Kullanıcı, anahtarını VS Code Global Configuration\'a güvenli biçimde kaydeder.
-
-\begin{lstlisting}[language=bash, caption={setApiKey Komutu — extension.ts}]
-const setApiKeyCmd = vscode.commands.registerCommand(
-  'codeAlchemist.setApiKey', async () => {
-    const next = await vscode.window.showInputBox({
-      title: 'CodeAlchemist API Key',
-      prompt: 'Paste your ca-... API key',
-      password: true,       // Gizli input; ekranda yildiz gorunur
-      ignoreFocusOut: true,
-    });
-    if (typeof next !== 'string') return;
-
-    await vscode.workspace.getConfiguration('codeAlchemist')
-      .update('apiKey', next.trim(),
-              vscode.ConfigurationTarget.Global);
-
-    vscode.window.showInformationMessage('CodeAlchemist API key saved.');
-  }
-);
-\end{lstlisting}
-
-\subsubsection{Komut 2: Seçili Kodla Soru Sorma}
-
-Editördeki seçili metin ve kullanıcının girdiği soru \texttt{/v1/ask}
-endpoint'ine gönderilir; yanıt Output kanalına yazılır.
-
-\begin{lstlisting}[language=bash, caption={ask Komutu — extension.ts}]
-const askCmd = vscode.commands.registerCommand(
-  'codeAlchemist.ask', async () => {
-    const cfg      = vscode.workspace.getConfiguration('codeAlchemist');
-    const apiKey   = (cfg.get<string>('apiKey') || '').trim();
-    const endpoint = (cfg.get<string>('endpoint') || '').trim();
-
-    if (!apiKey)   { /* hata mesaji */ return; }
-    if (!endpoint) { /* hata mesaji */ return; }
-
-    // Secili kodu al
-    const editor = vscode.window.activeTextEditor;
-    const selectedText = editor && !editor.selection.isEmpty
-      ? editor.document.getText(editor.selection) : '';
-
-    const question = await vscode.window.showInputBox({
-      title: 'Ask CodeAlchemist',
-      prompt: selectedText
-        ? 'Question (selected code will be included)'
-        : 'Question',
-    });
-    if (!question) return;
-
-    output.show(true);
-    output.appendLine(`POST ${endpoint}`);
-    output.appendLine(`Question: ${question}`);
-    if (selectedText) {
-      output.appendLine('--- Selected code ---');
-      output.appendLine(selectedText);
-      output.appendLine('---');
-    }
-    output.appendLine('Waiting for response...');
-
-    // API cagris
-    const res  = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json',
-                 'X-API-Key': apiKey },
-      body: JSON.stringify({ question, code: selectedText }),
-    });
-
-    const data = await res.json() as { answer?: string };
-    output.appendLine('');
-    output.appendLine(data.answer ?? 'No answer received.');
-  }
-);
-\end{lstlisting}
-
-\subsubsection{Output Kanalı Tasarımı}
-
-\begin{tcolorbox}[codebox, title={Output Kanalı — Açıklama}]
-\begin{itemize}[leftmargin=*, nosep]
-  \item \textbf{Kanal adı:} ``CodeAlchemist'' — kullanıcı View $\to$ Output panelinden seçer.
-  \item \texttt{output.show(true)} — yanıt geldiğinde kanal otomatik öne çıkar.
-  \item \texttt{output.clear()} — her yeni sorguda kanal temizlenir, önceki yanıtlar karışmaz.
+Ana davranis:
+\begin{itemize}[leftmargin=1.5em]
+	\item API key dogrulanir (aktif anahtar kontrolu).
+	\item Anahtarin son kullanim zamani guncellenir.
+	\item Gerekli giris varsa Gemini cevap uretecisi tetiklenir.
+	\item Istek \texttt{text/event-stream} bekliyorsa stream, aksi halde toplu JSON cevap donulur.
 \end{itemize}
-\end{tcolorbox}
 
-\subsection{Uçtan Uca İstek Akışı}
+\subsection{Adim 5 -- API key yasam dongusu}
 
-\begin{enumerate}[leftmargin=*, label=\textbf{Adım \arabic{enumi}.}]
-  \item Kullanıcı VS Code'da bir kod bloğu seçer.
-  \item \texttt{Ctrl+Shift+P} → \textbf{CodeAlchemist: Ask} komutunu çalıştırır.
-  \item Soru giriş kutusu açılır; soru yazıp Enter'a basar.
-  \item Eklenti, seçili kod ve soruyu \texttt{X-API-Key} header'ı ile
-        \texttt{/v1/ask}'a gönderir.
-  \item Backend anahtarı doğrular; Gemini modeli ile yanıt üretir.
-  \item Yanıt JSON olarak eklentiye döner.
-  \item Eklenti, yanıtı Output → CodeAlchemist kanalına yazar.
-  \item Kullanıcı editörden çıkmadan yanıtı okur.
+Kullanicinin extension icin anahtar uretip yonetebilmesi su endpoint seti ile saglanmistir:
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{GET /api/keys}: aktif anahtarlarin listelenmesi
+	\item \texttt{POST /api/keys}: yeni \texttt{ca-...} formatinda anahtar olusturma
+	\item \texttt{DELETE /api/keys/<id>}: soft revoke (is_active=false)
+\end{itemize}
+
+\section{Token Satin Alma Mekanizmasi}
+
+\subsection{Mimari ozet}
+
+Token odeme sistemi 3 katmanda calisir:
+\begin{enumerate}[leftmargin=1.5em]
+	\item \textbf{Paket ve bakiye katmani}: \texttt{TokenPackage}, \texttt{TokenBalance}, \texttt{TokenTransaction}, \texttt{TokenPurchase} modelleri.
+	\item \textbf{Odeme orkestrasyonu}: \texttt{/api/billing/checkout-session} ve \texttt{/api/billing/webhook}.
+	\item \textbf{UI gorunurlugu}: \texttt{TokenDashboardModal.jsx} ile paket secimi, gecmis, bakiye panelleri.
 \end{enumerate}
 
-\begin{tcolorbox}[successbox, title={Uçtan Uca Test Sonucu}]
-Extension Development Host üzerinde gerçekleştirilen testte:
-\begin{itemize}[leftmargin=*, nosep]
-  \item Seçili \texttt{launch.json} içeriği eklentiye gönderildi.
-  \item Gemini modeli, dosyanın amacını satır satır Türkçe olarak açıkladı.
-  \item Yanıt Output $\to$ CodeAlchemist kanalında başarıyla görüntülendi.
-\end{itemize}
-\end{tcolorbox}
+\subsection{Paketlerin olusturulmasi ve servis edilmesi}
 
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Geliştirme Ortamı Yapılandırması}
-% ═══════════════════════════════════════════════════════════════════════════════
+Sistem acilisinda \texttt{ensure\_default\_token\_packages()} fonksiyonu aktif paketleri seed eder.
+Frontend, paketleri \texttt{GET /api/billing/packages} ile ceker.
 
-\subsection{Sorun: Kök Dizin vs. Alt Klasör}
-
-VS Code, çalışma alanını kök dizin (\texttt{code\_alchemist}) olarak açmaktaydı.
-Eklentinin debug yapılandırması (\texttt{launch.json}) ise
-\texttt{vscode-extension/.vscode/} klasöründeydi. Bu nedenle
-\textbf{Run and Debug} paneli boş görünüyordu.
-
-\subsection{Çözüm: Kök Dizine Yapılandırma Dosyaları}
-
-\textbf{Dosya 1:} \texttt{.vscode/launch.json}
-
-\begin{lstlisting}[language=bash, caption={Kök launch.json — Extension Development Host}]
-{
-  "version": "0.2.0",
-  "configurations": [{
-    "name": "Run Extension",
-    "type": "extensionHost",
-    "request": "launch",
-    "runtimeExecutable": "${execPath}",
-    "args": [
-      "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"
-    ],
-    "outFiles": [
-      "${workspaceFolder}/vscode-extension/dist/**/*.js"
-    ],
-    "preLaunchTask": "build-extension"
-  }]
-}
-\end{lstlisting}
-
-\textbf{Dosya 2:} \texttt{.vscode/tasks.json}
-
-\begin{lstlisting}[language=bash, caption={Kök tasks.json — Otomatik TypeScript Derleme}]
-{
-  "version": "2.0.0",
-  "tasks": [{
-    "label": "build-extension",
-    "type": "shell",
-    "command": "npm run build",
-    "options": { "cwd": "${workspaceFolder}/vscode-extension" },
-    "group": "build",
-    "problemMatcher": ["$tsc"]
-  }]
-}
-\end{lstlisting}
-
-\begin{tcolorbox}[infobox, title={Sonuç}]
-F5 tuşuna basıldığında: TypeScript otomatik derlenir → Extension Development Host
-penceresi açılır → eklenti aktif olur. Klasör değiştirmeye gerek kalmaz.
-\end{tcolorbox}
-
-\subsection{Test Adımları (Extension Development Host)}
-
-\begin{center}
-\begin{tabular}{@{} C{0.5cm} P{4.5cm} P{9.5cm} @{}}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}lrrrX@{}}
 \toprule
-\textbf{\#} & \textbf{Adım} & \textbf{Açıklama} \\
+Paket & Token & Fiyat (USD) & Bonus \% & Not \\
 \midrule
-1 & Build & \texttt{npm run build} ile TypeScript derlendi. \\[4pt]
-2 & F5 & Run and Debug → Run Extension → Host penceresi açıldı. \\[4pt]
-3 & Endpoint Ayarı &
-  Ayarlar → \texttt{codeAlchemist.endpoint} →
-  \texttt{http://localhost:5000/v1/ask} girildi. \\[4pt]
-4 & API Key Girişi &
-  \texttt{Ctrl+Shift+P} → CodeAlchemist: Set API Key →
-  \texttt{ca-ef8c1ef7...} yapıştırıldı. \\[4pt]
-5 & Kod Seçimi &
-  \texttt{launch.json} içeriği seçilerek soru girildi. \\[4pt]
-6 & Yanıt Kontrolü &
-  View → Output → CodeAlchemist kanalı açıldı; AI açıklaması göründü. \\
+Starter & 500 & 5 & 0 & Hafif deneme akisi \\
+Pro Pack & 2000 & 15 & 5 & Varsayilan one cikan paket \\
+Heavy User Bundle & 8000 & 49 & 10 & Yogun kullanim \\
+Studio Upgrade & 20000 & 99 & 15 & Yuksek hacimli senaryo \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
+\caption{Token paketleri (varsayilan kurulum)}
+\end{table}
 
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Token Economy \& Billing Foundation (Birleşik Ek)}
-% ═══════════════════════════════════════════════════════════════════════════════
+\subsection{Checkout oturumu olusturma}
 
-Bu alt bölüm, Week 9 içinde API Key/Extension çalışmalarına paralel yürütülen
-token ekonomisi ve billing hazırlıklarını tek doküman kapsamında birleştirir.
-
-\subsection{Uygulanan Çekirdek Bileşenler}
-
-\begin{center}
-\begin{tabular}{@{} P{4.5cm} P{9cm} @{}}
-\toprule
-\textbf{Bileşen} & \textbf{Durum ve Teknik Çıktı} \\
-\midrule
-Token cüzdan altyapısı &
-\texttt{TokenBalance} ve \texttt{TokenTransaction} ile kullanıcı bazlı bakiye,
-harcama ve işlem geçmişi izlenebilir hale getirildi. \\
-
-Model bazlı maliyetlendirme &
-Model adlarına göre token maliyeti uygulanarak kullanım kontrolü
-sunucu tarafında standartlaştırıldı. \\
-
-Yetersiz bakiye koruması &
-Token yetersizliğinde AI çağrısı başlamadan engellenen,
-deterministik hata akışı devreye alındı (policy gate). \\
-
-Paketleme hazırlığı &
-\texttt{TokenPackage} + \texttt{TokenPurchase} ile
-Stripe checkout/webhook fazına hazır veri modeli tamamlandı. \\
-
-Frontend command center &
-Token dashboard; bakiye, harcama, aktivite ve paket CTA yüzeyini
-SaaS dilinde görünür kıldı. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Bu Sohbette Çözülen Kritik Hatalar}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{dangered}{\textbullet}]
-  \item \textbf{DB şema uyuşmazlığı:}
-  \texttt{token\_package.description} kolonu eksik olduğu için internal server error oluştu.
-  Migration script ile eksik kolon ve \texttt{token\_purchase} tablosu tamamlandı.
-  \item \textbf{Responsive taşma:}
-  Token modal orta/küçük ekranlarda taşma üretiyordu.
-  Modal viewport sınırları ve iç scroll davranışı güncellendi.
-  \item \textbf{Stripe yapılandırma algısı:}
-  \texttt{/api/billing/config} başlangıçta \texttt{enabled=false} dönüyordu.
-  Çalışan süreçteki gerçek \texttt{.env} içeriği doğrulanıp Stripe satırları kalıcı yazıldı.
-  \item \textbf{Stripe SDK eksikliği:}
-  Aktif ortamda \texttt{stripe} paketi kurulu değildi.
-  \texttt{.venv-win} içinde kurulum + import doğrulaması yapıldı.
-\end{itemize}
-
-\begin{tcolorbox}[successbox, title={Birleşik Çıktı (Week 9 Son Durum)}]
-\begin{itemize}[leftmargin=*, nosep]
-  \item API Key tabanlı harici entegrasyon (VS Code dahil) aktif.
-  \item Token usage ekonomisi ve transaction ledger yapısı aktif.
-  \item Billing foundation (package + purchase + checkout/webhook altyapısı) hazır.
-  \item Local testte Stripe config ve SDK tarafındaki engeller giderildi.
-\end{itemize}
-\end{tcolorbox}
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Sınırlar ve Sonraki Adımlar}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\begin{center}
-\begin{tabular}{@{} P{5cm} P{9cm} @{}}
-\toprule
-\textbf{Mevcut Sınır} & \textbf{Önerilen İyileştirme} \\
-\midrule
-Eklenti yalnızca Output kanalı kullanır &
-  Sidebar Webview (React) ile görsel panel eklenebilir. \\[6pt]
-Yalnızca senkron (toplu) yanıt &
-  \texttt{Accept: text/event-stream} ile SSE akışına geçiş yapılabilir. \\[6pt]
-API Key'de son kullanım tarihi izlenir ama rate-limit yoktur &
-  Dakika/saat bazlı istek sınırı (throttle) eklenebilir. \\[6pt]
-Eklenti yalnızca local test edildi &
-  Render endpoint'ine yönlendirilerek production test yapılacak. \\[6pt]
-Developer paneli (frontend) &
-  Kullanıcı profil sayfasına anahtar listesi ve oluşturma arayüzü eklenecek. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Test Planı}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-\subsection{Backend Smoke Test}
-
-\begin{enumerate}[leftmargin=*, label=\textbf{\arabic*.}]
-  \item \textbf{Geçersiz anahtar:}
-        \texttt{X-API-Key: invalid-key} Header'ı ile \texttt{POST /v1/ask} →
-        Beklenen: \texttt{HTTP 401}.
-  \item \textbf{Geçerli anahtar, boş istek:}
-        Anahtar geçerli ama \texttt{question} ve \texttt{code} boş →
-        Beklenen: \texttt{HTTP 400}.
-  \item \textbf{Başarılı istek:}
-        Geçerli anahtar + soru var → Beklenen: \texttt{HTTP 200},
-        \texttt{\{"answer": "..."\}} yanıtı.
-  \item \textbf{İptal edilmiş anahtar:}
-        \texttt{DELETE /api/keys/<id>} sonrası aynı anahtarla istek →
-        Beklenen: \texttt{HTTP 401}.
+\texttt{POST /api/billing/checkout-session} akisinda:
+\begin{enumerate}[leftmargin=1.5em]
+	\item JWT ile kullanici dogrulanir.
+	\item \texttt{package\_id} once DB'de, bulunamazsa varsayilan paket listesinde eslestirilir.
+	\item Bonus token hesaplanir: toplam token = temel token + bonus.
+	\item Stripe Checkout Session olusturulur.
+	\item Veritabanina \texttt{pending} durumunda \texttt{TokenPurchase} kaydi yazilir.
+	\item Frontend'e yonlendirme icin \texttt{checkout\_url} donulur.
 \end{enumerate}
 
-\subsection{VS Code Extension Manuel Test}
+\subsection{Webhook ile token yukleme}
 
-\begin{enumerate}[leftmargin=*, label=\textbf{\arabic*.}]
-  \item API Key \textbf{boşken} \texttt{Ask} komutunu çalıştır →
-        Beklenen: hata bildirimi.
-  \item API Key dolu, endpoint \textbf{yanlışken} çalıştır →
-        Beklenen: \"request failed\" bildirimi ve Output kanalında hata.
-  \item Kod seçmeden soru sor →
-        Beklenen: yalnızca soruyu içeren istek gönderilir.
-  \item Kod seçip soru sor →
-        Beklenen: kod ve soru birlikte gönderilir; Output kanalında detaylı yanıt.
+\texttt{POST /api/billing/webhook} endpoint'i Stripe'dan gelen \texttt{checkout.session.completed} olayini dinler.
+
+Tamamlanma adimlari:
+\begin{itemize}[leftmargin=1.5em]
+	\item Imza dogrulamasi yapilir (webhook secret).
+	\item Ilgili satin alma kaydi bulunur; yoksa metadata ile fallback kaydi uretilir.
+	\item Idempotency kontrolu: satin alma zaten \texttt{completed} ise tekrar kredi verilmez.
+	\item \texttt{TokenBalance} guncellenir.
+	\item \texttt{TokenTransaction(type='purchase')} kaydi eklenir.
+	\item Satin alma kaydi \texttt{completed} ve \texttt{completed\_at} alanlariyla kapanir.
+\end{itemize}
+
+Bu yapi, cift webhook veya yeniden gonderim durumlarinda bakiye sapmasini engellemek icin kritik onemdedir.
+
+\section{Hafta 9.1 Uygulanan Iyilestirmeler}
+
+\subsection{1) Extension -- SecretStorage gecisi}
+
+Uygulanan degisiklikler:
+\begin{itemize}[leftmargin=1.5em]
+	\item API key saklama noktasi settings'ten \texttt{context.secrets} tabanli SecretStorage'a alindi.
+	\item Legacy ayar degeri tespit edilirse otomatik tasima (migration) eklendi.
+	\item Bos anahtar girildiginde SecretStorage kaydi temizleniyor.
+\end{itemize}
+
+Teknik kazanim: API key'in editor ayarlarinda acik metin olarak kalma riski azaltildi.
+
+\subsection{2) Extension -- SSE canli cikti}
+
+Uygulanan degisiklikler:
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{Accept: text/event-stream, application/json} header'i eklendi.
+	\item SSE \texttt{data: ...} satirlari stream reader ile parse edilip Output kanalina anlik yazdiriliyor.
+	\item \texttt{[DONE]} sinyali ve stream sonu durumlari guvenli sekilde ele aliniyor.
+	\item Stream disi cevaplarda JSON/text fallback korunuyor.
+\end{itemize}
+
+Teknik kazanim: Kullanici tek parca sonuc beklemek yerine cevabi token/parca bazinda canli goruyor.
+
+\subsection{3) Billing -- Webhook idempotency sertlestirme}
+
+Uygulanan degisiklikler:
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{checkout.session.completed} olayinda session id yoksa islem erken sonlandiriliyor.
+	\item Satin alma kaydi atomik claim mantigi ile \texttt{pending -> processing} gecisine zorlandi.
+	\item Ayni \texttt{reference\_id} icin mevcut \texttt{purchase} transaction kaydi varsa kredi tekrar yuklenmiyor.
+	\item Gecis tamamlaniyorsa satin alma \texttt{completed} olarak kapanip audit izi korunuyor.
+\end{itemize}
+
+Teknik kazanim: cift webhook, tekrar gonderim ve yaris kosullarinda cift bakiye yazimi riski belirgin sekilde azaldi.
+
+\subsection{4) Billing -- Checkout sonrasi otomatik bakiye yenileme}
+
+Uygulanan degisiklikler:
+\begin{itemize}[leftmargin=1.5em]
+	\item Frontend URL query'sinde \texttt{payment=success} veya \texttt{billing=success} algilandiginda otomatik yenileme akisi tetikleniyor.
+	\item \texttt{/api/tokens/usage} cagrisi ile bakiye aliniyor ve kullanici state/localStorage guncelleniyor.
+	\item \texttt{/api/billing/usage} verisi yenileniyor ve Token Dashboard otomatik aciliyor.
+	\item URL query parametreleri islendikten sonra temizleniyor (tekrar tetiklemeyi onlemek icin).
+\end{itemize}
+
+Teknik kazanim: odeme donusunde kullanici manuel yenileme yapmadan guncel bakiyeyi goruyor.
+
+\subsection{Frontend satin alma deneyimi}
+
+\texttt{TokenDashboardModal.jsx} tarafinda kullanici akisi:
+\begin{enumerate}[leftmargin=1.5em]
+	\item Modal acildiginda paralel 3 istek atilir:
+	\texttt{/api/tokens/usage}, \texttt{/api/billing/packages}, \texttt{/api/billing/config}.
+	\item Paket seciminde \texttt{handleCheckout} ile \texttt{/api/billing/checkout-session} cagrilir.
+	\item Donen \texttt{checkout\_url} ile tarayici Stripe sayfasina yonlendirilir.
+	\item Odeme sonrasi webhook tokenlari yukler; kullanici tekrar modal actiginda bakiye ve islem gecmisi guncel gorunur.
 \end{enumerate}
 
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Özet: Hafta 9 Kazanımları}
-% ═══════════════════════════════════════════════════════════════════════════════
+\subsection{Token kullanim gorunurlugu}
 
-\begin{tcolorbox}[successbox, title={Hafta 9 — Tamamlanan İşler}]
-\begin{itemize}[leftmargin=*, label=\textcolor{successgreen}{\checkmark}]
-  \item \texttt{ApiKey} modeli oluşturuldu; soft-delete ve kullanım izleme aktif.
-  \item \texttt{/api/keys} CRUD endpoint'leri implement edildi; JWT korumalı.
-  \item \texttt{/v1/ask} harici köprü endpoint'i eklendi; yalnızca API key yeterli.
-  \item VS Code eklentisi TypeScript ile yazıldı; 2 komut ve Output kanalı aktif.
-  \item Kök dizine \texttt{launch.json} + \texttt{tasks.json} eklendi;
-        F5 ile tek tıkla debug ortamı hazır.
-  \item Extension Development Host üzerinde uçtan uca test başarıyla tamamlandı.
-\end{itemize}
-\end{tcolorbox}
-
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Chat Bazlı Operasyon ve Hata Günlüğü (Ek)}
-% ═══════════════════════════════════════════════════════════════════════════════
-
-Bu bölüm, bu sohbet oturumunda gerçekleştirilen gerçek operasyonları,
-karşılaşılan hataları ve uygulanan düzeltmeleri kronolojik olarak kayıt altına alır.
-
-\subsection{Kronolojik Teknik Kayıt}
-
-\begin{longtable}{@{} P{0.7cm} P{4.2cm} P{4.4cm} P{4.2cm} @{} }
-\toprule
-\textbf{\#} & \textbf{Belirti / Hata} & \textbf{Kök Neden} & \textbf{Düzeltme ve Sonuç} \\
-\midrule
-\endhead
-1 & Token dashboard içinde \textit{Usage ledger} alanında
-``An internal server error occurred.'' &
-\texttt{token\_package} tablosunda yeni model alanı
-\texttt{description} eksikti. &
-\texttt{server/migrate\_token\_billing\_schema.py} yazıldı;
-eksik kolon eklendi, \texttt{token\_purchase} tablosu \texttt{checkfirst=True}
-ile garanti edildi. Hata giderildi. \\
-
-2 & Modal küçük/orta ekranlarda taşma yaptı
-(``ekrana sığmıyor''). &
-Token dashboard modal yapısında viewport sınırı ve iç kaydırma
-yetersizdi. &
-\texttt{client/src/components/TokenDashboardModal.jsx} responsive kuralları
-güncellendi; max yükseklik/genişlik, overlay scroll ve kolon kırılımları
-iyileştirildi. Build başarıyla geçti. \\
-
-3 & ``Stripe is not configured. Set STRIPE\_SECRET\_KEY.''
-uyarısı devam etti. &
-Çalışan backend sürecinin okuduğu kaydedilmiş
-\texttt{server/.env} içeriği ile editörde görülen içerik farklılaştı;
-Stripe satırları diskte yoktu. &
-\texttt{server/.env} dosyasına Stripe alanları kalıcı yazıldı;
-\texttt{/api/billing/config} endpoint'i tekrar doğrulandı ve
-\texttt{enabled=true} oldu. \\
-
-4 & ``Stripe package is not installed.'' hatası alındı. &
-Aktif çalışma ortamında \texttt{stripe} modülü kurulu değildi
-(\texttt{.venv-win}). &
-\texttt{.venv-win} ortamına \texttt{pip install stripe} ile kurulum yapıldı,
-import testi \texttt{stripe 15.0.1} ile doğrulandı. \\
-
-5 & Secret güvenliği hakkında belirsizlik oluştu. &
-Anahtarlar sohbet içinde açık paylaşıldı; gizli dosya yönetimi
-kontrol edilmeliydi. &
-\texttt{server/.env} için git izleme/ignore doğrulandı;
-izlenen dosyalarda anahtar paterni taraması yapıldı.
-Push öncesi güvenlik durumu netleştirildi. \\
-\bottomrule
-\end{longtable}
-
-\subsection{Eklenen / Güncellenen Dosyalar}
-
-\begin{itemize}[leftmargin=*, label=\textcolor{primaryblue}{\textbullet}]
-  \item \texttt{server/migrate\_token\_billing\_schema.py} (yeni):
-  token billing şema düzeltmesi.
-  \item \texttt{server/app.py}: env fallback davranışı iyileştirildi,
-  Stripe konfigürasyon doğrulama akışı desteklendi.
-  \item \texttt{client/src/components/TokenDashboardModal.jsx}:
-  responsive düzen ve viewport uyumu güncellendi.
-  \item \texttt{server/.env}: Stripe alanları runtime için kalıcı hale getirildi
-  (dosya git ignore kapsamında tutuldu).
+\texttt{GET /api/tokens/usage} endpoint'i su verileri dondurur:
+\begin{itemize}[leftmargin=1.5em]
+	\item Guncel bakiye
+	\item Toplam harcanan token
+	\item Son N islem (alim ve kullanim kayitlari)
 \end{itemize}
 
-\subsection{Doğrulama Özeti}
+Bu veri, UI'da kullanicinin ne kadar token harcadigini izleyebilmesi ve satin alma kararini veriye dayali alabilmesi icin kullanilir.
 
-\begin{tcolorbox}[successbox, title={Doğrulanan Sonuçlar}]
-\begin{itemize}[leftmargin=*, nosep]
-  \item Billing config endpoint yanıtı: \texttt{enabled=true}.
-  \item \texttt{token\_package.description} kolonu ve
-  \texttt{token\_purchase} tablosu doğrulandı.
-  \item Frontend build başarılı tamamlandı.
-  \item \texttt{stripe} import testi aktif çalışma ortamında başarılı.
+\section{Uctan Uca Surec Ozetleri}
+
+\subsection{Flow A -- VS Code uzerinden soru-cevap}
+
+\begin{enumerate}[leftmargin=1.5em]
+	\item Kullanici extension ayarindan API key ve endpoint tanimlar.
+	\item Editor icinde kod secip \texttt{Ask} komutunu tetikler.
+	\item Extension, \texttt{X-API-Key} ile \texttt{/v1/ask} endpoint'ine istek yollar.
+	\item Sunucu model yanitini uretir ve extension Output kanalinda sonucu gosterir.
+\end{enumerate}
+
+\subsection{Canli Dogrulama Notu -- Extension Testi}
+
+9 Nisan 2026 tarihinde Extension Development Host uzerinde canli test gerceklestirilmistir.
+Testte \texttt{SELAM} sorusu ile \texttt{POST /v1/ask} cagrisi atilmis ve asagidaki beklenen ciktilar alinmistir:
+
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{Status: 200 OK}
+	\item Sistem fallback mesaji: \texttt{Previous model failed, trying ...}
+	\item Fallback sonrasi modelden tam metin yanitinin Output kanalinda gorunmesi
 \end{itemize}
-\end{tcolorbox}
 
-% ═══════════════════════════════════════════════════════════════════════════════
-\section{Bileşen 5: Stripe Billing API — Uçtan Uca Ödeme Entegrasyonu}
-% ═══════════════════════════════════════════════════════════════════════════════
+Bu sonuc, extension tarafinda hem istek-gonderim hattinin hem de stream/fallback goruntuleme akisinin calistigini dogrular.
 
-Bu bölüm, Token Economy altyapısının backend tarafındaki son halkasını oluşturan
-\textbf{Stripe Checkout ve Webhook entegrasyonunu} belgeler.
-Frontend tarafı (\texttt{TokenDashboardModal.jsx}) önceki haftada tamamlanmıştı;
-bu aşamada eksik kalan 5 backend endpoint'i yazılıp production'a taşındı.
+\subsection{Flow B -- Token satin alma ve bakiye artisi}
 
-\subsection{Tasarım Kararları ve Gerekçeleri}
+\begin{enumerate}[leftmargin=1.5em]
+	\item Kullanici Token Dashboard'dan paket secer.
+	\item Frontend checkout-session olusturur ve Stripe'a yonlendirir.
+	\item Stripe, odeme tamamlandiginda webhook gonderir.
+	\item Sunucu satin almayi tamamlar, cuzdana token ekler, transaction yazar.
+	\item Kullanici panelde yeni bakiyeyi gorur.
+\end{enumerate}
 
-\begin{center}
-\begin{tabular}{@{} P{4.5cm} P{9.5cm} @{}}
-\toprule
-\textbf{Karar} & \textbf{Gerekçe} \\
-\midrule
-Startup Seeding &
-  \texttt{TokenPackage} tablosu boşsa uygulama açılışında
-  \texttt{DEFAULT\_TOKEN\_PACKAGES} ile beslenir.
-  Böylece her istekte SELECT + fallback maliyeti önlenir;
-  DB her zaman tutarlı bir başlangıç durumunda olur. \\[6pt]
-Idempotency (webhook) &
-  Stripe aynı webhook olayını birden fazla kez gönderebilir.
-  Handler, mevcut kaydın \texttt{status == 'completed'} olup olmadığını
-  kontrol eder; tekrar token yüklemesi engellenir. \\[6pt]
-Başarı/İptal Yönlendirmesi &
-  Stripe Checkout sonrası kullanıcı
-  \texttt{/?payment=success\&tokens=\{N\}} veya \texttt{/?payment=canceled}
-  URL'sine yönlendirilir; frontend bu parametreyi yakalayıp
-  bildirim gösterir. \\[6pt]
-Hata katmanları &
-  \texttt{stripe.error.StripeError} → HTTP 502 (upstream hatası),
-  beklenmedik Python hatası → HTTP 500,
-  paket bulunamadı → HTTP 404,
-  Stripe yapılandırılmamış → HTTP 503. Tüm hata türleri ayrı
-  yakalanır; generic 500 dönülmez. \\
-\bottomrule
-\end{tabular}
-\end{center}
+\section{Guvenlik ve Dayaniklilik Notlari}
 
-\subsection{API Sözleşmesi — 5 Yeni Endpoint}
-
-\begin{center}
-\begin{tabular}{@{} P{1.8cm} P{5.5cm} P{6.7cm} @{}}
-\toprule
-\textbf{Metod} & \textbf{Endpoint} & \textbf{Açıklama} \\
-\midrule
-\texttt{GET} & \texttt{/api/billing/config} &
-  Stripe'ın aktif olup olmadığını ve public key'i döndürür.
-  Frontend UI'ı bu yanıta göre ``Buy Tokens'' butonunu gösterir/gizler. \\[5pt]
-\texttt{GET} & \texttt{/api/billing/packages} &
-  Aktif \texttt{TokenPackage} kayıtlarını fiyata göre sıralı listeler.
-  DB boşsa statik \texttt{DEFAULT\_TOKEN\_PACKAGES} döner (graceful fallback). \\[5pt]
-\texttt{GET} & \texttt{/api/tokens/usage} &
-  JWT korumalı. Kullanıcının güncel \texttt{TokenBalance} ve
-  son N \texttt{TokenTransaction} kaydını döndürür.
-  Hesap yoksa otomatik oluşturulur. \\[5pt]
-\texttt{POST} & \texttt{/api/billing/checkout-session} &
-  JWT korumalı. Paketi bulur, Stripe Checkout Session oluşturur,
-  veritabanına \texttt{status=pending} ile \texttt{TokenPurchase} kaydeder,
-  \texttt{checkout\_url} döndürür. \\[5pt]
-\texttt{POST} & \texttt{/api/billing/webhook} &
-  Stripe imzasını doğrular. \texttt{checkout.session.completed} olayında
-  \texttt{TokenBalance} günceller, \texttt{TokenTransaction} kaydeder,
-  \texttt{TokenPurchase} durumunu \texttt{completed} yapar. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Startup Seeding — Kod Entegrasyonu}
-
-\textbf{Dosya:} \texttt{server/app.py} — uygulama başlatma bloğu.
-
-\begin{lstlisting}[language=Python, caption={Startup Seeding — TokenPackage tablosu}]
-with app.app_context():
-    db.create_all()
-
-    # Tablo bossa varsayilan paketleri ekle (bir kez)
-    if TokenPackage.query.count() == 0:
-        for pkg_data in DEFAULT_TOKEN_PACKAGES:
-            pkg = TokenPackage(
-                name=pkg_data['name'],
-                description=pkg_data.get('description', ''),
-                tokens=pkg_data['tokens'],
-                price_usd=pkg_data['price_usd'],
-                bonus_pct=pkg_data.get('bonus_pct', 0),
-                is_active=True,
-            )
-            db.session.add(pkg)
-        db.session.commit()
-        print(f"Seeded {len(DEFAULT_TOKEN_PACKAGES)} token packages.")
-\end{lstlisting}
-
-\subsection{Checkout Session Oluşturma — Kod Entegrasyonu}
-
-\textbf{Dosya:} \texttt{server/app.py} — \texttt{POST /api/billing/checkout-session}.
-
-\begin{lstlisting}[language=Python, caption={Checkout Session — Stripe API cagrisi ve DB kaydi}]
-@app.route('/api/billing/checkout-session', methods=['POST'])
-@jwt_required()
-def create_checkout_session():
-    if not _STRIPE_SECRET_KEY:
-        return jsonify({'error': 'Billing not configured.'}), 503
-
-    user_id    = get_jwt_identity()
-    package_id = (request.get_json(silent=True) or {}).get('package_id')
-
-    # Paketi bul (int DB id veya string slug ile)
-    pkg = TokenPackage.query.filter_by(
-        id=int(package_id), is_active=True
-    ).first()
-
-    bonus_tokens = int(pkg.tokens * pkg.bonus_pct / 100) if pkg.bonus_pct else 0
-    total_tokens = pkg.tokens + bonus_tokens
-    price_cents  = int(round(pkg.price_usd * 100))
-
-    host        = request.host_url.rstrip('/')
-    success_url = f"{host}/?payment=success&tokens={total_tokens}"
-    cancel_url  = f"{host}/?payment=canceled"
-
-    try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            mode='payment',
-            customer_email=User.query.get(user_id).email,
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'unit_amount': price_cents,
-                    'product_data': {
-                        'name': f"{pkg.name} -- {total_tokens} Tokens"
-                    },
-                },
-                'quantity': 1,
-            }],
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={
-                'user_id': str(user_id),
-                'tokens_granted': str(total_tokens),
-            },
-        )
-    except stripe.error.StripeError as e:
-        return jsonify({'error': str(e)}), 502
-
-    # Pending kayit
-    purchase = TokenPurchase(
-        user_id=user_id, tokens_granted=total_tokens,
-        amount_cents=price_cents, currency='usd',
-        stripe_checkout_session_id=session.id, status='pending',
-    )
-    db.session.add(purchase)
-    db.session.commit()
-
-    return jsonify({'checkout_url': session.url})
-\end{lstlisting}
-
-\subsection{Webhook Handler — Idempotency ile Fulfillment}
-
-\textbf{Dosya:} \texttt{server/app.py} — \texttt{POST /api/billing/webhook}.
-
-\begin{lstlisting}[language=Python, caption={Stripe Webhook — Idempotency kontrolu ve token yukleme}]
-@app.route('/api/billing/webhook', methods=['POST'])
-def stripe_webhook():
-    payload    = request.get_data(as_text=False)
-    sig_header = request.headers.get('Stripe-Signature', '')
-
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, _STRIPE_WEBHOOK_SECRET
-        )
-    except stripe.error.SignatureVerificationError:
-        return jsonify({'error': 'Invalid signature'}), 400
-
-    if event['type'] == 'checkout.session.completed':
-        session_obj       = event['data']['object']
-        stripe_session_id = session_obj.get('id')
-
-        purchase = TokenPurchase.query.filter_by(
-            stripe_checkout_session_id=stripe_session_id
-        ).first()
-
-        # --- Idempotency: Zaten tamamlandi mi? ---
-        if purchase and purchase.status == 'completed':
-            return jsonify({'received': True}), 200   # Tekrar isleme
-
-        # TokenBalance guncelle
-        balance_record = TokenBalance.query.filter_by(
-            user_id=purchase.user_id
-        ).first()
-        balance_record.balance += purchase.tokens_granted
-
-        # Transaction kaydet
-        db.session.add(TokenTransaction(
-            user_id=purchase.user_id,
-            amount=purchase.tokens_granted,
-            type='purchase',
-            description=f"Token purchase: {purchase.package_name}",
-            reference_id=stripe_session_id,
-        ))
-
-        # Satinalma kaydi tamamlandi
-        purchase.status       = 'completed'
-        purchase.completed_at = datetime.datetime.utcnow()
-        db.session.commit()
-
-    return jsonify({'received': True}), 200
-\end{lstlisting}
-
-\begin{tcolorbox}[successbox, title={Billing Entegrasyonu — Tamamlanan Çıktılar}]
-\begin{itemize}[leftmargin=*, label=\textcolor{successgreen}{\checkmark}]
-  \item \texttt{/api/billing/config} — Stripe aktifliğini frontend'e bildirir.
-  \item \texttt{/api/billing/packages} — DB'den veya statik fallback'ten paket sunar.
-  \item \texttt{/api/tokens/usage} — JWT korumalı bakiye + işlem geçmişi endpoint'i.
-  \item \texttt{/api/billing/checkout-session} — Stripe Checkout oturumu oluşturur,
-        \texttt{pending} satın alma kaydı yazar.
-  \item \texttt{/api/billing/webhook} — İmza doğrulama, idempotency kontrolü ve
-        token yükleme mantığı eksiksiz implement edildi.
-  \item Tüm endpoint'ler \texttt{py\_compile} ile syntax doğrulamasından geçirildi.
-  \item Değişiklikler commit \texttt{72a1c8e} ile \texttt{main} branch'e push edildi.
+\begin{itemize}[leftmargin=1.5em]
+	\item API key dogrulamasi extension endpoint'inde zorunludur; gecersiz anahtarlar reddedilir.
+	\item Satin alma akisinda hem Stripe imza dogrulamasi hem de idempotency kontrolu bulunur.
+	\item Bakiye artisi sadece webhook tarafinda \texttt{completed} event ile yapildigi icin istemci manipule edilemez.
+	\item Satin alma kaydinin \texttt{pending -> completed} gecisi denetlenebilir bir audit izi olusturur.
 \end{itemize}
-\end{tcolorbox}
 
-\subsection{Hafta 9 Güncellenmiş Sınırlar Tablosu}
+\section{Hafta 9.2 Baglam Koruma Modulu}
 
-\begin{center}
-\begin{tabular}{@{} P{5cm} P{9cm} @{}}
+Bu guncellemenin hedefi, kullanicinin yeni sohbet actiginda onceki teknik baglami tekrar tekrar anlatma ihtiyacini azaltmak ve token israfini onlemektir.
+
+\subsection{Problem Tanimi}
+
+Ornek senaryo:
+\begin{itemize}[leftmargin=1.5em]
+	\item Kullanici bir website tasarlarken birden fazla sohbet aciyor.
+	\item Yeni sohbette model, onceki kararlar (stack, UI tarzi, kisitlar) bilinmedigi icin ayni baglam tekrar yaziliyor.
+	\item Bu tekrar, gecikmeyi ve token tuketimini arttiriyor.
+\end{itemize}
+
+\subsection{Uygulanan Teknik Cozum}
+
+\textbf{1) Otomatik devam modu (backend default-on):}
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{server/app.py} icine \texttt{\_resolve\_include\_previous\_modules(...)} yardimci fonksiyonu eklendi.
+	\item Authenticated chat isteklerinde, kullanici acikca kapatmadiysa onceki baglam otomatik dahil ediliyor.
+	\item \texttt{no\_save=true} isteklerinde memory carryover kapali kalmaya devam ediyor.
+\end{itemize}
+
+\textbf{2) Hibrit retrieval ile baglam secimi:}
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{server/utils/memory\_utils.py} icinde lexical + semantic (embedding) + recency skorlamasi birlikte kullaniliyor.
+	\item Embedding ulasilamazsa lexical fallback devam ediyor; sistem hard-fail olmuyor.
+	\item Ciktiya \texttt{retrieval\_mode} ve \texttt{focus\_module} metadata'si eklenerek izlenebilirlik saglaniyor.
+\end{itemize}
+
+\textbf{3) Website tasarimina ozel memory kurallari:}
+\begin{itemize}[leftmargin=1.5em]
+	\item Yeni modul anahtarlari eklendi: \texttt{project\_scope}, \texttt{ui\_style}, \texttt{tech\_stack}.
+	\item Ornek sinyaller: \texttt{website}, \texttt{landing page}, \texttt{responsive}, \texttt{tailwind}, \texttt{react}.
+	\item Bu sayede yeni sohbette "siteyi responsive devam edelim" gibi kisa istemlerde onceki kararlar korunuyor.
+\end{itemize}
+
+\textbf{4) Frontend varsayilan davranis:}
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{client/src/App.jsx} icinde \texttt{includePreviousModules} ilk kullanimda varsayilan \texttt{true} yapildi.
+	\item Kullanici daha once secim yaptiysa localStorage degeri korunuyor.
+\end{itemize}
+
+\subsection{Dogrulama ve Test}
+
+\begin{itemize}[leftmargin=1.5em]
+	\item Unit test suiti: \texttt{python -m unittest server.tests.test\_memory\_utils}
+	\item Sonuc: Tum testler \texttt{OK} (extract, budget/limit, summary fallback, semantic tercih, website memory extraction).
+\end{itemize}
+
+\subsection{Beklenen Urun Etkisi}
+
+\begin{itemize}[leftmargin=1.5em]
+	\item Yeni sohbetlerde tekrar baglam anlatimi azalir.
+	\item Prompt uzunlugu kisalir, token tuketimi duser.
+	\item Kullanici deneyimi "kaldigim yerden devam" seviyesine gelir.
+\end{itemize}
+
+\subsection{Urun Seviyesi Memory Mimarisine Gecis}
+
+Bu modul, "tam gecmis enjekte et" yaklasimindan uzaklasip 3 katmanli bellek modeline yaklastirilmistir:
+
+\begin{enumerate}[leftmargin=1.5em]
+	\item \textbf{Working memory}: aktif sohbetin anlik baglami.
+	\item \textbf{Episodic memory}: onceki oturum ozetleri ve kararlar (retrieval ile secilir).
+	\item \textbf{Semantic memory}: daha kalici tercih/kisit sinyalleri (module bazli kararlar).
+\end{enumerate}
+
+Bu geciste temel ilke su sekilde uygulanmistir:
+\begin{itemize}[leftmargin=1.5em]
+	\item Full context carryover yerine maksimum 5 satirlik \texttt{[Memory Capsule]} kullanimi.
+	\item Confidence tabanli filtreleme ile dusuk alaka skorlu belleklerin prompta girmemesi.
+	\item "Sifirdan basla" niyeti algilandiginda carryover'in tamamen atlanmasi (decision lock-in onleme).
+	\item Varsayilan olarak sadece son oturum ozetinin retrieval icinde dikkate alinmasi.
+\end{itemize}
+
+\subsection{Frontend Test Senaryolari}
+
+Baglam koruma davranisinin frontend'de dogrulanmasi icin asagidaki senaryolar kullanilmistir:
+\begin{enumerate}[leftmargin=1.5em]
+	\item Browser localStorage icinde \texttt{includePreviousModules} degerinin ilk yuklemede \texttt{true} geldigini kontrol et.
+	\item Yeni sohbet acip onceki proje kararlarinin \texttt{[Memory Capsule]} olarak istege eklendigini gozlemle.
+	\item \texttt{no\_save=true} veya "sifirdan basla" akisi ile carryover'in kapandigini dogrula.
+	\item Ayni konu icin tekrar soru gonderip cevaplarda tekrar baglam yazimi azaliyorsa memory injection'in calistigini kontrol et.
+	\item Network panelde istek payload'i icinde soru + secili kod + memory metadata akisini incele.
+\end{enumerate}
+
+Bu testler, kullanicinin her yeni sohbette baglami yeniden anlatmadan devam edebilmesini ve frontend tarafinda memory davranisinin gorunur olmasini saglar.
+
+\section{Hafta 9.3 Frontend Debug Paneli}
+
+Memory/carryover davranisinin frontend'de gorunur olmasi ve test edilebilmesi icin React state tabanli bir debug paneli eklenmistir.
+
+\subsection{Teknik Uygulama}
+
+\textbf{1) State tanimlamasi:}
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{client/src/App.jsx} icinde debug state eklendi: \texttt{const [debug, setDebug] = useState(null)}
+	\item State null ile baslatilarak panel baslangicta gorunmez.
+\end{itemize}
+
+\textbf{2) API response yakalama:}
+\begin{itemize}[leftmargin=1.5em]
+	\item Stream bitirme sinyali (\texttt{data.done}) alindiktan sonra debug verileri yakalanir.
+	\item Yakalanan veri: \texttt{carryover}, \texttt{memory\_capsules} array'i ve \texttt{capsuleCount}.
+	\item Backend'den gelen response'ta bu alanlar zorunlu olusturulur.
+\end{itemize}
+
+\texttt{setDebug(\{}\texttt{carryover: data.carryover, capsuleCount: data.memory\_capsules?.length || 0, capsules: data.memory\_capsules || []\}\texttt{);}
+
+\textbf{3) UI Render:}
+\begin{itemize}[leftmargin=1.5em]
+	\item Debug kutusu ekranin sag alt kosesinde fixed position ile yerlestirilmis.
+	\item Arka plan: opasite ile \texttt{\#111} (siyah).
+	\item Font: monospace, ufak font size ile read-only gorunumu.
+	\item Border: hafif gri renkte (\texttt{\#555}).
+	\item Z-index: 999 (Dialog'un ustunde goruntu).
+\end{itemize}
+
+\subsection{Goruntulenen Bilgiler}
+
+Debug paneli asagidaki verileri sunmustur:
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
-\textbf{Önceki Sınır} & \textbf{Güncel Durum} \\
+Alan & Anlam \\
 \midrule
-Stripe backend endpoint'leri yoktu &
-  5 endpoint implement edildi; uçtan uca akış tamamlandı. \\[5pt]
-Checkout session logic tanımsızdı &
-  Bonus token hesabı, fiyat doğrulama ve Stripe API entegrasyonu aktif. \\[5pt]
-Webhook fulfillment implemente edilmemişti &
-  İmza doğrulama + idempotency + bakiye güncelleme zinciri çalışır durumda. \\[5pt]
-Stripe webhook test ortamı yoktu &
-  \texttt{stripe listen --forward-to localhost:5000/api/billing/webhook} ile
-  local test adımları tanımlandı. \\
+\texttt{Carryover: true/false} & Onceki baglam dahil edilip edilmediginin simulasyonu (yesil=true, kirmizi=false) \\
+\texttt{Capsules: N} & Aktif memory capsule sayisi \\
+\texttt{Capsule Listeleri} & Her capsule'in \texttt{summary} veya \texttt{title} ozeti \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabularx}
+\caption{Frontend debug paneli goruntulenen veri alanlar}
+\end{table}
+
+\subsection{Test Adimlari}
+
+\begin{enumerate}[leftmargin=1.5em]
+	\item \textbf{Normal sohbet}: Soru gonder, cevap al. Sag alt kosede debug paneli gorulu olmali.
+	\item \textbf{Carryover kontrol}: 
+	\begin{itemize}[leftmargin=1.5em]
+		\item Carryover: true ise yeni sohbette onceki veri eklenecek.
+		\item Carryover: false ise yeni baslangic oldugu anlamina gelir.
+	\end{itemize}
+	\item \textbf{Capsule sayisi}: Artis gozlemle. Yeni sohbet her istekte daha fazla capsule ekleyebilir.
+	\item \textbf{no\_save true durum}: Eger \texttt{no\_save=true} ile istek yapilirsa carryover false olmali.
+	\item \textbf{Network dogrulama}: Browser DevTools Network tab'inda request payload'inde:
+	\begin{itemize}[leftmargin=1.5em]
+		\item \texttt{include\_previous\_modules: true/false}
+		\item Memory capsule enjeksiyonu gorunmeli.
+	\end{itemize}
+\end{enumerate}
+
+\subsection{Backend Entegrasyonu}
+
+Debug panelinın calisabilmesi icin \texttt{/api/ask} ve \texttt{/api/blend} endpoint'leri response'ta su alanlari donmeli:
+
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{carryover}: boolean - onceki baglam kullanilip kullanilmadigi
+	\item \texttt{memory\_capsules}: array - secili memory capsule'ler listesi
+	\item Her capsule'de en az \texttt{summary} veya \texttt{title} alan olmali
+\end{itemize}
+
+\subsection{Kullanici Rahatyeti}
+
+Debug panel:
+\begin{itemize}[leftmargin=1.5em]
+	\item Tamamen opsiyoneldir (production'da gizlenebilir).
+	\item Sabit konumda (sag alt) kalir, skrol edilmez.
+	\item Minimal CSS ile performans etkilemez.
+	\item Hicbir kullanici etkisini almaz (read-only).
+\end{itemize}
+
+\section{Sonuc}
+
+Hafta 9.1 ciktilariyla birlikte:
+\begin{itemize}[leftmargin=1.5em]
+	\item VS Code extension tarafinda calisir MVP akisina ek olarak SecretStorage ve SSE canli cikti katmani eklendi.
+	\item Token satin alma mekanizmasi idempotency sertlestirmesi ile daha guvenli hale getirildi.
+	\item Checkout sonrasi otomatik bakiye yenileme ile kullanici deneyimi hizlandi.
+	\item Sistem hem urunlestirme (extension) hem gelir modeli (token ekonomisi) acisindan daha olgun ve dayanikli bir seviyeye tasindi.
+\end{itemize}
 
 \end{document}
