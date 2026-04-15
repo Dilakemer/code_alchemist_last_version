@@ -19,12 +19,22 @@ type ChatViewOptions = {
     modelOptions: ChatViewModelOption[];
 };
 
+function getNonce(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let nonce = '';
+    for (let i = 0; i < 32; i++) {
+        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return nonce;
+}
+
 function escapeForInlineJson(value: unknown): string {
     return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
 export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, options: ChatViewOptions): string {
   const cspSource = webview.cspSource;
+  const nonce = getNonce();
     const inlineStateJson = escapeForInlineJson({
         selectedModel: options.selectedModel,
         modelOptions: options.modelOptions,
@@ -35,8 +45,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; font-src ${cspSource}; img-src ${cspSource} https:; script-src-elem ${cspSource} 'unsafe-inline' https://cdn.jsdelivr.net;">
-    <style>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'nonce-${nonce}'; script-src ${cspSource} 'nonce-${nonce}' https://cdn.jsdelivr.net; font-src ${cspSource}; img-src ${cspSource} https:;">
+    <style nonce="${nonce}">
         :root {
             --primary: #8b5cf6;
             --primary-glow: rgba(139, 92, 246, 0.4);
@@ -105,6 +115,61 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         .reset-btn:hover {
             color: var(--text-main);
             background: rgba(255,255,255,0.05);
+        }
+
+        /* ── Health Indicator ── */
+        .health-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+        .health-indicator.online {
+            color: #34d399;
+            background: rgba(52, 211, 153, 0.08);
+            border-color: rgba(52, 211, 153, 0.2);
+        }
+        .health-indicator.connecting {
+            color: #fbbf24;
+            background: rgba(251, 191, 36, 0.08);
+            border-color: rgba(251, 191, 36, 0.2);
+        }
+        .health-indicator.offline {
+            color: #f87171;
+            background: rgba(248, 113, 113, 0.08);
+            border-color: rgba(248, 113, 113, 0.2);
+        }
+        .health-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 8px currentColor;
+        }
+        .health-indicator.online .health-dot { animation: none; }
+        .health-indicator.connecting .health-dot { animation: pulseHealth 1.5s infinite; }
+        @keyframes pulseHealth {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        .reconnect-area {
+            display: none;
+            padding: 10px;
+            text-align: center;
+            background: rgba(248, 113, 113, 0.05);
+            border-top: 1px solid rgba(248, 113, 113, 0.1);
+        }
+        .reconnect-area.visible {
+            display: block;
         }
 
         .header-actions {
@@ -328,48 +393,133 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         /* ── Agent Trace ── */
         .trace-container {
             margin-top: 10px;
-            padding: 10px;
-            background: rgba(0,0,0,0.15);
+            padding: 8px 10px;
+            background: rgba(0,0,0,0.2);
             border-radius: var(--radius-md);
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            border-left: 2px solid var(--primary);
+            gap: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
         }
         .trace-item {
             display: flex;
             align-items: flex-start;
-            gap: 10px;
+            gap: 8px;
             font-size: 11.5px;
             color: var(--text-muted);
             line-height: 1.4;
         }
-        .trace-icon {
-            font-size: 14px;
-            margin-top: -2px;
+        .trace-icon-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: rgba(148, 163, 184, 0.9);
+            margin-top: 4px;
+            flex: 0 0 auto;
         }
         .trace-item.active {
             color: var(--text-main);
+        }
+        .trace-item.active .trace-icon-dot {
+            background: #22d3ee;
+        }
+        .trace-main {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .trace-tool {
+            font-weight: 600;
+        }
+        .trace-badge {
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 1px 5px;
+            font-size: 10.5px;
+            color: #93c5fd;
+        }
+        .trace-sub {
+            margin-top: 2px;
+            color: var(--text-muted);
+            font-size: 10.5px;
+            opacity: 0.9;
         }
 
         /* ── Action Cards ── */
         .action-card {
             margin-top: 14px;
-            background: rgba(139, 92, 246, 0.05);
-            border: 1px solid var(--primary-glow);
+            background: rgba(30, 41, 59, 0.72);
+            border: 1px solid var(--border);
             border-radius: var(--radius-md);
-            padding: 14px;
+            padding: 10px 12px;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 8px;
+        }
+        .action-card.is-applied {
+            border-color: rgba(16, 185, 129, 0.45);
+            background: rgba(16, 185, 129, 0.08);
+        }
+        .action-card.is-rejected {
+            border-color: rgba(239, 68, 68, 0.45);
+            background: rgba(239, 68, 68, 0.08);
+        }
+        .action-card.is-error {
+            border-color: rgba(248, 113, 113, 0.45);
+            background: rgba(248, 113, 113, 0.08);
         }
         .action-header {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 8px;
             font-size: 12px;
             font-weight: 700;
             color: var(--text-main);
+        }
+        .action-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        .action-stats {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .delta-plus {
+            color: #34d399;
+            font-weight: 700;
+        }
+        .delta-minus {
+            color: #f87171;
+            font-weight: 700;
+        }
+        .action-status {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .action-status[data-state="applied"] {
+            color: #34d399;
+        }
+        .action-status[data-state="rejected"] {
+            color: #f87171;
+        }
+        .action-status[data-state="error"] {
+            color: #fca5a5;
+        }
+        .action-footer {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
         }
         .btn {
             padding: 8px 14px;
@@ -392,6 +542,28 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         .btn-primary:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 12px var(--primary-glow);
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.09);
+        }
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.14);
+            color: #fecaca;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.65;
+            transform: none;
+            box-shadow: none;
         }
 
         /* ── Input Area ── */
@@ -495,14 +667,55 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 
         .hidden {
-            display: none;
+            display: none !important;
+        }
+
+        .request-status {
+            margin: 10px 20px 0;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-muted);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .request-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f59e0b;
+            box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55);
+            animation: pulseStatus 1.2s infinite;
+        }
+
+        .request-status.generating .request-status-dot {
+            background: #22d3ee;
+            box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.55);
+        }
+
+        .request-status.error .request-status-dot {
+            background: #f87171;
+            animation: none;
+        }
+
+        @keyframes pulseStatus {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55); }
+            70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
     </style>
 </head>
 <body>
     <div class="chat-header">
         <div class="header-left">
-            <div class="header-dot"></div>
+            <div id="health-indicator" class="health-indicator connecting">
+                <div class="health-dot"></div>
+                <span id="health-text">Connecting</span>
+            </div>
             <div class="header-title">CodeAlchemist</div>
         </div>
         <div class="header-actions">
@@ -526,7 +739,19 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         <div class="history-list" id="history-list"></div>
     </div>
 
+    <div class="reconnect-area" id="reconnect-area">
+        <button class="btn btn-secondary" id="reconnect-btn" style="width: 100%; font-size: 11px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            Bağlantıyı Yenile
+        </button>
+    </div>
+
     <div id="chat-container">
+    </div>
+
+    <div id="request-status" class="request-status hidden" aria-live="polite">
+        <span class="request-status-dot"></span>
+        <span id="request-status-text"></span>
     </div>
 
     <div class="input-area">
@@ -546,22 +771,19 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
-    <script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+    <script nonce="${nonce}">
+        /**
+         * ── CodeAlchemist Sidebar State Machine ──
+         * This script implements a deterministic FSM with Dual Readiness and 
+         * RequestId Authority to ensure UI synchronization and robustness.
+         **/
+
         const initialState = ${inlineStateJson};
         const vscode = acquireVsCodeApi();
         let md;
-        try {
-            md = window.markdownit({
-                html: true,
-                linkify: true,
-                typographer: true
-            });
-        } catch (e) {
-            console.error('Markdown-it failed to load:', e);
-            md = { render: (text) => text }; // Fallback to plain text
-        }
 
+        // Elements
         const chatContainer = document.getElementById('chat-container');
         const chatInput = document.getElementById('chat-input');
         const sendBtn = document.getElementById('send-btn');
@@ -572,33 +794,195 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         const historyList = document.getElementById('history-list');
         const historySearch = document.getElementById('history-search');
         const modelSelect = document.getElementById('model-select');
+        const requestStatus = document.getElementById('request-status');
+        const requestStatusText = document.getElementById('request-status-text');
+
+        // Application State (The Single Source of Truth)
+        const appState = {
+            // FSM Logic
+            phase: 'IDLE',      // 'IDLE' | 'REQUEST_INITIATED' | 'REQUEST_STREAMING' | 'REQUEST_COMPLETED' | 'REQUEST_FAILED' | 'REQUEST_CANCELLED'
+            health: 'connecting', // 'online' | 'offline' | 'connecting'
+            requestId: '',      // Current active requestId authority
+            statusText: '',
+            
+            // Boot Sequence Gating
+            ready: {
+                ui: false,
+                provider: false
+            },
+
+            // Persistent Context
+            chatSessions: [],
+            activeSessionId: '',
+            selectedModel: initialState.selectedModel || 'auto',
+            historySearchTerm: '',
+
+            // Stream state
+            currentAiMessageElement: null,
+            currentAiBubble: null,
+            currentTraceContainer: null,
+            currentFullText: ''
+        };
 
         const MAX_SESSIONS = 30;
         const GREETING = "Merhaba! Ben **CodeAlchemist Agent**. Kodunuzu inceleyebilir, dosya değişiklikleri yapabilir ve projelerinizde size eşlik edebilirim.\\n\\n*Nasıl yardımcı olabilirim?*";
 
-        let currentAiMessageElement = null;
-        let currentAiBubble = null;
-        let currentTraceContainer = null;
-        let currentFullText = "";
-        let chatSessions = [];
-        let activeSessionId = '';
-        let selectedModel = initialState.selectedModel || 'gemini-2.5-flash';
-        let historySearchTerm = '';
+        // ── Deterministic FSM ──
+        function dispatch(action) {
+            logStateTransition(action);
 
-        function nowIso() {
-            return new Date().toISOString();
+            switch (action.type) {
+                case 'BOOT_UI_READY':
+                    appState.ready.ui = true;
+                    break;
+                case 'RECONCILE_SNAPSHOT':
+                case 'RECONCILE_EVENT':
+                    if (action.payload.requestId) {
+                        appState.requestId = action.payload.requestId;
+                    }
+                    if (action.payload.phase) {
+                        appState.phase = action.payload.phase;
+                    }
+                    if (action.payload.text) {
+                        appState.statusText = action.payload.text;
+                    }
+                    if (action.type === 'RECONCILE_SNAPSHOT') {
+                        appState.ready.provider = true;
+                    }
+                    break;
+                case 'UX_ASK':
+                    if (appState.phase !== 'IDLE') return; // Guard
+                    appState.phase = 'REQUEST_INITIATED';
+                    appState.statusText = 'Working...';
+                    break;
+                case 'IDLE':
+                    appState.phase = 'IDLE';
+                    appState.statusText = '';
+                    break;
+                case 'HEALTH_UPDATE':
+                    appState.health = action.payload;
+                    break;
+            }
+
+            syncUi();
         }
+
+        function logStateTransition(action) {
+            console.log(\`[\${new Date().toISOString()}] ACTION: \${action.type} -> RequestId: \${appState.requestId} | Phase: \${appState.phase}\`);
+        }
+
+        /**
+         * ── Pure Renderer ──
+         * Toggles DOM states based on appState.
+         **/
+        function syncUi() {
+            const isFullyReady = appState.ready.ui && appState.ready.provider;
+            const isIdle = appState.phase === 'IDLE';
+            const isOnline = appState.health === 'online';
+
+            // Gating interaction
+            sendBtn.disabled = !isFullyReady || !isIdle || !isOnline;
+            chatInput.disabled = !isFullyReady || !isIdle || !isOnline;
+            chatInput.placeholder = isOnline ? "Sorunuzu sorun veya '/' ile komutları görün..." : "Bakım modunda veya çevrimdışı...";
+            resetBtn.disabled = !isFullyReady;
+            historyBtn.disabled = !isFullyReady;
+            newChatBtn.disabled = !isFullyReady;
+
+            // Status Bar Visibility
+            if (isIdle || !isFullyReady) {
+                requestStatus.classList.add('hidden');
+            } else {
+                requestStatus.classList.remove('hidden');
+                requestStatus.classList.toggle('generating', appState.phase === 'REQUEST_STREAMING');
+                requestStatus.classList.toggle('error', appState.phase === 'REQUEST_FAILED');
+                requestStatusText.textContent = appState.statusText || getDefaultStatusText(appState.phase);
+            }
+
+            // Health Indicator UI
+            const healthIndicator = document.getElementById('health-indicator');
+            const healthText = document.getElementById('health-text');
+            const reconnectArea = document.getElementById('reconnect-area');
+
+            healthIndicator.className = \`health-indicator \${appState.health}\`;
+            healthText.textContent = appState.health.charAt(0).toUpperCase() + appState.health.slice(1);
+            
+            if (appState.health === 'offline') {
+                reconnectArea.classList.add('visible');
+            } else {
+                reconnectArea.classList.remove('visible');
+            }
+        }
+
+        function getDefaultStatusText(phase) {
+            switch(phase) {
+                case 'REQUEST_INITIATED': return 'Working...';
+                case 'REQUEST_STREAMING': return 'Generating...';
+                case 'REQUEST_FAILED': return 'İstek başarısız oldu.';
+                default: return 'Working...';
+            }
+        }
+
+        // ── Boot Sequence ──
+        function init() {
+            try {
+                md = window.markdownit({ html: true, linkify: true, typographer: true });
+            } catch (e) {
+                console.error('Markdown-it failed:', e);
+                md = { render: (t) => t };
+            }
+
+            setupMessageListener();
+            loadInitialPersistentData();
+            dispatch({ type: 'BOOT_UI_READY' });
+            initModelPicker();
+            renderActiveSession();
+            renderHistory();
+        }
+
+        function setupMessageListener() {
+            window.addEventListener('message', event => {
+                const message = event.data;
+                const rid = message.requestId;
+
+                if (rid && appState.requestId && rid !== appState.requestId && message.command !== 'STATE_SNAPSHOT') {
+                    console.warn(\`Ignoring message for stale requestId: \${rid}\`);
+                    return;
+                }
+
+                switch (message.command) {
+                    case 'STATE_SNAPSHOT':
+                        dispatch({ type: 'RECONCILE_SNAPSHOT', payload: message });
+                        break;
+                    case 'STATE_EVENT':
+                        dispatch({ type: 'RECONCILE_EVENT', payload: message });
+                        break;
+                    case 'HEALTH_STATUS':
+                        dispatch({ type: 'HEALTH_UPDATE', payload: message.status });
+                        break;
+                    case 'stream_chunk':
+                        updateAiMessage(message.text);
+                        break;
+                    case 'trace_step':
+                        addTraceStep(message.tool, message.reasoning);
+                        break;
+                    case 'action_found':
+                        handleActionFound(message.action);
+                        break;
+                    case 'action_result':
+                        updateActionCard(message.actionId, message.status, message.message);
+                        break;
+                    case 'session_deleted':
+                        deleteSession(message.sessionId);
+                        break;
+                }
+            });
+        }
+
+        function nowIso() { return new Date().toISOString(); }
 
         function createSession() {
             const id = 'session-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-            return {
-                id,
-                title: 'Yeni Sohbet',
-                createdAt: nowIso(),
-                updatedAt: nowIso(),
-                pinned: false,
-                messages: []
-            };
+            return { id, title: 'Yeni Sohbet', createdAt: nowIso(), updatedAt: nowIso(), pinned: false, messages: [] };
         }
 
         function normalizeSession(raw) {
@@ -613,213 +997,104 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         }
 
         function getActiveSession() {
-            return chatSessions.find((s) => s.id === activeSessionId) || null;
+            return appState.chatSessions.find((s) => s.id === appState.activeSessionId) || null;
         }
 
         function persist() {
             vscode.setState({
-                chatSessions,
-                activeSessionId,
-                selectedModel
+                chatSessions: appState.chatSessions,
+                activeSessionId: appState.activeSessionId,
+                selectedModel: appState.selectedModel
             });
         }
 
-        function truncateTitle(text) {
-            const clean = (text || '').replace(/\s+/g, ' ').trim();
-            if (!clean) return 'Yeni Sohbet';
-            return clean.length > 36 ? clean.slice(0, 36) + '…' : clean;
-        }
+        function loadInitialPersistentData() {
+            const saved = vscode.getState() || {};
+            appState.chatSessions = Array.isArray(saved.chatSessions) ? saved.chatSessions.map(normalizeSession) : [];
+            appState.activeSessionId = typeof saved.activeSessionId === 'string' ? saved.activeSessionId : '';
+            appState.selectedModel = typeof saved.selectedModel === 'string' ? saved.selectedModel : appState.selectedModel;
 
-        function formatDate(value) {
-            const d = new Date(value);
-            return d.toLocaleString('tr-TR', {
-                day: '2-digit',
-                month: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            if (appState.chatSessions.length === 0) {
+                const s = createSession();
+                appState.chatSessions.push(s);
+                appState.activeSessionId = s.id;
+                setDefaultGreetingIfNeeded(s);
+            } else {
+                const found = appState.chatSessions.some((s) => s.id === appState.activeSessionId);
+                if (!found) appState.activeSessionId = appState.chatSessions[0].id;
+                setDefaultGreetingIfNeeded(getActiveSession());
+            }
         }
 
         function renderHistory() {
             historyList.innerHTML = '';
-            const query = historySearchTerm.trim().toLowerCase();
+            const query = appState.historySearchTerm.trim().toLowerCase();
             const filtered = query
-                ? chatSessions.filter((session) => {
-                    const title = String(session.title || '').toLowerCase();
-                    const text = (Array.isArray(session.messages) ? session.messages : [])
-                        .map((m) => String(m.text || '').toLowerCase())
-                        .join(' ');
-                    return title.includes(query) || text.includes(query);
-                })
-                : [...chatSessions];
+                ? appState.chatSessions.filter((s) => s.title.toLowerCase().includes(query) || s.messages.some(m => m.text.toLowerCase().includes(query)))
+                : [...appState.chatSessions];
 
-            const sorted = filtered.sort((a, b) => {
-                if (Boolean(a.pinned) !== Boolean(b.pinned)) {
-                    return a.pinned ? -1 : 1;
-                }
-                return new Date(b.updatedAt) - new Date(a.updatedAt);
-            });
-
+            const sorted = filtered.sort((a, b) => (b.pinned - a.pinned) || (new Date(b.updatedAt) - new Date(a.updatedAt)));
+            
             if (sorted.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'history-empty';
-                empty.textContent = query ? 'Arama ile eslesen sohbet bulunamadi.' : 'Henuz sohbet yok.';
-                historyList.appendChild(empty);
+                historyList.innerHTML = '<div class="history-empty">Henüz sohbet yok.</div>';
                 return;
             }
 
             for (const session of sorted) {
-                const item = document.createElement('button');
-                item.className = 'history-item' + (session.id === activeSessionId ? ' active' : '');
-                const messageCount = Array.isArray(session.messages) ? session.messages.length : 0;
-                item.innerHTML = \
-                    '<div class="history-item-row">' +
-                      '<div class="history-main">' +
-                        '<div class="history-title">' + (session.pinned ? '📌 ' : '') + escapeHtml(session.title || 'Yeni Sohbet') + '</div>' +
-                        '<div class="history-meta"><span>' + messageCount + ' mesaj</span><span>' + formatDate(session.updatedAt) + '</span></div>' +
-                      '</div>' +
-                      '<div class="history-actions">' +
-                        '<button class="history-action-btn pin-btn ' + (session.pinned ? 'pinned' : '') + '" title="Sabitle">' +
-                          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Z"/></svg>' +
-                        '</button>' +
-                        '<button class="history-action-btn delete-btn" title="Sil">' +
-                          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>' +
-                        '</button>' +
-                      '</div>' +
-                    '</div>';
+                const item = document.createElement('div');
+                item.className = 'history-item' + (session.id === appState.activeSessionId ? ' active' : '');
+                item.innerHTML = \`
+                    <div class="history-item-row">
+                        <div class="history-main">
+                            <div class="history-title">\${session.pinned ? '📌 ' : ''}\${escapeHtml(session.title)}</div>
+                            <div class="history-meta"><span>\${session.updatedAt.split('T')[0]}</span></div>
+                        </div>
+                        <div class="history-actions">
+                            <button class="history-action-btn pin-btn \${session.pinned ? 'pinned' : ''}" onclick="event.stopPropagation(); togglePinSession('\${session.id}')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Z"/></svg>
+                            </button>
+                            <button class="history-action-btn delete-btn" onclick="event.stopPropagation(); requestDeleteSession('\${session.id}', '\${escapeHtml(session.title)}')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                            </button>
+                        </div>
+                    </div>\`;
                 item.onclick = () => switchSession(session.id);
-
-                const pinBtn = item.querySelector('.pin-btn');
-                if (pinBtn) {
-                    pinBtn.onclick = (ev) => {
-                        ev.stopPropagation();
-                        togglePinSession(session.id);
-                    };
-                }
-
-                const deleteBtn = item.querySelector('.delete-btn');
-                if (deleteBtn) {
-                    deleteBtn.onclick = (ev) => {
-                        ev.stopPropagation();
-                        deleteSession(session.id);
-                    };
-                }
-
                 historyList.appendChild(item);
             }
         }
 
-        function togglePinSession(sessionId) {
-            const session = chatSessions.find((s) => s.id === sessionId);
-            if (!session) return;
-            session.pinned = !session.pinned;
-            session.updatedAt = nowIso();
-            renderHistory();
-            persist();
-        }
+        window.togglePinSession = (sid) => {
+            const s = appState.chatSessions.find(x => x.id === sid);
+            if (s) { s.pinned = !s.pinned; s.updatedAt = nowIso(); renderHistory(); persist(); }
+        };
 
-        function deleteSession(sessionId) {
-            const idx = chatSessions.findIndex((s) => s.id === sessionId);
-            if (idx < 0) return;
-            const session = chatSessions[idx];
-            const title = session && session.title ? session.title : 'Yeni Sohbet';
-            const ok = confirm('"' + title + '" sohbetini silmek istiyor musunuz?');
-            if (!ok) return;
-
-            chatSessions.splice(idx, 1);
-
-            if (chatSessions.length === 0) {
-                startNewChat();
-                return;
+        window.requestDeleteSession = (sid, title) => {
+            console.log(\`[CodeAlchemist] requestDeleteSession clicked: \${sid}\`);
+            try {
+                vscode.postMessage({ command: 'requestDeleteSession', sessionId: sid, title });
+            } catch (e) {
+                console.error('[CodeAlchemist] postMessage failed for requestDeleteSession:', e);
             }
+        };
 
-            if (activeSessionId === sessionId) {
-                activeSessionId = chatSessions[0].id;
-                renderActiveSession();
+        function deleteSession(sid) {
+            appState.chatSessions = appState.chatSessions.filter(s => s.id !== sid);
+            if (appState.chatSessions.length === 0) {
+                const s = createSession();
+                setDefaultGreetingIfNeeded(s);
+                appState.chatSessions.push(s);
+                appState.activeSessionId = s.id;
+            } else if (appState.activeSessionId === sid) {
+                appState.activeSessionId = appState.chatSessions[0].id;
             }
-
-            renderHistory();
-            persist();
-        }
-
-        function escapeHtml(str) {
-            return (str || '')
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&#39;');
-        }
-
-        function clearUiConversation() {
-            chatContainer.innerHTML = '';
-            currentAiMessageElement = null;
-            currentAiBubble = null;
-            currentTraceContainer = null;
-            currentFullText = '';
-        }
-
-        function renderActiveSession() {
-            clearUiConversation();
-            const session = getActiveSession();
-            if (!session) return;
-            for (const msg of session.messages) {
-                addMessage(msg.text, msg.role, false);
-            }
-        }
-
-        function setDefaultGreetingIfNeeded(session) {
-            if (!session || session.messages.length > 0) return;
-            session.messages.push({ role: 'ai', text: GREETING, createdAt: nowIso() });
-            session.updatedAt = nowIso();
-        }
-
-        function switchSession(sessionId) {
-            if (sessionId === activeSessionId) {
-                historyDrawer.classList.remove('open');
-                return;
-            }
-            activeSessionId = sessionId;
             renderActiveSession();
             renderHistory();
             persist();
+        }
+
+        function switchSession(sid) {
+            appState.activeSessionId = sid;
             historyDrawer.classList.remove('open');
-        }
-
-        function startNewChat() {
-            const session = createSession();
-            setDefaultGreetingIfNeeded(session);
-            chatSessions.unshift(session);
-            if (chatSessions.length > MAX_SESSIONS) {
-                chatSessions = chatSessions.slice(0, MAX_SESSIONS);
-            }
-            activeSessionId = session.id;
-            renderActiveSession();
-            renderHistory();
-            persist();
-        }
-
-        function loadInitialState() {
-            const saved = vscode.getState() || {};
-            chatSessions = Array.isArray(saved.chatSessions) ? saved.chatSessions.map(normalizeSession) : [];
-            activeSessionId = typeof saved.activeSessionId === 'string' ? saved.activeSessionId : '';
-            selectedModel = typeof saved.selectedModel === 'string' ? saved.selectedModel : selectedModel;
-
-            if (chatSessions.length === 0) {
-                startNewChat();
-                return;
-            }
-
-            const found = chatSessions.some((s) => s.id === activeSessionId);
-            if (!found) {
-                activeSessionId = chatSessions[0].id;
-            }
-
-            const active = getActiveSession();
-            if (active) {
-                setDefaultGreetingIfNeeded(active);
-            }
-
             renderActiveSession();
             renderHistory();
             persist();
@@ -827,62 +1102,62 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
         function initModelPicker() {
             modelSelect.innerHTML = '';
-            for (const option of (initialState.modelOptions || [])) {
+            const options = initialState.modelOptions || [{ value: 'auto', label: 'Auto' }];
+            for (const opt of options) {
                 const el = document.createElement('option');
-                el.value = option.value;
-                el.textContent = option.label;
-                if (option.value === selectedModel) {
-                    el.selected = true;
-                }
+                el.value = opt.value;
+                el.textContent = opt.label;
+                el.selected = opt.value === appState.selectedModel;
                 modelSelect.appendChild(el);
             }
-
-            if (!modelSelect.value && modelSelect.options.length > 0) {
-                modelSelect.options[0].selected = true;
-                selectedModel = modelSelect.value;
-            }
-
             modelSelect.onchange = () => {
-                selectedModel = modelSelect.value;
+                appState.selectedModel = modelSelect.value;
                 persist();
-                vscode.postMessage({
-                    command: 'setModel',
-                    model: selectedModel
-                });
+                vscode.postMessage({ command: 'setModel', model: appState.selectedModel });
             };
+        }
+
+        function escapeHtml(s) { 
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); 
+        }
+
+        function renderActiveSession() {
+            chatContainer.innerHTML = '';
+            appState.currentAiMessageElement = null;
+            appState.currentAiBubble = null;
+            appState.currentTraceContainer = null;
+            appState.currentFullText = '';
+            const session = getActiveSession();
+            if (session) session.messages.forEach(m => addMessage(m.text, m.role, false));
+        }
+
+        function setDefaultGreetingIfNeeded(session) {
+            if (session && session.messages.length === 0) {
+                session.messages.push({ role: 'ai', text: GREETING, createdAt: nowIso() });
+            }
         }
 
         function addMessage(text, role, shouldPersist = true) {
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message ' + role;
-            
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble markdown-body';
-            
-            if (role === 'user') {
-                bubble.innerText = text;
-            } else {
+            if (role === 'user') bubble.textContent = text;
+            else {
                 bubble.innerHTML = md.render(text);
-                currentFullText = text;
+                appState.currentFullText = text;
+                appState.currentAiMessageElement = msgDiv;
+                appState.currentAiBubble = bubble;
             }
-            
             msgDiv.appendChild(bubble);
             chatContainer.appendChild(msgDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
-            
-            if (role === 'ai') {
-                currentAiMessageElement = msgDiv;
-                currentAiBubble = bubble;
-            }
-
             if (shouldPersist) {
                 const session = getActiveSession();
                 if (session) {
                     session.messages.push({ role, text, createdAt: nowIso() });
+                    if (role === 'user' && session.title === 'Yeni Sohbet') session.title = text.slice(0, 40);
                     session.updatedAt = nowIso();
-                    if (role === 'user' && session.title === 'Yeni Sohbet') {
-                        session.title = truncateTitle(text);
-                    }
                     renderHistory();
                     persist();
                 }
@@ -891,150 +1166,145 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         }
 
         function updateAiMessage(chunk) {
-            if (!currentAiBubble) {
-                addMessage('', 'ai');
-            }
-            currentFullText += chunk;
-            currentAiBubble.innerHTML = md.render(currentFullText);
+            if (!appState.currentAiBubble) addMessage('', 'ai');
+            appState.currentFullText += chunk;
+            appState.currentAiBubble.innerHTML = md.render(appState.currentFullText);
             chatContainer.scrollTop = chatContainer.scrollHeight;
-
             const session = getActiveSession();
-            if (!session || session.messages.length === 0) return;
-            const last = session.messages[session.messages.length - 1];
-            if (last.role === 'ai') {
-                last.text = currentFullText;
-                session.updatedAt = nowIso();
-                persist();
+            if (session && session.messages.length > 0) {
+                const last = session.messages[session.messages.length - 1];
+                if (last.role === 'ai') { last.text = appState.currentFullText; persist(); }
             }
         }
 
         function addTraceStep(tool, reasoning) {
-            if (!currentAiMessageElement) return;
-
-            if (!currentTraceContainer) {
-                currentTraceContainer = document.createElement('div');
-                currentTraceContainer.className = 'trace-container';
-                currentAiMessageElement.appendChild(currentTraceContainer);
+            if (!appState.currentAiMessageElement) addMessage('', 'ai');
+            if (!appState.currentTraceContainer) {
+                appState.currentTraceContainer = document.createElement('div');
+                appState.currentTraceContainer.className = 'trace-container';
+                appState.currentAiMessageElement.appendChild(appState.currentTraceContainer);
             }
-
             const item = document.createElement('div');
             item.className = 'trace-item active';
-            item.innerHTML = \`<span class="trace-icon">🧬</span> <div style="flex:1"><b>\${tool}</b><br/><span style="opacity:0.8">\${reasoning || ''}</span></div>\`;
-            
-            const prev = currentTraceContainer.querySelector('.active');
+            item.innerHTML = \`<span class="trace-icon-dot"></span><div style="flex:1"><div class="trace-main"><span class="trace-tool">\${tool}</span></div><div class="trace-sub">\${reasoning}</div></div>\`;
+            const prev = appState.currentTraceContainer.querySelector('.active');
             if (prev) prev.classList.remove('active');
-
-            currentTraceContainer.appendChild(item);
+            appState.currentTraceContainer.appendChild(item);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        function addActionCard(type, file, content, operation, trustId, trustScope) {
+        function handleActionFound(action) {
+            if (action.action === 'edit_file') addActionCard(action);
+            else if (action.action === 'multi_edit') action.changes.forEach(c => addActionCard({ ...c, action: 'edit_file' }));
+        }
+
+        function addActionCard(action) {
+            const cardId = 'card-' + Math.random().toString(36).slice(2, 9);
             const card = document.createElement('div');
             card.className = 'action-card';
-            card.innerHTML = \`
-                <div class="action-header">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
-                    Önerilen Değişiklik: \${file}
-                </div>
-                <button class="btn btn-primary view-diff">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    Değişikliği Önizle
-                </button>
-            \`;
-
-            card.querySelector('.view-diff').onclick = () => {
-                vscode.postMessage({
-                    command: 'applyAction',
-                    action: {
-                        action: 'edit_file',
-                        file: file,
-                        content: content,
-                        operation: operation,
-                        trust_id: trustId,
-                        trust_scope: trustScope,
-                    }
-                });
-            };
-
-            currentAiMessageElement.appendChild(card);
+            card.dataset.actionId = cardId;
+            const renderBtn = action.render_url ? '<a class="btn btn-secondary" href="' + action.render_url + '" target="_blank">Render</a>' : '';
+            card.innerHTML = '<div class="action-header"><div class="action-title"><span>File Change</span></div></div>' +
+                '<div class="action-status">' + escapeHtml(action.file) + '</div>' +
+                '<div class="action-footer">' +
+                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\'' + cardId + '\', \'accept\')">Keep</button>' +
+                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\'' + cardId + '\', \'reject\')">Discard</button>' +
+                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\'' + cardId + '\')">Preview</button>' +
+                    renderBtn +
+                '</div>';
+            card._actionData = action;
+            appState.currentAiMessageElement.appendChild(card);
             chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        window.resolveCard = (cid, decision) => {
+            console.log('[CodeAlchemist] resolveCard clicked: ' + cid + ' -> ' + decision);
+            const card = document.querySelector('[data-action-id="' + cid + '"]');
+            if (!card) {
+                console.warn('[CodeAlchemist] resolveCard: Card ' + cid + ' not found.');
+                return;
+            }
+            try {
+                vscode.postMessage({ command: 'resolveAction', decision, action: card._actionData, actionId: cid });
+            } catch (e) {
+                console.error('[CodeAlchemist] postMessage failed for resolveCard:', e);
+            }
+        };
+
+        window.previewAction = (cid) => {
+            console.log('[CodeAlchemist] previewAction clicked: ' + cid);
+            const card = document.querySelector('[data-action-id="' + cid + '"]');
+            if (!card) {
+                console.warn('[CodeAlchemist] previewAction: Card ' + cid + ' not found.');
+                return;
+            }
+            try {
+                vscode.postMessage({ command: 'applyAction', action: card._actionData });
+            } catch (e) {
+                console.error('[CodeAlchemist] postMessage failed for previewAction:', e);
+            }
+        };
+
+        function updateActionCard(aid, status, msg) {
+            console.log('[CodeAlchemist] updateActionCard: ' + aid + ' -> ' + status);
+            const card = document.querySelector('[data-action-id="' + aid + '"]');
+            if (!card) return;
+            card.querySelector('.action-status').textContent = msg || status;
+            card.className = 'action-card ' + (status === 'applied' ? 'is-applied' : status === 'rejected' ? 'is-rejected' : status === 'reverted' ? '' : 'is-error');
+            
+            if (status === 'applied') {
+                const footer = card.querySelector('.action-footer');
+                footer.innerHTML = '<button class="btn btn-secondary" onclick="resolveCard(\'' + aid + '\', \'undo\')">Undo</button>';
+                const action = card._actionData;
+                if (action && action.render_url) {
+                    footer.innerHTML += '<a class="btn btn-secondary" href="' + action.render_url + '" target="_blank">Render</a>';
+                }
+            } else if (status === 'reverted') {
+                const action = card._actionData;
+                const renderBtn = action.render_url ? '<a class="btn btn-secondary" href="' + action.render_url + '" target="_blank">Render</a>' : '';
+                card.querySelector('.action-footer').innerHTML = 
+                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\'' + aid + '\', \'accept\')">Keep</button>' +
+                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\'' + aid + '\', \'reject\')">Discard</button>' +
+                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\'' + aid + '\')">Preview</button>' +
+                    renderBtn;
+            } else {
+                card.querySelectorAll('button').forEach(b => b.disabled = true);
+            }
         }
 
         function sendMsg() {
             const text = chatInput.value.trim();
-            if (!text) return;
-
+            if (!text || appState.phase !== 'IDLE') return;
             addMessage(text, 'user');
             chatInput.value = '';
-            currentAiMessageElement = null;
-            currentAiBubble = null;
-            currentTraceContainer = null;
-            currentFullText = "";
-
-            vscode.postMessage({
-                command: 'ask',
-                text: text,
-                model: selectedModel
-            });
+            dispatch({ type: 'UX_ASK' });
+            vscode.postMessage({ command: 'ask', text, model: appState.selectedModel });
         }
 
         sendBtn.onclick = sendMsg;
-        resetBtn.onclick = () => {
-            const session = getActiveSession();
-            if (!session) return;
-            session.messages = [];
-            session.title = 'Yeni Sohbet';
-            setDefaultGreetingIfNeeded(session);
+        chatInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
+        newChatBtn.onclick = () => {
+            const s = createSession();
+            setDefaultGreetingIfNeeded(s);
+            appState.chatSessions.unshift(s);
+            appState.activeSessionId = s.id;
             renderActiveSession();
             renderHistory();
             persist();
         };
+        resetBtn.onclick = () => {
+            const s = getActiveSession();
+            if (s) { s.messages = []; setDefaultGreetingIfNeeded(s); s.title='Yeni Sohbet'; renderActiveSession(); renderHistory(); persist(); }
+        };
+        historyBtn.onclick = () => { historyDrawer.classList.toggle('open'); if(historyDrawer.classList.contains('open')) historySearch.focus(); };
+        historySearch.oninput = () => { appState.historySearchTerm = historySearch.value; renderHistory(); };
 
-        historyBtn.onclick = () => {
-            historyDrawer.classList.toggle('open');
-            if (historyDrawer.classList.contains('open')) {
-                historySearch.focus();
-            }
+        document.getElementById('reconnect-btn').onclick = () => {
+            dispatch({ type: 'HEALTH_UPDATE', payload: 'connecting' });
+            vscode.postMessage({ command: 'ask', text: '/health-check', model: appState.selectedModel });
         };
 
-        newChatBtn.onclick = () => {
-            startNewChat();
-            historyDrawer.classList.remove('open');
-        };
-
-        historySearch.oninput = () => {
-            historySearchTerm = historySearch.value || '';
-            renderHistory();
-        };
-
-        chatInput.onkeydown = (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMsg();
-            }
-        };
-
-        window.addEventListener('message', event => {
-            const message = event.data;
-            switch (message.command) {
-                case 'stream_chunk':
-                    updateAiMessage(message.text);
-                    break;
-                case 'trace_step':
-                    addTraceStep(message.tool, message.reasoning);
-                    break;
-                case 'action_found':
-                    if (message.action.action === 'edit_file') {
-                        addActionCard('edit', message.action.file, message.action.content, message.action.operation, message.action.trust_id, message.action.trust_scope);
-                    } else if (message.action.action === 'multi_edit') {
-                        message.action.changes.forEach(c => addActionCard('edit', c.file, c.content, c.operation, c.trust_id, c.trust_scope));
-                    }
-                    break;
-            }
-        });
-
-        initModelPicker();
-        loadInitialState();
+        init();
     </script>
 </body>
 </html>`;

@@ -54,6 +54,94 @@ function mergeContentByOperation(existingContent: string, incomingContent: strin
   return incoming;
 }
 
+async function saveDocumentIfOpen(fileUri: vscode.Uri): Promise<void> {
+  const openDoc = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === fileUri.toString());
+  if (openDoc && openDoc.isDirty) {
+    await openDoc.save();
+  }
+}
+
+function isOutsideWorkspaceRoot(workspaceRoot: string, filePath: string): boolean {
+  const absPath = path.resolve(workspaceRoot, filePath);
+  const normalizedRoot = path.resolve(workspaceRoot);
+  return !absPath.startsWith(normalizedRoot + path.sep) && absPath !== normalizedRoot;
+}
+
+async function getCurrentFileContent(fileUri: vscode.Uri): Promise<{ exists: boolean; content: string }> {
+  const openDoc = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === fileUri.toString());
+  if (openDoc) {
+    return { exists: true, content: openDoc.getText() };
+  }
+
+  try {
+    const raw = await vscode.workspace.fs.readFile(fileUri);
+    return { exists: true, content: new TextDecoder('utf-8').decode(raw) };
+  } catch {
+    return { exists: false, content: '' };
+  }
+}
+
+async function buildWorkspaceEditForChange(workspaceRoot: string, change: FileChange): Promise<{ edit: vscode.WorkspaceEdit; fileUri: vscode.Uri }> {
+  const validationError = validateFilePath(workspaceRoot, change.file, change.trust_id);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const absPath = path.resolve(workspaceRoot, change.file);
+  const fileUri = vscode.Uri.file(absPath);
+  const encoder = new TextEncoder();
+  const operation = normalizeOperation(change.operation);
+  const incomingContent = change.content || '';
+  const edit = new vscode.WorkspaceEdit();
+
+  if (isOutsideWorkspaceRoot(workspaceRoot, change.file)) {
+    const choice = await vscode.window.showWarningMessage(
+      `CodeAlchemist: The AI wants to write to a file OUTSIDE your workspace root:\n\n${change.file}\n\nDo you allow this?`,
+      { modal: true },
+      'Allow Write',
+      'Cancel',
+    );
+    if (choice !== 'Allow Write') {
+      throw new Error(`Permission denied for file outside workspace: ${change.file}`);
+    }
+  }
+
+  const current = await getCurrentFileContent(fileUri);
+  const finalContent = mergeContentByOperation(current.content, incomingContent, operation);
+
+  if (current.exists) {
+    const doc = vscode.workspace.textDocuments.find((item) => item.uri.toString() === fileUri.toString());
+    if (doc) {
+      const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+      edit.replace(fileUri, fullRange, finalContent);
+    } else {
+      const existingDoc = await vscode.workspace.openTextDocument(fileUri);
+      const fullRange = new vscode.Range(existingDoc.positionAt(0), existingDoc.positionAt(existingDoc.getText().length));
+      edit.replace(fileUri, fullRange, finalContent);
+    }
+  } else {
+    const contentBytes = encoder.encode(finalContent);
+    edit.createFile(fileUri, {
+      overwrite: false,
+      ignoreIfExists: false,
+      contents: contentBytes,
+    });
+  }
+
+  return { edit, fileUri };
+}
+
+async function applyWorkspaceEditAndSave(fileUris: vscode.Uri[], edit: vscode.WorkspaceEdit): Promise<void> {
+  const success = await vscode.workspace.applyEdit(edit);
+  if (!success) {
+    throw new Error('Failed to apply workspace edits.');
+  }
+
+  for (const fileUri of fileUris) {
+    await saveDocumentIfOpen(fileUri);
+  }
+}
+
 // ── Path Safety ─────────────────────────────────────────────────────
 
 /**
@@ -214,6 +302,7 @@ function extractChangesFromAgentFiles(agentFiles: AgentChangedFile[]): FileChang
         operation: typeof (entry as Record<string, unknown>).operation === 'string' ? String((entry as Record<string, unknown>).operation) : undefined,
         trust_id: entry.trust_id,
         trust_scope: entry.trust_scope,
+        render_url: (entry as any).render_url || (entry as any).preview_url,
       });
     }
   }
@@ -261,6 +350,7 @@ function extractChangesFromTrace(trace: any[]): FileChange[] {
           operation: typeof operation === 'string' && operation.trim().length > 0 ? operation : undefined,
           trust_id: sourceObject?.trust_id || entry.input?.trust_id || entry.trust_id,
           trust_scope: sourceObject?.trust_scope || entry.input?.trust_scope || entry.trust_scope,
+          render_url: sourceObject?.render_url || sourceObject?.preview_url || entry.render_url || entry.preview_url,
         });
         handledPaths.add(file);
       }
@@ -327,63 +417,8 @@ export async function applyFileEdit(
   workspaceRoot: string,
   change: FileChange,
 ): Promise<void> {
-  const validationError = validateFilePath(workspaceRoot, change.file, change.trust_id);
-  if (validationError) {
-    throw new Error(validationError);
-  }
-
-  const absPath = path.resolve(workspaceRoot, change.file);
-  const normalizedRoot = path.resolve(workspaceRoot);
-  const isOutside = !absPath.startsWith(normalizedRoot + path.sep) && absPath !== normalizedRoot;
-
-  // Mandatory explicit confirmation for files outside the workspace root
-  if (isOutside) {
-    const choice = await vscode.window.showWarningMessage(
-      `CodeAlchemist: The AI wants to write to a file OUTSIDE your workspace root:\n\n${change.file}\n\nDo you allow this?`,
-      { modal: true },
-      'Allow Write',
-      'Cancel',
-    );
-    if (choice !== 'Allow Write') {
-      throw new Error(`Permission denied for file outside workspace: ${change.file}`);
-    }
-  }
-
-  const fileUri = vscode.Uri.file(absPath);
-  const encoder = new TextEncoder();
-  const operation = normalizeOperation(change.operation);
-  const incomingContent = change.content || '';
-
-  // Use WorkspaceEdit for undo support
-  const edit = new vscode.WorkspaceEdit();
-
-  try {
-    // Check if file already exists
-    await vscode.workspace.fs.stat(fileUri);
-
-    // File exists: compute content based on operation
-    const existingDoc = await vscode.workspace.openTextDocument(fileUri);
-    const finalContent = mergeContentByOperation(existingDoc.getText(), incomingContent, operation);
-    const fullRange = new vscode.Range(
-      existingDoc.positionAt(0),
-      existingDoc.positionAt(existingDoc.getText().length),
-    );
-    edit.replace(fileUri, fullRange, finalContent);
-  } catch {
-    // File doesn't exist: for append/prepend, fall back to incoming content
-    const finalContent = mergeContentByOperation('', incomingContent, operation);
-    const contentBytes = encoder.encode(finalContent);
-    edit.createFile(fileUri, {
-      overwrite: false,
-      ignoreIfExists: false,
-      contents: contentBytes,
-    });
-  }
-
-  const success = await vscode.workspace.applyEdit(edit);
-  if (!success) {
-    throw new Error(`Failed to apply edit to ${change.file}`);
-  }
+  const { edit, fileUri } = await buildWorkspaceEditForChange(workspaceRoot, change);
+  await applyWorkspaceEditAndSave([fileUri], edit);
 }
 
 /**
@@ -394,17 +429,44 @@ export async function applyMultiEdit(
   workspaceRoot: string,
   changes: FileChange[],
 ): Promise<{ succeeded: string[]; failed: Array<{ file: string; error: string }> }> {
+  const safeChanges = changes.filter((change) => !isOutsideWorkspaceRoot(workspaceRoot, change.file));
+  const externalChanges = changes.filter((change) => isOutsideWorkspaceRoot(workspaceRoot, change.file));
   const succeeded: string[] = [];
   const failed: Array<{ file: string; error: string }> = [];
 
-  for (const change of changes) {
+  if (externalChanges.length > 0) {
+    for (const change of externalChanges) {
+      try {
+        await applyFileEdit(workspaceRoot, change);
+        succeeded.push(change.file);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        failed.push({ file: change.file, error: msg });
+      }
+    }
+  }
+
+  if (safeChanges.length === 0) {
+    return { succeeded, failed };
+  }
+
+  const edit = new vscode.WorkspaceEdit();
+  const touchedUris: vscode.Uri[] = [];
+
+  for (const change of safeChanges) {
     try {
-      await applyFileEdit(workspaceRoot, change);
+      const prepared = await buildWorkspaceEditForChange(workspaceRoot, change);
+      edit.set(prepared.fileUri, prepared.edit.get(prepared.fileUri) || []);
+      touchedUris.push(prepared.fileUri);
       succeeded.push(change.file);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       failed.push({ file: change.file, error: msg });
     }
+  }
+
+  if (touchedUris.length > 0) {
+    await applyWorkspaceEditAndSave(touchedUris, edit);
   }
 
   return { succeeded, failed };

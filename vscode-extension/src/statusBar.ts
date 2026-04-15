@@ -24,6 +24,8 @@ export interface StatusBarManager {
   dispose(): void;
 }
 
+import { HealthMonitor } from './healthMonitor.js';
+
 /**
  * Creates and returns a StatusBarManager.
  *
@@ -34,10 +36,20 @@ export function createStatusBar(models: ModelDefinition[]): StatusBarManager {
   item.command = 'codeAlchemist.selectModel';
 
   let isBusy = false;
+  const healthMonitor = HealthMonitor.getInstance();
 
   const update = (): void => {
     if (isBusy) {
       // Don't overwrite busy state
+      return;
+    }
+
+    const health = healthMonitor.status;
+    if (health === 'offline') {
+      item.text = `$(circle-slash) CodeAlchemist: Offline`;
+      item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+      item.tooltip = 'CodeAlchemist Backend is unreachable. Check your server or endpoint settings.';
+      item.show();
       return;
     }
 
@@ -56,6 +68,7 @@ export function createStatusBar(models: ModelDefinition[]): StatusBarManager {
     item.tooltip = [
       `Model: ${modelLabel}`,
       `Mode: ${agentMode ? 'Agent' : 'Chat'}`,
+      `Status: ${health.charAt(0).toUpperCase() + health.slice(1)}`,
       '',
       'Click to change model',
     ].join('\n');
@@ -63,6 +76,8 @@ export function createStatusBar(models: ModelDefinition[]): StatusBarManager {
     item.backgroundColor = undefined;
     item.show();
   };
+
+  const healthSub = healthMonitor.onStateChange(() => update());
 
   const setBusy = (busy: boolean): void => {
     isBusy = busy;
@@ -76,6 +91,7 @@ export function createStatusBar(models: ModelDefinition[]): StatusBarManager {
   };
 
   const dispose = (): void => {
+    healthSub.dispose();
     item.dispose();
   };
 

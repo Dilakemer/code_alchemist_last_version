@@ -7,6 +7,7 @@
  *  - Extracting and applying AI actions.
  */
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { getChatWebviewContent } from './chatView.js';
 import { getWorkspaceContext, getWorkspaceRoot } from './workspaceContext.js';
 import { sendAskRequest } from './apiClient.js';
@@ -14,6 +15,7 @@ import { parseAiActions, validateFilePath, applyFileEdit, applyMultiEdit } from 
 import { showDiffAndConfirm, showMultiDiffAndConfirm } from './diffPreview.js';
 import type { AskRequestPayload, AiAction } from './types.js';
 import type { WorkspaceContext } from './workspaceContext.js';
+import { HealthMonitor } from './healthMonitor.js';
 
 type SidebarModelOption = {
   value: string;
@@ -97,7 +99,7 @@ function buildQuestionWithOutputConstraints(question: string, activeFilePath?: s
   return `${q}\n\n[${rules.join(' ')}]`;
 }
 
-function buildLocalDateAppendFallbackAction(question: string, activeFilePath: string, workspaceRoot: string): AiAction | null {
+function buildLocalDateAppendFallbackAction(question: string, activeFilePath: string, workspaceRoot: string, workspaceFiles: any[]): AiAction | null {
   const q = question.trim();
   const qLower = q.toLowerCase();
   const asksDateAtEnd =
@@ -130,18 +132,65 @@ function buildLocalDateAppendFallbackAction(question: string, activeFilePath: st
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
 
+  let trust_id: string | undefined;
+  if (workspaceFiles) {
+      const match = workspaceFiles.find(f => f.path === filePath || (activeFilePath && f.path === activeFilePath.replace(/\\/g, '/')));
+      if (match) trust_id = match.trust_id;
+  }
+
   return {
     action: 'edit_file',
     file: filePath,
     operation: 'append',
     content: `${yyyy}-${mm}-${dd}`,
+    trust_id
   };
+}
+
+async function readFileContentIfExists(filePath: string): Promise<{ exists: boolean; content: string }> {
+  try {
+    const raw = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
+    return { exists: true, content: new TextDecoder('utf-8').decode(raw) };
+  } catch {
+    return { exists: false, content: '' };
+  }
 }
 
 export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'code-alchemist-chat';
 
   private _view?: vscode.WebviewView;
+  private _isAskInFlight = false;
+  private _activeRequestId: string = '';
+  private _currentPhase: 'IDLE' | 'REQUEST_INITIATED' | 'REQUEST_STREAMING' | 'REQUEST_COMPLETED' | 'REQUEST_FAILED' | 'REQUEST_CANCELLED' = 'IDLE';
+  private _trustMap: Map<string, string> = new Map(); // path -> trust_id
+
+  private _generateRequestId(): string {
+      return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7);
+  }
+
+  private _broadcastSnapshot() {
+      if (!this._view) return;
+      this._view.webview.postMessage({
+          command: 'STATE_SNAPSHOT',
+          requestId: this._activeRequestId,
+          phase: this._currentPhase,
+          timestamp: Date.now()
+      });
+  }
+
+  private _sendStateEvent(phase: typeof this._currentPhase, text?: string) {
+      if (!this._view) return;
+      this._currentPhase = phase;
+      this._view.webview.postMessage({
+          command: 'STATE_EVENT',
+          type: 'PHASE_TRANSITION',
+          requestId: this._activeRequestId,
+          phase: phase,
+          text: text,
+          timestamp: Date.now()
+      });
+  }
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -162,10 +211,33 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     };
 
     const cfg = vscode.workspace.getConfiguration('codeAlchemist');
-    const selectedModel = cfg.get<string>('model') || 'gemini-2.5-flash';
+    const configuredModel = (cfg.get<string>('model') || '').trim();
+    const selectedModel = this._resolveModel(configuredModel, 'auto');
     webviewView.webview.html = getChatWebviewContent(webviewView.webview, this._extensionUri, {
       selectedModel,
       modelOptions: SIDEBAR_MODEL_OPTIONS,
+    });
+
+    // Broadcast initial state snapshot immediately
+    this._broadcastSnapshot();
+
+    // ── Health Monitor Integration ─────────────────────────────
+    const healthMonitor = HealthMonitor.getInstance();
+    
+    // Push initial health state
+    webviewView.webview.postMessage({
+        command: 'HEALTH_STATUS',
+        status: healthMonitor.status,
+        timestamp: Date.now()
+    });
+
+    // Listen for health changes
+    const healthSub = healthMonitor.onStateChange((status) => {
+        webviewView.webview.postMessage({
+            command: 'HEALTH_STATUS',
+            status: status,
+            timestamp: Date.now()
+        });
     });
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
@@ -176,6 +248,12 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         case 'applyAction':
           await this._handleApplyAction(data.action);
           break;
+        case 'requestDeleteSession':
+          await this._handleDeleteSession(data.sessionId, data.title);
+          break;
+        case 'resolveAction':
+          await this._handleResolveAction(data.action, data.decision, data.actionId);
+          break;
         case 'setModel':
           await this._handleSetModel(data.model);
           break;
@@ -184,6 +262,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
     // Cleanup
     webviewView.onDidDispose(() => {
+      healthSub.dispose();
       this._view = undefined;
     });
   }
@@ -191,66 +270,112 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private async _handleAsk(text: string, modelOverride?: string) {
     if (!this._view) return;
 
-    const cfg = vscode.workspace.getConfiguration('codeAlchemist');
-    const apiKey = await this._readApiKey();
-    const endpoint = (cfg.get<string>('endpoint') || '').trim();
-    const configuredModel = cfg.get<string>('model') || 'gemini-2.5-flash';
-    const selectedModel = typeof modelOverride === 'string' && modelOverride.trim()
-      ? modelOverride.trim()
-      : configuredModel;
-    const hasModel = SIDEBAR_MODEL_OPTIONS.some((item) => item.value === selectedModel);
-    const model = hasModel ? selectedModel : configuredModel;
-    const agentMode = cfg.get<boolean>('agentMode') ?? true;
-    const projectId = cfg.get<number>('projectId') ?? 0;
-    const workspaceFileLimit = cfg.get<number>('workspaceFileLimit') ?? 20;
-
-    if (!apiKey || !endpoint) {
+    if (this._isAskInFlight) {
       this._view.webview.postMessage({
         command: 'stream_chunk',
-        text: '\n\n❌ API Key veya Endpoint eksik. Lütfen ayarlardan kontrol edin.',
+        requestId: this._activeRequestId,
+        text: '\n\n⏳ Önceki istek halen işleniyor. Lütfen tamamlanmasını bekleyin.',
       });
       return;
     }
 
-    const wsContext = await getWorkspaceContext(workspaceFileLimit);
+    this._isAskInFlight = true;
+    this._activeRequestId = this._generateRequestId();
+    this._sendStateEvent('REQUEST_INITIATED', 'Checking connection...');
 
-    const preparedQuestion = buildQuestionWithOutputConstraints(text, wsContext.filePath || undefined);
-
-    const payload: AskRequestPayload = {
-      question: preparedQuestion,
-      code: buildCodeContext(text, wsContext),
-      model,
-      agent_mode: agentMode,
-      allow_write_tools: true,
-      file_path: wsContext.filePath || '',
-      workspace_root: wsContext.workspaceRoot || '',
-      open_files: wsContext.openFiles || [],
-      workspace_files: wsContext.workspaceFiles,
-      client_context: {
-        source: 'vscode-extension-sidebar',
-        extension: 'code-alchemist',
-        capabilities: {
-          workspace_tools_preview: true,
-          diff_preview: true,
-          multi_edit: true,
-        },
-      },
-    };
-
-    if (Number.isFinite(projectId) && projectId > 0) {
-      payload.project_id = projectId;
+    // ── Immediate Health Check ─────────────────────────────────
+    const healthMonitor = HealthMonitor.getInstance();
+    await healthMonitor.checkNow();
+    
+    if (healthMonitor.status === 'offline') {
+        this._isAskInFlight = false;
+        this._view.webview.postMessage({
+            command: 'stream_chunk',
+            requestId: this._activeRequestId,
+            text: '\n\n❌ **Bağlantı Hatası:** Backend sunucusuna ulaşılamıyor. Lütfen yerel sunucunuzun (localhost:5000) çalıştığından emin olun.',
+        });
+        this._sendStateEvent('REQUEST_FAILED', 'Sunucu çevrimdışı.');
+        return;
     }
 
+    this._sendStateEvent('REQUEST_INITIATED', 'Working...');
+
     try {
-      this._view.webview.postMessage({
-        command: 'stream_chunk',
-        text: `[Debug] Request => endpoint: ${endpoint}, model: ${model}, agent_mode: ${String(agentMode)}\n`,
+      const cfg = vscode.workspace.getConfiguration('codeAlchemist');
+      const apiKey = await this._readApiKey();
+      const endpoint = (cfg.get<string>('endpoint') || '').trim();
+      const configuredModel = (cfg.get<string>('model') || '').trim();
+      const requestedModel = typeof modelOverride === 'string' ? modelOverride.trim() : '';
+      const model = this._resolveModel(requestedModel, this._resolveModel(configuredModel, 'auto'));
+      const agentMode = cfg.get<boolean>('agentMode') ?? true;
+      const projectId = cfg.get<number>('projectId') ?? 0;
+      const workspaceFileLimit = cfg.get<number>('workspaceFileLimit') ?? 20;
+
+      if (!apiKey || !endpoint) {
+        this._view.webview.postMessage({
+          command: 'stream_chunk',
+          requestId: this._activeRequestId,
+          text: '\n\n❌ API Key veya Endpoint eksik. Lütfen ayarlardan kontrol edin.',
+        });
+        this._sendStateEvent('REQUEST_FAILED', 'Ayarlar eksik.');
+        return;
+      }
+
+      const wsContext = await getWorkspaceContext(workspaceFileLimit);
+      
+      // Update Trust Map for recovery
+      this._trustMap.clear();
+      wsContext.workspaceFiles.forEach(f => {
+          this._trustMap.set(f.path, f.trust_id || '');
+          // Also store absolute path if available for recovery
+          const abs = path.resolve(wsContext.workspaceRoot, f.path);
+          this._trustMap.set(abs.replace(/\\/g, '/'), f.trust_id || '');
+          this._trustMap.set(abs, f.trust_id || '');
       });
 
+      const preparedQuestion = buildQuestionWithOutputConstraints(text, wsContext.filePath || undefined);
+
+      const payload: AskRequestPayload = {
+        question: preparedQuestion,
+        code: buildCodeContext(text, wsContext),
+        model,
+        agent_mode: agentMode,
+        allow_write_tools: true,
+        file_path: wsContext.filePath || '',
+        active_file: wsContext.filePath || '',
+        workspace_root: wsContext.workspaceRoot || '',
+        open_files: wsContext.openFiles || [],
+        workspace_files: wsContext.workspaceFiles,
+        client_context: {
+          source: 'vscode-extension-sidebar',
+          extension: 'code-alchemist',
+          capabilities: {
+            workspace_tools_preview: true,
+            diff_preview: true,
+            multi_edit: true,
+          },
+        },
+      };
+
+      if (Number.isFinite(projectId) && projectId > 0) {
+        payload.project_id = projectId;
+      }
+
       // Create a custom output-like stream for the webview
+      const rid = this._activeRequestId;
       const mockOutput = {
-        append: (chunk: string) => this._view?.webview.postMessage({ command: 'stream_chunk', text: chunk }),
-        appendLine: (line: string) => this._view?.webview.postMessage({ command: 'stream_chunk', text: line + '\n' }),
+        append: (chunk: string) => {
+            if (this._currentPhase !== 'REQUEST_STREAMING') {
+                this._sendStateEvent('REQUEST_STREAMING');
+            }
+            this._view?.webview.postMessage({ command: 'stream_chunk', requestId: rid, text: chunk });
+        },
+        appendLine: (line: string) => {
+            if (this._currentPhase !== 'REQUEST_STREAMING') {
+                this._sendStateEvent('REQUEST_STREAMING');
+            }
+            this._view?.webview.postMessage({ command: 'stream_chunk', requestId: rid, text: line + '\n' });
+        },
         clear: () => {},
         show: () => {},
         hide: () => {},
@@ -261,32 +386,12 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
       const result = await sendAskRequest(endpoint, apiKey, payload, mockOutput as any);
 
-      const meta = result.meta || {};
-      const selectedModel = String(meta['selected_model'] ?? meta['model'] ?? model);
-      const provider = String(meta['agent_provider'] ?? meta['provider'] ?? 'unknown');
-      const effectiveAgentMode = String(meta['agent_mode'] ?? agentMode);
-      const toolCapable = String(meta['agent_tool_capable'] ?? 'unknown');
-      const firstSseRaw = typeof meta['debug_first_sse_data_raw'] === 'string'
-        ? meta['debug_first_sse_data_raw']
-        : '';
-
-      this._view.webview.postMessage({
-        command: 'stream_chunk',
-        text: `\n[Debug] Response => selected_model: ${selectedModel}, provider: ${provider}, agent_mode: ${effectiveAgentMode}, tool_capable: ${toolCapable}\n`,
-      });
-
-      if (firstSseRaw) {
-        this._view.webview.postMessage({
-          command: 'stream_chunk',
-          text: `[Debug] First SSE data => ${firstSseRaw}\n`,
-        });
-      }
-
       // Handle Trace Steps (Render timeline in sidebar)
       if (result.agentTrace && Array.isArray(result.agentTrace)) {
         for (const step of result.agentTrace) {
           this._view.webview.postMessage({
             command: 'trace_step',
+            requestId: rid,
             tool: step.tool || 'Step',
             reasoning: step.reasoning || step.input || ''
           });
@@ -295,60 +400,223 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
       // Detect Actions
       const action = parseAiActions(result.raw);
-      const fallbackAction = action ?? buildLocalDateAppendFallbackAction(text, wsContext.filePath || '', wsContext.workspaceRoot || '');
+      const fallbackAction = action ?? buildLocalDateAppendFallbackAction(text, wsContext.filePath || '', wsContext.workspaceRoot || '', wsContext.workspaceFiles);
 
       if (fallbackAction) {
-        const shouldAutoApply = Boolean(action) && agentMode;
-
-        if (shouldAutoApply) {
-          this._view.webview.postMessage({
-            command: 'stream_chunk',
-            text: '\n[System]: Agent değişiklikleri alındı. Diff önizleme açılıyor...\n',
-          });
-          try {
-            await this._handleApplyAction(fallbackAction);
-          } catch (applyErr) {
-            const applyMsg = applyErr instanceof Error ? applyErr.message : String(applyErr);
-            this._view.webview.postMessage({
-              command: 'stream_chunk',
-              text: `\n[System]: Otomatik uygulama başarısız oldu: ${applyMsg}\n`,
-            });
-          }
-        }
-
         if (!action) {
           this._view.webview.postMessage({
             command: 'stream_chunk',
             text: '\n\n[System]: Model aksiyon formatında dönmedi. İstek için lokal güvenli düzenleme aksiyonu hazırlandı.\n',
           });
         }
-        if (!shouldAutoApply) {
-          this._view.webview.postMessage({
-            command: 'action_found',
-            action: fallbackAction
-          });
-        }
+
+        const reviewAction = await this._buildReviewAction(wsContext.workspaceRoot || '', fallbackAction);
+        this._view.webview.postMessage({
+          command: 'action_found',
+          requestId: rid,
+          action: reviewAction,
+        });
       }
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this._view.webview.postMessage({
         command: 'stream_chunk',
+        requestId: this._activeRequestId,
         text: `\n\n❌ Hata: ${msg}`,
       });
+      this._sendStateEvent('REQUEST_FAILED', 'İstek başarısız oldu.');
+    } finally {
+      this._isAskInFlight = false;
+      this._sendStateEvent('IDLE');
     }
   }
 
   private async _handleSetModel(modelValue: string) {
-    const nextModel = (modelValue || '').trim();
-    const isAllowed = SIDEBAR_MODEL_OPTIONS.some((item) => item.value === nextModel);
-    if (!isAllowed) {
+    const nextModel = this._resolveModel((modelValue || '').trim(), '');
+    if (!nextModel) {
       return;
     }
 
     await vscode.workspace
       .getConfiguration('codeAlchemist')
       .update('model', nextModel, vscode.ConfigurationTarget.Global);
+  }
+
+  private _resolveModel(candidate: string, fallback: string): string {
+    const normalizedCandidate = (candidate || '').trim();
+    if (normalizedCandidate && SIDEBAR_MODEL_OPTIONS.some((item) => item.value === normalizedCandidate)) {
+      return normalizedCandidate;
+    }
+
+    const normalizedFallback = (fallback || '').trim();
+    if (normalizedFallback && SIDEBAR_MODEL_OPTIONS.some((item) => item.value === normalizedFallback)) {
+      return normalizedFallback;
+    }
+
+    return SIDEBAR_MODEL_OPTIONS[0]?.value || 'auto';
+  }
+
+  private async _handleDeleteSession(sessionId: string, title?: string) {
+    if (!this._view || typeof sessionId !== 'string' || !sessionId.trim()) {
+        console.warn('CodeAlchemist: requestDeleteSession called with invalid sessionId or missing view.');
+        return;
+    }
+
+    const resolvedTitle = typeof title === 'string' && title.trim() ? title.trim() : 'Yeni Sohbet';
+    
+    console.log(`CodeAlchemist: Confirmation request for session delete: ${sessionId} (${resolvedTitle})`);
+
+    const choice = await vscode.window.showWarningMessage(
+      `"${resolvedTitle}" sohbetini silmek istiyor musunuz?`,
+      { modal: true },
+      'Sil',
+      'İptal',
+    );
+
+    if (choice !== 'Sil') {
+      return;
+    }
+
+    this._view.webview.postMessage({
+      command: 'session_deleted',
+      sessionId,
+    });
+  }
+
+  private async _buildReviewAction(workspaceRoot: string, action: AiAction): Promise<AiAction> {
+    if (action.action === 'message') {
+      return action;
+    }
+
+    if (action.action === 'multi_edit') {
+      const changes = await Promise.all(action.changes.map(async (change) => {
+        const absPath = path.resolve(workspaceRoot, change.file);
+        const original = await readFileContentIfExists(absPath);
+        return {
+          ...change,
+          originalContent: original.content,
+          originalExists: original.exists,
+        };
+      }));
+      return { action: 'multi_edit', changes };
+    }
+
+    if (action.action !== 'edit_file') {
+      return action;
+    }
+
+    // Trust Recovery: If trust_id is missing, try to restore from map
+    if (!action.trust_id) {
+        const recoveredId = this._trustMap.get(action.file) || this._trustMap.get(action.file.replace(/\\/g, '/'));
+        if (recoveredId) {
+            action.trust_id = recoveredId;
+        }
+    }
+
+    const absPath = path.resolve(workspaceRoot, action.file);
+    const original = await readFileContentIfExists(absPath);
+    return {
+      ...action,
+      originalContent: original.content,
+      originalExists: original.exists,
+    };
+  }
+
+  private async _handleResolveAction(action: AiAction, decision: string, actionId?: string) {
+    if (!this._view) return;
+
+    if (decision === 'reject') {
+      this._view.webview.postMessage({
+        command: 'action_result',
+        actionId,
+        status: 'rejected',
+        message: 'Reddedildi',
+      });
+      return;
+    }
+
+    if (action.action !== 'edit_file') {
+      this._view.webview.postMessage({
+        command: 'action_result',
+        actionId,
+        status: 'error',
+        message: 'Bu aksiyon türü doğrudan kabul için desteklenmiyor.',
+      });
+      return;
+    }
+
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      this._view.webview.postMessage({
+        command: 'action_result',
+        actionId,
+        status: 'error',
+        message: 'Workspace bulunamadı.',
+      });
+      return;
+    }
+
+    const validationError = validateFilePath(workspaceRoot, action.file, action.trust_id);
+    if (validationError) {
+      this._view.webview.postMessage({
+        command: 'action_result',
+        actionId,
+        status: 'error',
+        message: validationError,
+      });
+      return;
+    }
+
+    try {
+      const isUndo = decision === 'undo';
+      const revertChange = isUndo
+        ? {
+            file: action.file,
+            content: typeof action.originalContent === 'string' ? action.originalContent : '',
+            operation: 'replace',
+            trust_id: action.trust_id,
+            trust_scope: action.trust_scope,
+          }
+        : {
+            file: action.file,
+            content: action.content,
+            operation: action.operation,
+            trust_id: action.trust_id,
+            trust_scope: action.trust_scope,
+          };
+
+      if (isUndo && action.originalExists === false) {
+        const absPath = path.resolve(workspaceRoot, action.file);
+        await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { recursive: false, useTrash: false });
+        this._view.webview.postMessage({
+          command: 'action_result',
+          actionId,
+          status: 'reverted',
+          message: `Geri alındı: ${action.file}`,
+        });
+        return;
+      }
+
+      await applyFileEdit(workspaceRoot, {
+        ...revertChange,
+      });
+
+      this._view.webview.postMessage({
+        command: 'action_result',
+        actionId,
+        status: isUndo ? 'reverted' : 'applied',
+        message: isUndo ? `Geri alındı: ${action.file}` : `Uygulandı: ${action.file}`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._view.webview.postMessage({
+        command: 'action_result',
+        actionId,
+        status: 'error',
+        message: msg,
+      });
+    }
   }
 
   private async _handleApplyAction(action: AiAction) {
@@ -404,6 +672,8 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       } catch (err) {
         vscode.window.showErrorMessage(`CodeAlchemist: Uygulanırken hata oluştu - ${String(err)}`);
       }
+    } else {
+      vscode.window.showInformationMessage(`CodeAlchemist: Değişiklik reddedildi - ${action.file}`);
     }
   }
 

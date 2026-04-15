@@ -197,6 +197,7 @@ export async function sendAskRequest(
   output: vscode.OutputChannel,
 ): Promise<AskResult> {
   // ── Send request ────────────────────────────────────────────────
+  output.appendLine(`[API] Requesting: ${endpoint}`);
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -210,7 +211,7 @@ export async function sendAskRequest(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Could not reach backend: ${msg}`);
+    throw new Error(`Could not reach backend (${endpoint}): ${msg}`);
   }
 
   output.appendLine(`Status: ${res.status} ${res.statusText}`);
@@ -289,4 +290,63 @@ export async function sendAskRequest(
     agentChangedFiles: data.agent_changed_files ?? [],
     streamed: false,
   };
+}
+
+/**
+ * Lightweight ping to the root /health endpoint.
+ * No auth required, very fast.
+ */
+export async function pingBackend(endpoint: string): Promise<boolean> {
+  // Normalize endpoint to root if it ends with /v1/ask
+  const root = endpoint.replace(/\/v1\/ask\/?$/, '');
+  const healthUrl = `${root}/health`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout (increased for Render wake-up)
+
+    const res = await fetch(healthUrl, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detailed status check from /v1/status.
+ * Requires API Key.
+ */
+import { BackendStatusResponse } from './types.js';
+
+export async function getBackendStatus(
+  endpoint: string,
+  apiKey: string,
+): Promise<BackendStatusResponse> {
+  const root = endpoint.replace(/\/v1\/ask\/?$/, '');
+  const statusUrl = `${root}/v1/status`;
+
+  try {
+    const res = await fetch(statusUrl, {
+      method: 'GET',
+      headers: {
+        'X-API-Key': apiKey,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      if (res.status === 401) {
+        return { status: 'unauthorized', error: 'Invalid API Key' };
+      }
+      return { status: 'error', error: `HTTP ${res.status}` };
+    }
+
+    return await res.json() as BackendStatusResponse;
+  } catch (err) {
+    return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+  }
 }

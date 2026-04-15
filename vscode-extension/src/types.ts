@@ -23,6 +23,7 @@ export interface AskRequestPayload {
   agent_mode: boolean;
   allow_write_tools?: boolean;
   file_path: string;
+  active_file?: string;
   workspace_root: string;
   open_files: string[];
   workspace_files: WorkspaceFilePayload[];
@@ -76,6 +77,7 @@ export interface AgentChangedFile {
   diff?: string;
   trust_id?: string;
   trust_scope?: string;
+  render_url?: string;
   [key: string]: unknown;
 }
 
@@ -88,11 +90,14 @@ export interface FileChange {
   operation?: string;
   trust_id?: string;
   trust_scope?: string;
+  originalContent?: string;
+  originalExists?: boolean;
+  render_url?: string;
 }
 
 /** Discriminated union of AI-driven actions. */
 export type AiAction =
-  | { action: 'edit_file'; file: string; content: string; operation?: string; trust_id?: string; trust_scope?: string }
+  | { action: 'edit_file'; file: string; content: string; operation?: string; trust_id?: string; trust_scope?: string; originalContent?: string; originalExists?: boolean; render_url?: string }
   | { action: 'multi_edit'; changes: FileChange[] }
   | { action: 'message'; text: string };
 
@@ -118,11 +123,33 @@ export interface SseChunk {
   agent_changed_total?: number;
   agent_trace_truncated?: boolean;
   agent_changed_truncated?: boolean;
+  render_url?: string;
 }
+
 
 // ── Model Definition ────────────────────────────────────────────────
 
 export interface ModelDefinition {
   value: string;
   label: string;
+}
+
+// ── Health Status ──────────────────────────────────────────────────
+
+export type BackendHealthStatus = 'online' | 'offline' | 'connecting';
+
+export interface BackendPingResponse {
+  status: 'ok';
+  timestamp: number;
+  version: string;
+}
+
+export interface BackendStatusResponse {
+  status: 'ok' | 'error' | 'unauthorized';
+  version?: string;
+  user?: string;
+  auth_state?: 'authenticated' | 'unauthorized';
+  model_config?: Record<string, string>;
+  server_time?: string;
+  error?: string;
 }

@@ -24,6 +24,7 @@ import { parseAiActions, applyFileEdit, applyMultiEdit, validateFilePath } from 
 import { showDiffAndConfirm, showMultiDiffAndConfirm, getPreviewProviderDisposable, disposePreviewProvider } from './diffPreview.js';
 import { createStatusBar } from './statusBar.js';
 import { CodeAlchemistChatProvider } from './chatProvider.js';
+import { HealthMonitor } from './healthMonitor.js';
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -321,6 +322,7 @@ export function activate(context: vscode.ExtensionContext) {
   // ── Status Bar ──────────────────────────────────────────────────
   const statusBar = createStatusBar(AVAILABLE_MODELS);
   context.subscriptions.push(statusBar.item);
+  HealthMonitor.getInstance().setOutput(output);
 
   // ── Sidebar Chat Provider ─────────────────────────────────────
   const chatProvider = new CodeAlchemistChatProvider(context.extensionUri, context, output);
@@ -477,6 +479,7 @@ export function activate(context: vscode.ExtensionContext) {
       agent_mode: agentMode,
       allow_write_tools: true,
       file_path: wsContext.filePath,
+      active_file: wsContext.filePath,
       workspace_root: wsContext.workspaceRoot,
       open_files: wsContext.openFiles,
       workspace_files: wsContext.workspaceFiles,

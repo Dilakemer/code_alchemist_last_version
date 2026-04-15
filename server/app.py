@@ -34,7 +34,7 @@ from flask_jwt_extended import (
 )
 from passlib.hash import pbkdf2_sha256
 from google import genai as google_genai
-from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase
+from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey
 from anthropic import Anthropic, APIError
 from openai import OpenAI
 import stripe
@@ -666,6 +666,60 @@ def _clip_agent_metadata(trace, changed_files, max_trace=10, max_changed=20):
         'trace_truncated': len(safe_trace) > max_trace,
         'changed_truncated': len(safe_changed) > max_changed,
     }
+
+
+# Lightweight in-memory state for external tool conversations (VS Code extension, API clients).
+_external_conversation_state = {}
+
+
+def _normalise_path_for_match(value):
+    return str(value or '').replace('\\', '/').strip().lower()
+
+
+def _conversation_state_key(user_id, conversation_id):
+    conv_part = str(conversation_id).strip() if conversation_id is not None else 'default'
+    return f"{int(user_id)}:{conv_part}"
+
+
+def _is_short_confirmation_intent(text):
+    q = str(text or '').strip().lower()
+    if not q:
+        return False
+
+    compact = re.sub(r'\s+', ' ', q)
+    compact = re.sub(r'[!?.,;:]+$', '', compact).strip()
+
+    explicit = {
+        'değiştir', 'degistir', 'o zaman değiştir', 'o zaman degistir',
+        'uygula', 'apply', 'apply changes', 'ok', 'ok yap', 'tamam',
+        'evet', 'do it', 'change it', 'yap', 'yap gitsin', 'onayla',
+    }
+    if compact in explicit:
+        return True
+
+    # Keep this narrow to avoid false positives on regular questions.
+    words = compact.split()
+    if len(words) <= 4 and any(token in compact for token in ('değiştir', 'degistir', 'uygula', 'apply')):
+        return True
+
+    return False
+
+
+def _resolve_workspace_file_content(workspace_files, active_file):
+    target_norm = _normalise_path_for_match(active_file)
+    if not target_norm:
+        return '', ''
+
+    for item in (workspace_files or []):
+        path = str(item.get('path') or '').strip()
+        content = str(item.get('content') or '')
+        path_norm = _normalise_path_for_match(path)
+        if not path_norm:
+            continue
+        if path_norm == target_norm or path_norm.endswith('/' + target_norm) or target_norm.endswith('/' + path_norm):
+            return path, content
+
+    return '', ''
 
 # Load environment variables
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -8484,6 +8538,8 @@ def external_ask():
             data = {}
     question = data.get('question', '')
     code = data.get('code', '')
+    conversation_id = data.get('conversation_id')
+    active_file = str(data.get('active_file') or data.get('file_path') or '').strip()
     requested_model = str(data.get('model') or GEMINI_MODEL.replace('models/', '')).strip()
     if requested_model == 'auto':
         requested_model = GEMINI_MODEL.replace('models/', '')
@@ -8498,6 +8554,35 @@ def external_ask():
     user_id = key_record.user_id
     user = User.query.get(user_id)
     prefs = json.loads(user.preferences) if user and user.preferences else {}
+
+    state_key = _conversation_state_key(user_id, conversation_id)
+    state = _external_conversation_state.get(state_key, {})
+
+    if active_file:
+        state['active_file'] = active_file
+        state['last_action'] = 'active_file_supplied'
+
+    carried_active_file = str(state.get('active_file') or '').strip()
+    if not active_file and carried_active_file:
+        active_file = carried_active_file
+
+    if _is_short_confirmation_intent(question):
+        target_file = active_file or carried_active_file
+        if target_file:
+            question = (
+                f"{question}\n\n"
+                f"[System execution instruction: User provided a short confirmation intent. "
+                f"Use the last active file as target: {target_file}. "
+                f"Proceed directly with modifications for this file and do not ask follow-up questions.]"
+            )
+
+            if not code:
+                resolved_path, resolved_content = _resolve_workspace_file_content(workspace_files, target_file)
+                if resolved_content:
+                    code = f"Active file ({resolved_path}) content:\n{resolved_content}"
+
+            state['active_file'] = target_file
+            state['last_action'] = 'confirmation_intent_applied'
 
     project_for_agent = None
     if payload_project_id:
@@ -8547,6 +8632,19 @@ def external_ask():
         gemini_client=getattr(genai, '_client', None),
     )
     clipped_agent_meta = _clip_agent_metadata(agent_result.trace, agent_result.changed_files)
+
+    if agent_result and isinstance(agent_result.changed_files, list) and agent_result.changed_files:
+        first_changed = agent_result.changed_files[0] if isinstance(agent_result.changed_files[0], dict) else {}
+        changed_path = str(first_changed.get('path') or '').strip()
+        if changed_path:
+            state['active_file'] = changed_path
+            state['last_action'] = 'patch_generated'
+
+    if active_file and not state.get('active_file'):
+        state['active_file'] = active_file
+
+    state['updated_at'] = datetime.datetime.utcnow().isoformat()
+    _external_conversation_state[state_key] = state
     
     wants_stream = 'text/event-stream' in (request.headers.get('Accept') or '').lower()
     
@@ -8560,6 +8658,7 @@ def external_ask():
                 'agent_project_id': project_for_agent.id if project_for_agent else None,
                 'agent_workspace_file_count': len(workspace_files or []),
                 'agent_tool_capable': bool(agent_result.tool_capable),
+                'active_file': state.get('active_file') if isinstance(state, dict) else None,
             }
             yield f"data: {json.dumps(meta)}\n\n"
             for chunk in stream_text_chunks(agent_result.text or ''):
@@ -8584,6 +8683,7 @@ def external_ask():
             'agent_provider': provider_key,
             'agent_project_id': project_for_agent.id if project_for_agent else None,
             'agent_tool_capable': bool(agent_result.tool_capable),
+            'active_file': state.get('active_file') if isinstance(state, dict) else None,
             'agent_trace': clipped_agent_meta['trace'],
             'agent_changed_files': clipped_agent_meta['changed_files'],
             'agent_trace_total': clipped_agent_meta['trace_total'],
@@ -8591,6 +8691,36 @@ def external_ask():
             'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
             'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
         })
+
+@app.route('/v1/status', methods=['GET'])
+def external_status():
+    """
+    Status endpoint for VS Code Extension.
+    Requires X-API-Key for authentication.
+    Returns detailed system status and user context.
+    """
+    api_key_header = request.headers.get('X-API-Key')
+    if not api_key_header:
+        return jsonify({'error': 'X-API-Key header is missing'}), 401
+        
+    key_record = ApiKey.query.filter_by(key=api_key_header, is_active=True).first()
+    if not key_record:
+        return jsonify({'status': 'unauthorized', 'error': 'Invalid or revoked API Key'}), 401
+    
+    user = User.query.get(key_record.user_id)
+    
+    return jsonify({
+        'status': 'ok',
+        'version': '1.0.0',
+        'user': user.email if user else 'unknown',
+        'auth_state': 'authenticated',
+        'model_config': {
+            'gemini': GEMINI_MODEL,
+            'openai': OPENAI_MODEL,
+            'anthropic': ANTHROPIC_MODEL
+        },
+        'server_time': datetime.datetime.utcnow().isoformat()
+    })
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')

@@ -138,6 +138,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # ── Health check ──────────────────────────────────────────────────────
+    @app.get("/health", tags=["System"])
+    async def fast_health_check():
+        import time
+        return {"status": "ok", "timestamp": time.time(), "version": "1.0.0"}
+
     # ── CORS ──────────────────────────────────────────────────────────────
     allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
     app.add_middleware(

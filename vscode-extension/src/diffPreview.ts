@@ -193,7 +193,7 @@ export async function showDiffAndConfirm(
   // ── Ask user to approve ───────────────────────────────────────
   const choice = await vscode.window.showInformationMessage(
     `Apply AI changes to ${filePath}?`,
-    { modal: false },
+    { modal: true },
     { title: '✅ Apply', action: 'apply' },
     { title: '❌ Reject', action: 'reject' },
   );
@@ -277,7 +277,7 @@ export async function showMultiDiffAndConfirm(
     // Ask user
     const choice = await vscode.window.showInformationMessage(
       `${counter} Apply changes to ${change.file}?`,
-      { modal: false },
+      { modal: true },
       { title: '✅ Apply', action: 'apply' },
       { title: '❌ Skip', action: 'skip' },
       { title: '✅✅ Apply All', action: 'apply_all' },

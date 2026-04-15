@@ -42,6 +42,7 @@ def _register_change(
     language: str | None = None,
     trust_id: str | None = None,
     trust_scope: str | None = None,
+    render_url: str | None = None,
 ) -> None:
     changed = getattr(ctx, "changed_files", None)
     if isinstance(changed, list):
@@ -54,6 +55,7 @@ def _register_change(
                 "language": language or "plaintext",
                 "trust_id": trust_id,
                 "trust_scope": trust_scope,
+                "render_url": render_url,
             }
         )
 
@@ -156,12 +158,35 @@ async def _read_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
 
 # ── write_file ────────────────────────────────────────────────────────────────
 
+import os
+
+def _generate_render_url(path: str) -> str | None:
+    """
+    Generate a preview URL for a file if it is an HTML or similar previewable file.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in [".html", ".htm", ".svg"]:
+        return None
+    
+    # Try to get the public host from environment, fallback to localhost if not set
+    # User's actual link: https://code-alchemist-last-version.onrender.com
+    base_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("PREVIEW_BASE_URL") or "http://localhost:5173"
+    
+    # If the base URL doesn't have a protocol, assume https for Render or http for local
+    if not base_url.startswith("http"):
+        base_url = f"https://{base_url}"
+        
+    return f"{base_url.rstrip('/')}/{_norm(path)}"
+
+
 async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     path = _norm(args.get("path") or "")
     content = str(args.get("content") or "").replace("\x00", "")
     language = str(args.get("language") or "plaintext")
     if not path:
         return {"ok": False, "error": "path is required"}
+
+    render_url = _generate_render_url(path)
 
     project = _get_project(ctx)
     if project is not None:
@@ -190,11 +215,13 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
                 persisted=True,
                 content=content,
                 language=pf.language or language,
+                render_url=render_url,
             )
             return {
                 "ok": True, "scope": "project",
                 "path": _norm(pf.name), "language": pf.language,
                 "size": len(pf.content or ""), "created": created, "persisted": True,
+                "render_url": render_url,
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -220,11 +247,13 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
         language=language,
         trust_id=ws[path].get("trust_id"),
         trust_scope=ws[path].get("trust_scope"),
+        render_url=render_url,
     )
     return {
         "ok": True, "scope": "workspace",
         "path": path, "language": language,
         "size": len(content), "created": created, "persisted": False,
+        "render_url": render_url,
         "message": "Updated workspace snapshot. Apply changes locally on the client.",
     }
 

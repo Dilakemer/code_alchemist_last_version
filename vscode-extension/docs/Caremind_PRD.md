@@ -45,24 +45,27 @@ Backend ve veritabanı bulunmamaktadır. Tüm veriler cihazda AsyncStorage'da JS
 
 **Anahtar:** `'araclar'` → Araç nesnelerinden oluşan JSON dizisi.
 
-| Alan | Tip | Açıklama |
-|---|---|---|
-| `id` | UUID | Aracın eşsiz kimliği |
-| `plaka` | string | Araç plakası |
-| `marka` | string | Araç markası |
-| `model` | string | Araç modeli |
-| `yil` | number | Model yılı |
-| `muayeneTarihi` | date | Muayene bitiş tarihi |
-| `sigortaTarihi` | date | Trafik sigortası bitiş tarihi |
-| `kaskoTarihi` | date | Kasko bitiş tarihi |
-| `bakimTarihi` | date | Periyodik bakım tarihi |
-| `bildirimler.gun60` | boolean | 60 gün önce bildirim |
-| `bildirimler.gun30` | boolean | 30 gün önce bildirim |
-| `bildirimler.gun7` | boolean | 7 gün önce bildirim |
-| `bildirimler.gun1` | boolean | 1 gün önce bildirim |
-| `bildirimler.saat` | string | Bildirimlerin gönderileceği saat (HH:mm) |
+
+| Alan                | Tip     | Açıklama                                 |
+| ------------------- | ------- | ---------------------------------------- |
+| `id`                | UUID    | Aracın eşsiz kimliği                     |
+| `plaka`             | string  | Araç plakası                             |
+| `marka`             | string  | Araç markası                             |
+| `model`             | string  | Araç modeli                              |
+| `yil`               | number  | Model yılı                               |
+| `muayeneTarihi`     | date    | Muayene bitiş tarihi                     |
+| `sigortaTarihi`     | date    | Trafik sigortası bitiş tarihi            |
+| `kaskoTarihi`       | date    | Kasko bitiş tarihi                       |
+| `bakimTarihi`       | date    | Periyodik bakım tarihi                   |
+| `bildirimler.gun60` | boolean | 60 gün önce bildirim                     |
+| `bildirimler.gun30` | boolean | 30 gün önce bildirim                     |
+| `bildirimler.gun7`  | boolean | 7 gün önce bildirim                      |
+| `bildirimler.gun1`  | boolean | 1 gün önce bildirim                      |
+| `bildirimler.saat`  | string  | Bildirimlerin gönderileceği saat (HH:mm) |
+
 
 **Bildirim Planlama Kuralları:**
+
 - Araç kaydedildiğinde veya güncellendiğinde tüm eski bildirimler iptal edilip yenileri planlanır.
 - Her tarih kategorisi için bağımsız ID üretilir: `plaka + kategori + gun`.
 - Geçmiş tarihler için bildirim planlanmaz; ana ekranda 🔴 kırmızı uyarı gösterilir.
@@ -103,6 +106,7 @@ Genel bildirim saati tercihi, uygulama sürüm bilgisi ve geri bildirim linki.
 Hikaye: Bir araç sahibi olarak, aracımın bilgilerini ve kritik tarihlerini hızlıca kaydedebilmek istiyorum.
 
 Kabul Kriterleri:
+
 - **Given:** Kullanıcı Ana Ekran'daki "+" butonuna basmıştır.
 - **When:** Plaka, marka ve en az bir tarih alanı doldurulup "Kaydet"e basıldığında;
 - **Then:** Araç AsyncStorage'a yazılmalı ve Ana Ekran'da renk durum göstergesiyle listelenmeli.
@@ -114,6 +118,7 @@ Kabul Kriterleri:
 Hikaye: Aileme ait birden fazla aracın takibini tek uygulamadan yapmak istiyorum.
 
 Kabul Kriterleri:
+
 - **Given:** Kullanıcının AsyncStorage'da en az bir aracı mevcuttur.
 - **When:** "+" butonuyla yeni bir araç eklediğinde;
 - **Then:** Ana Ekran'da her araç ayrı kart olarak listelenmelidir.
@@ -128,6 +133,7 @@ Kabul Kriterleri:
 Hikaye: Muayene veya sigorta tarihim yaklaştığında, uygulamayı açmama gerek kalmadan bildirim almak istiyorum.
 
 Kabul Kriterleri:
+
 - **Given:** Kullanıcının muayene tarihi 30 gün sonrasına ayarlanmıştır.
 - **When:** Sistemde tam 30 gün kala expo-notifications tarafından planlanan bildirim tetiklendiğinde;
 - **Then:** Cihazda şu formatta bildirim görünmelidir: `Toyota Corolla — Muayene 30 gün kaldı`
@@ -139,6 +145,7 @@ Kabul Kriterleri:
 Hikaye: Hangi aracım için hangi aralıklarda bildirim alacağımı kendim seçmek istiyorum.
 
 Kabul Kriterleri:
+
 - **Given:** Kullanıcı Araç Düzenle ekranındadır.
 - **When:** 60/30/7/1 gün toggle'larından birini kapatıp kaydederse;
 - **Then:** İlgili bildirim AsyncStorage'dan silinmeli ve cihazdan iptal edilmelidir.
@@ -153,6 +160,7 @@ Kabul Kriterleri:
 Hikaye: Sigortam bitmek üzereyken, uygulamanın içinden kolayca yenileme teklifi alabilmek istiyorum.
 
 Kabul Kriterleri:
+
 - **Given:** Kullanıcının trafik sigortası tarihi 30 gün içindedir.
 - **When:** "Teklif Al" butonuna bastığında;
 - **Then:** Sigorta teklif ekranı açılmalı ve partner URL UTM parametresiyle WebView'de yüklenmelidir: `source=arachatir&lead_id={kullaniciId}`
@@ -170,3 +178,5 @@ Kabul Kriterleri:
 - Widget desteği (iOS / Android ana ekran).
 - Filo yönetimi (10+ araç, kurumsal segment).
 - Motosiklet desteği.
+
+up school 15 nisan 2026
