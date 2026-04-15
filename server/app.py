@@ -1157,8 +1157,6 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             'gemini-2.5-flash': 'gemini-2.5-flash',
             'gemma-4-31b': 'gemma-4-31b-it',
             'gemma-4-31b-it': 'gemma-4-31b-it',
-            'gemma-4-12b': 'gemma-4-12b-it',
-            'gemma-4-12b-it': 'gemma-4-12b-it',
             'gemma-4-26b': 'gemma-4-26b-a4b-it',
             'gemma-4-26b-a4b-it': 'gemma-4-26b-a4b-it',
         }
@@ -1184,7 +1182,9 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             f"{style_prompt}"
             "If the user asks a question about code, software, or a technical topic, "
             "provide detailed technical assistance and give code examples if necessary. "
-            "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
+            "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
+            "For greetings or small talk, respond naturally in 1-2 short sentences only. "
+            "Never output internal analysis or instruction labels like Input, Role, Language Constraint, or Capabilities Constraint."
         )
         
         if github_context:
@@ -1199,7 +1199,9 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         f"{style_prompt}"
         "If the user asks a question about code, software, or a technical topic, "
         "provide detailed technical assistance and give code examples if necessary. "
-        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
+        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
+        "For greetings or small talk, respond naturally in 1-2 short sentences only. "
+        "Never output internal analysis or instruction labels like Input, Role, Language Constraint, or Capabilities Constraint. "
         "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)) unless the system has provided them. If the user asks for an image and you are responding as text, explain that you are a text model or ask them to be more specific to trigger the image generator."
     )
 
@@ -1443,7 +1445,9 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
         f"{persona_info}"
         f"{style_prompt}"
         "provide detailed technical assistance and give code examples if necessary (in Markdown code block). "
-        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
+        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
+        "For greetings or small talk, respond naturally in 1-2 short sentences only. "
+        "Never output internal analysis or instruction labels like Input, Role, Language Constraint, or Capabilities Constraint. "
         "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)). If the user asks for an image, explain that you are a text model."
     )
 
@@ -1597,7 +1601,9 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
         f"{style_prompt}"
         "If the user asks a question about code, software, or a technical topic, "
         "provide detailed technical assistance and give code examples if necessary (in Markdown code block). "
-        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish)."
+        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
+        "For greetings or small talk, respond naturally in 1-2 short sentences only. "
+        "Never output internal analysis or instruction labels like Input, Role, Language Constraint, or Capabilities Constraint."
     )
     
     if github_context:

@@ -16,7 +16,6 @@ const MODEL_PRICING = {
   'gemini-3-flash-preview': { input: 0.00, output: 0.00 },
   'gemini-2.5-flash-lite': { input: 0.00, output: 0.00 },
   'gemini-3.1-flash-lite-preview': { input: 0.00, output: 0.00 },
-  'gemma-4-12b-it': { input: 0.00, output: 0.00 },
   'text-embedding-004': { input: 0.00, output: 0.00 },
   'dall-e-3': { cost_per_img: 0.040 },
   'Unknown': { input: 0, output: 0 }

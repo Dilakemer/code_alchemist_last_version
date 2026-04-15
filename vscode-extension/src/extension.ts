@@ -36,7 +36,6 @@ const AVAILABLE_MODELS: ModelDefinition[] = [
   { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (Fast)' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (New)' },
   { value: 'gemma-4-26b-a4b-it', label: 'Gemma 4 26B A4B IT (Agent)' },
-  { value: 'gemma-4-12b-it', label: 'Gemma 4 12B IT (Agent)' },
   { value: 'gemma-4-31b-it', label: 'Gemma 4 31B IT (Agent)' },
   { value: 'gpt-4o', label: 'GPT-4o (OpenAI)' },
   { value: 'claude-sonnet-4-5-20250929', label: 'Claude 4.5 Sonnet' },

@@ -9,7 +9,6 @@ const MODELS = [
   { value: 'gemini-3.1-flash-lite-preview', label: '✦ Gemini 3.1 Flash Lite (Preview)' },
   { value: 'gemini-2.5-flash', label: '✦ Gemini 2.5 Flash' },
   { value: 'gemini-2.5-flash-lite', label: '✦ Gemini Flash Lite' },
-  { value: 'gemma-4-12b-it', label: '✦ Gemma 4 12B IT' },
   { value: 'gemma-4-26b-a4b-it', label: '✦ Gemma 4 26B A4B IT' },
   { value: 'gemma-4-31b-it', label: '✦ Gemma 4 31B IT' },
   { value: 'gpt-4o', label: '◎ GPT-4o' },
