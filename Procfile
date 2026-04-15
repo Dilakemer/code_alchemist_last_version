@@ -1,1 +1,1 @@
-web: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 90
+web: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 1 --loop asyncio --timeout-keep-alive 90

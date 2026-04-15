@@ -1,5 +1,5 @@
 # Primary: Uvicorn → FastAPI (mounts Flask via WsgiToAsgi for backwards compat)
-web: uvicorn backend.app_factory:create_app --factory --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 90
+web: uvicorn backend.app_factory:create_app --factory --host 0.0.0.0 --port $PORT --workers 1 --loop asyncio --timeout-keep-alive 90
 
 # Fallback (un-comment if asgiref is unavailable in your Render build):
 # web: gunicorn --bind 0.0.0.0:$PORT --worker-class gthread --threads 8 -w 1 --timeout 120 app:app

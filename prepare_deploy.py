@@ -77,7 +77,7 @@ def main():
     procfile_path = os.path.join(root_dir, 'Procfile')
     with open(procfile_path, 'w') as f:
         # Keep import path stable when Render runs from repository root.
-        f.write('web: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 90')
+        f.write('web: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 1 --loop asyncio --timeout-keep-alive 90')
     print("✅ Procfile created.")
     
     # 5. Create render.yaml (Optional Blueprint)
@@ -93,7 +93,7 @@ def main():
     print("4. Settings:")
     print("   - Root Directory: . (default)")
     print("   - Build Command: pip install -r server/requirements.txt")
-    print("   - Start Command: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 90")
+    print("   - Start Command: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 1 --loop asyncio --timeout-keep-alive 90")
     print("   - Environment Variables: Add GEMINI_API_KEY, JWT_SECRET_KEY, etc.")
 
 if __name__ == "__main__":
