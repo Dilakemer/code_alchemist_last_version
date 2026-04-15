@@ -801,6 +801,10 @@ import mimetypes
 mimetypes.add_type('application/javascript', '.js')
 mimetypes.add_type('text/css', '.css')
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok', 'version': '1.0.0-legacy'}), 200
+
 CORS(app, resources={r"/*": {"origins": "*"}})
 db.init_app(app)
 jwt = JWTManager(app)

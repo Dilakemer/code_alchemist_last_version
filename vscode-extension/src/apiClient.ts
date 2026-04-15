@@ -16,6 +16,38 @@ import type {
   AgentChangedFile,
 } from './types.js';
 
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function deriveEndpointRoot(endpoint: string): string {
+  const trimmed = (endpoint || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const cleanPath = stripTrailingSlash(parsed.pathname);
+    if (/\/(v1|api)\/ask$/i.test(cleanPath)) {
+      parsed.pathname = cleanPath.replace(/\/(v1|api)\/ask$/i, '') || '/';
+    }
+    return stripTrailingSlash(parsed.toString());
+  } catch {
+    return stripTrailingSlash(trimmed.replace(/\/(v1|api)\/ask\/?$/i, ''));
+  }
+}
+
+async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { method: 'GET', signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ── Response Envelope ───────────────────────────────────────────────
 
 /** Everything extracted from an /v1/ask response (JSON or SSE). */
@@ -297,23 +329,39 @@ export async function sendAskRequest(
  * No auth required, very fast.
  */
 export async function pingBackend(endpoint: string): Promise<boolean> {
-  // Normalize endpoint to root if it ends with /v1/ask
-  const root = endpoint.replace(/\/v1\/ask\/?$/, '');
-  const healthUrl = `${root}/health`;
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout (increased for Render wake-up)
-
-    const res = await fetch(healthUrl, {
-      method: 'GET',
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    return res.ok;
-  } catch {
+  const root = deriveEndpointRoot(endpoint);
+  if (!root) {
     return false;
   }
+
+  const candidates = [
+    `${root}/health`,
+    `${root}/v1/status`,
+    `${root}/v1/ask`,
+    `${root}/api/ask`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const res = await fetchWithTimeout(url, 10000);
+      // Auth or method errors still prove server is reachable and route exists.
+      if (res.ok || res.status === 401 || res.status === 403 || res.status === 405) {
+        return true;
+      }
+      // Continue trying alternatives when a route is not found.
+      if (res.status === 404) {
+        continue;
+      }
+      // Any other HTTP response still indicates backend host is reachable.
+      if (res.status >= 100 && res.status <= 599) {
+        return true;
+      }
+    } catch {
+      // Try next probe URL.
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -326,7 +374,10 @@ export async function getBackendStatus(
   endpoint: string,
   apiKey: string,
 ): Promise<BackendStatusResponse> {
-  const root = endpoint.replace(/\/v1\/ask\/?$/, '');
+  const root = deriveEndpointRoot(endpoint);
+  if (!root) {
+    return { status: 'error', error: 'Endpoint is empty' };
+  }
   const statusUrl = `${root}/v1/status`;
 
   try {

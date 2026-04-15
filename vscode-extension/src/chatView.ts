@@ -32,6 +32,15 @@ function escapeForInlineJson(value: unknown): string {
     return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
+function escapeHtmlText(value: string): string {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, options: ChatViewOptions): string {
   const cspSource = webview.cspSource;
   const nonce = getNonce();
@@ -39,6 +48,12 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         selectedModel: options.selectedModel,
         modelOptions: options.modelOptions,
     });
+    const modelOptionsMarkup = options.modelOptions
+        .map((opt) => {
+            const selectedAttr = opt.value === options.selectedModel ? ' selected' : '';
+            return `<option value="${escapeHtmlText(opt.value)}"${selectedAttr}>${escapeHtmlText(opt.label)}</option>`;
+        })
+        .join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -57,6 +72,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             --text-muted: #94a3b8;
             --radius-lg: 12px;
             --radius-md: 8px;
+            --margin-right-sm: 4px;
         }
 
         body {
@@ -446,6 +462,12 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             font-size: 10.5px;
             opacity: 0.9;
         }
+        .trace-flex {
+            flex: 1;
+        }
+        .mr-4 { margin-right: 4px; }
+        .w-full { width: 100%; }
+        .fs-11 { font-size: 11px; }
 
         /* ── Action Cards ── */
         .action-card {
@@ -740,8 +762,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
     </div>
 
     <div class="reconnect-area" id="reconnect-area">
-        <button class="btn btn-secondary" id="reconnect-btn" style="width: 100%; font-size: 11px;">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        <button class="btn btn-secondary w-full fs-11" id="reconnect-btn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-4"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             Bağlantıyı Yenile
         </button>
     </div>
@@ -760,13 +782,13 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             <div class="input-footer">
                 <div class="hint">Shift + Enter ile alt satıra geçin</div>
                 <button class="btn btn-primary" id="send-btn">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-4"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
                     Gönder
                 </button>
             </div>
             <div class="model-picker">
                 <span>Model</span>
-                <select id="model-select"></select>
+                <select id="model-select">${modelOptionsMarkup}</select>
             </div>
         </div>
     </div>
@@ -825,7 +847,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         };
 
         const MAX_SESSIONS = 30;
-        const GREETING = "Merhaba! Ben **CodeAlchemist Agent**. Kodunuzu inceleyebilir, dosya değişiklikleri yapabilir ve projelerinizde size eşlik edebilirim.\\n\\n*Nasıl yardımcı olabilirim?*";
+        const GREETING = \`Merhaba! Ben **CodeAlchemist Agent**. Kodunuzu inceleyebilir, dosya değişiklikleri yapabilir ve projelerinizde size eşlik edebilirim.
+
+*Nasıl yardımcı olabilirim?*\`;
 
         // ── Deterministic FSM ──
         function dispatch(action) {
@@ -846,7 +870,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     if (action.payload.text) {
                         appState.statusText = action.payload.text;
                     }
-                    if (action.type === 'RECONCILE_SNAPSHOT') {
+                    if (action.type === 'RECONCILE_SNAPSHOT' || action.type === 'RECONCILE_EVENT') {
                         appState.ready.provider = true;
                     }
                     break;
@@ -861,6 +885,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     break;
                 case 'HEALTH_UPDATE':
                     appState.health = action.payload;
+                    appState.ready.provider = true;
                     break;
             }
 
@@ -879,10 +904,11 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             const isFullyReady = appState.ready.ui && appState.ready.provider;
             const isIdle = appState.phase === 'IDLE';
             const isOnline = appState.health === 'online';
+            const canAttemptRequest = appState.health !== 'offline';
 
             // Gating interaction
-            sendBtn.disabled = !isFullyReady || !isIdle || !isOnline;
-            chatInput.disabled = !isFullyReady || !isIdle || !isOnline;
+            sendBtn.disabled = !isFullyReady || !isIdle || !canAttemptRequest;
+            chatInput.disabled = !isFullyReady || !isIdle || !canAttemptRequest;
             chatInput.placeholder = isOnline ? "Sorunuzu sorun veya '/' ile komutları görün..." : "Bakım modunda veya çevrimdışı...";
             resetBtn.disabled = !isFullyReady;
             historyBtn.disabled = !isFullyReady;
@@ -924,19 +950,32 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
         // ── Boot Sequence ──
         function init() {
+            setupMessageListener(); // Call this first to not miss early provider messages
+            
             try {
-                md = window.markdownit({ html: true, linkify: true, typographer: true });
+                if (typeof window.markdownit === 'function') {
+                    md = window.markdownit({ html: true, linkify: true, typographer: true });
+                } else {
+                    md = { render: (t) => t };
+                }
             } catch (e) {
                 console.error('Markdown-it failed:', e);
                 md = { render: (t) => t };
             }
 
-            setupMessageListener();
             loadInitialPersistentData();
             dispatch({ type: 'BOOT_UI_READY' });
             initModelPicker();
             renderActiveSession();
             renderHistory();
+            vscode.postMessage({ command: 'webviewReady' });
+            setTimeout(() => {
+                if (!appState.ready.provider) {
+                    appState.ready.provider = true;
+                    syncUi();
+                    vscode.postMessage({ command: 'webviewReady' });
+                }
+            }, 1500);
         }
 
         function setupMessageListener() {
@@ -1100,9 +1139,19 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             persist();
         }
 
+        const DEFAULT_FALLBACK_MODELS = [
+            { value: 'auto', label: 'Auto (Smart Model)' },
+            { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+            { value: 'gpt-4o', label: 'GPT-4o (OpenAI)' },
+            { value: 'claude-sonnet-4-5-20250929', label: 'Claude 4.5 Sonnet' }
+        ];
+
         function initModelPicker() {
             modelSelect.innerHTML = '';
-            const options = initialState.modelOptions || [{ value: 'auto', label: 'Auto' }];
+            const options = (initialState.modelOptions && initialState.modelOptions.length > 0) 
+                ? initialState.modelOptions 
+                : DEFAULT_FALLBACK_MODELS;
+            
             for (const opt of options) {
                 const el = document.createElement('option');
                 el.value = opt.value;
@@ -1186,7 +1235,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             }
             const item = document.createElement('div');
             item.className = 'trace-item active';
-            item.innerHTML = \`<span class="trace-icon-dot"></span><div style="flex:1"><div class="trace-main"><span class="trace-tool">\${tool}</span></div><div class="trace-sub">\${reasoning}</div></div>\`;
+            item.innerHTML = '<span class="trace-icon-dot"></span><div class="trace-flex"><div class="trace-main"><span class="trace-tool">' + escapeHtml(tool) + '</span></div><div class="trace-sub">' + escapeHtml(reasoning) + '</div></div>';
             const prev = appState.currentTraceContainer.querySelector('.active');
             if (prev) prev.classList.remove('active');
             appState.currentTraceContainer.appendChild(item);
@@ -1207,9 +1256,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             card.innerHTML = '<div class="action-header"><div class="action-title"><span>File Change</span></div></div>' +
                 '<div class="action-status">' + escapeHtml(action.file) + '</div>' +
                 '<div class="action-footer">' +
-                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\'' + cardId + '\', \'accept\')">Keep</button>' +
-                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\'' + cardId + '\', \'reject\')">Discard</button>' +
-                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\'' + cardId + '\')">Preview</button>' +
+                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\\\'' + cardId + '\\\', \\\'accept\\\')">Keep</button>' +
+                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\\\'' + cardId + '\\\', \\\'reject\\\')">Discard</button>' +
+                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\\\'' + cardId + '\\\')">Preview</button>' +
                     renderBtn +
                 '</div>';
             card._actionData = action;
@@ -1254,7 +1303,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             
             if (status === 'applied') {
                 const footer = card.querySelector('.action-footer');
-                footer.innerHTML = '<button class="btn btn-secondary" onclick="resolveCard(\'' + aid + '\', \'undo\')">Undo</button>';
+                footer.innerHTML = '<button class="btn btn-secondary" onclick="resolveCard(\\\'' + aid + '\\\', \\\'undo\\\')">Undo</button>';
                 const action = card._actionData;
                 if (action && action.render_url) {
                     footer.innerHTML += '<a class="btn btn-secondary" href="' + action.render_url + '" target="_blank">Render</a>';
@@ -1263,9 +1312,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 const action = card._actionData;
                 const renderBtn = action.render_url ? '<a class="btn btn-secondary" href="' + action.render_url + '" target="_blank">Render</a>' : '';
                 card.querySelector('.action-footer').innerHTML = 
-                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\'' + aid + '\', \'accept\')">Keep</button>' +
-                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\'' + aid + '\', \'reject\')">Discard</button>' +
-                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\'' + aid + '\')">Preview</button>' +
+                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\\\'' + aid + '\\\', \\\'accept\\\')">Keep</button>' +
+                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\\\'' + aid + '\\\', \\\'reject\\\')">Discard</button>' +
+                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\\\'' + aid + '\\\')">Preview</button>' +
                     renderBtn;
             } else {
                 card.querySelectorAll('button').forEach(b => b.disabled = true);
@@ -1281,9 +1330,14 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             vscode.postMessage({ command: 'ask', text, model: appState.selectedModel });
         }
 
-        sendBtn.onclick = sendMsg;
-        chatInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
-        newChatBtn.onclick = () => {
+        if (sendBtn) {
+            sendBtn.onclick = sendMsg;
+        }
+        if (chatInput) {
+            chatInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
+        }
+        if (newChatBtn) {
+            newChatBtn.onclick = () => {
             const s = createSession();
             setDefaultGreetingIfNeeded(s);
             appState.chatSessions.unshift(s);
@@ -1291,18 +1345,28 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             renderActiveSession();
             renderHistory();
             persist();
-        };
-        resetBtn.onclick = () => {
+            };
+        }
+        if (resetBtn) {
+            resetBtn.onclick = () => {
             const s = getActiveSession();
             if (s) { s.messages = []; setDefaultGreetingIfNeeded(s); s.title='Yeni Sohbet'; renderActiveSession(); renderHistory(); persist(); }
-        };
-        historyBtn.onclick = () => { historyDrawer.classList.toggle('open'); if(historyDrawer.classList.contains('open')) historySearch.focus(); };
-        historySearch.oninput = () => { appState.historySearchTerm = historySearch.value; renderHistory(); };
+            };
+        }
+        if (historyBtn && historyDrawer && historySearch) {
+            historyBtn.onclick = () => { historyDrawer.classList.toggle('open'); if(historyDrawer.classList.contains('open')) historySearch.focus(); };
+        }
+        if (historySearch) {
+            historySearch.oninput = () => { appState.historySearchTerm = historySearch.value; renderHistory(); };
+        }
 
-        document.getElementById('reconnect-btn').onclick = () => {
-            dispatch({ type: 'HEALTH_UPDATE', payload: 'connecting' });
-            vscode.postMessage({ command: 'ask', text: '/health-check', model: appState.selectedModel });
-        };
+        const reconnectBtn = document.getElementById('reconnect-btn');
+        if (reconnectBtn) {
+            reconnectBtn.onclick = () => {
+                dispatch({ type: 'HEALTH_UPDATE', payload: 'connecting' });
+                vscode.postMessage({ command: 'healthCheck' });
+            };
+        }
 
         init();
     </script>

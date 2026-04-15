@@ -242,6 +242,29 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.command) {
+        case 'webviewReady':
+          this._broadcastSnapshot();
+          webviewView.webview.postMessage({
+            command: 'HEALTH_STATUS',
+            status: healthMonitor.status,
+            timestamp: Date.now()
+          });
+          void healthMonitor.checkNow().then(() => {
+            webviewView.webview.postMessage({
+              command: 'HEALTH_STATUS',
+              status: healthMonitor.status,
+              timestamp: Date.now()
+            });
+          });
+          break;
+        case 'healthCheck':
+          await healthMonitor.checkNow();
+          webviewView.webview.postMessage({
+            command: 'HEALTH_STATUS',
+            status: healthMonitor.status,
+            timestamp: Date.now()
+          });
+          break;
         case 'ask':
           await this._handleAsk(data.text, data.model);
           break;
