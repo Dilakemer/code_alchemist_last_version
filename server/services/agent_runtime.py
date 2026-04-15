@@ -1080,19 +1080,19 @@ def _run_gemini_agent(
                     )
                 contents.append(gemini_types.Content(role="model", parts=model_parts))
 
-                batch = _execute_tool_batch(
-                    tool_runtime,
-                    [type("ToolCall", (), {"name": call.name, "args": call.args or {}})() for call in function_calls],
-                )
+            batch = _execute_tool_batch(
+                tool_runtime,
+                [type("ToolCall", (), {"name": call.name, "args": call.args or {}})() for call in function_calls],
+            )
 
-                for call, payload in zip(function_calls, batch):
-                    _emit(on_event, {"type": "tool_start", "tool": call.name, "args": payload["args"]})
+            for call, payload in zip(function_calls, batch):
+                _emit(on_event, {"type": "tool_start", "tool": call.name, "args": payload["args"]})
 
-                response_parts = []
-                for call, payload in zip(function_calls, batch):
-                    args = payload["args"]
-                    result = payload["result"]
-                    summary = _make_trace_summary(call.name, result)
+            response_parts = []
+            for call, payload in zip(function_calls, batch):
+                args = payload["args"]
+                result = payload["result"]
+                summary = _make_trace_summary(call.name, result)
                 trace.append(
                     {
                         "type": "tool",
@@ -1100,7 +1100,7 @@ def _run_gemini_agent(
                         "tool": call.name,
                         "args": args,
                         "summary": summary,
-                        "ok": bool(result.get("ok", True)),
+                        "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
                     }
                 )
                 _emit(on_event, {"type": "tool_end", "tool": call.name, "summary": summary, "result": result})
