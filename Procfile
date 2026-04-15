@@ -1,1 +1,1 @@
-web: cd server && gunicorn --bind 0.0.0.0:$PORT app:app
+web: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 90

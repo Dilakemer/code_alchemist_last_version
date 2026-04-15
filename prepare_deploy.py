@@ -76,13 +76,8 @@ def main():
     print("\n📄 Creating Procfile for Render...")
     procfile_path = os.path.join(root_dir, 'Procfile')
     with open(procfile_path, 'w') as f:
-        # We assume the root dir for Render is the repo root.
-        # We need to install python deps and run gunicorn in server dir
-        # Render automatic python build installs requirements.txt if found.
-        # But our requirements are in server/requirements.txt.
-        # We might need to help Render find them.
-        # But simplest: Command line does everything.
-        f.write('web: cd server && gunicorn --bind 0.0.0.0:$PORT app:app')
+        # Keep import path stable when Render runs from repository root.
+        f.write('web: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 90')
     print("✅ Procfile created.")
     
     # 5. Create render.yaml (Optional Blueprint)
@@ -98,7 +93,7 @@ def main():
     print("4. Settings:")
     print("   - Root Directory: . (default)")
     print("   - Build Command: pip install -r server/requirements.txt")
-    print("   - Start Command: cd server && gunicorn --bind 0.0.0.0:$PORT app:app")
+    print("   - Start Command: uvicorn backend.app_factory:create_app --factory --app-dir server --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 90")
     print("   - Environment Variables: Add GEMINI_API_KEY, JWT_SECRET_KEY, etc.")
 
 if __name__ == "__main__":
