@@ -8548,6 +8548,8 @@ def external_ask():
     if requested_model == 'auto':
         requested_model = GEMINI_MODEL.replace('models/', '')
     agent_mode = _parse_bool(data.get('agent_mode'))
+    has_stream_flag = 'stream' in data
+    stream_flag = _parse_bool(data.get('stream')) if has_stream_flag else None
     payload_project_id = data.get('project_id')
     workspace_files = _parse_workspace_files_payload(data.get('workspace_files'))
     history_context = data.get('history_context') if isinstance(data.get('history_context'), list) else []
@@ -8650,7 +8652,11 @@ def external_ask():
     state['updated_at'] = datetime.datetime.utcnow().isoformat()
     _external_conversation_state[state_key] = state
     
-    wants_stream = 'text/event-stream' in (request.headers.get('Accept') or '').lower()
+    if has_stream_flag:
+        wants_stream = bool(stream_flag)
+    else:
+        # Default to non-streaming for agent mode to avoid SSE/tool-loop UI deadlocks.
+        wants_stream = (not agent_mode) and ('text/event-stream' in (request.headers.get('Accept') or '').lower())
     
     if wants_stream:
         def generate():
@@ -8669,6 +8675,7 @@ def external_ask():
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
             done_payload = {
                 'done': True,
+                'steps': len(clipped_agent_meta['trace'] or []),
                 'agent_trace': clipped_agent_meta['trace'],
                 'agent_changed_files': clipped_agent_meta['changed_files'],
                 'agent_trace_total': clipped_agent_meta['trace_total'],
@@ -8682,6 +8689,7 @@ def external_ask():
     else:
         return jsonify({
             'answer': agent_result.text,
+            'steps': len(clipped_agent_meta['trace'] or []),
             'agent_mode': bool(agent_mode),
             'selected_model': provider_model,
             'agent_provider': provider_key,

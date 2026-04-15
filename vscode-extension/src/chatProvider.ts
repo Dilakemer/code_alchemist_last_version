@@ -79,11 +79,9 @@ function buildQuestionWithOutputConstraints(question: string, activeFilePath?: s
     (qLower.includes('sonuna') || qLower.includes('en sona') || qLower.includes('sona')) &&
     (qLower.includes('tarih') || qLower.includes('nisan') || qLower.includes('date'));
 
-  if (!asksDateAtEnd && !asksForFileEdit) {
-    return q;
-  }
-
-  const rules: string[] = [];
+  const rules: string[] = [
+    'Response rule: Return only the final user-facing answer. Do not include internal reasoning, tool chatter, scratchpad text, or meta lines like "let me check/read_file".',
+  ];
 
   if (asksForFileEdit) {
     rules.push('Execution rule: This is a file-edit request. Do not explain steps. Use tools to perform the edit and return structured file changes (edit_file or multi_edit).');
@@ -164,6 +162,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private _activeRequestId: string = '';
   private _currentPhase: 'IDLE' | 'REQUEST_INITIATED' | 'REQUEST_STREAMING' | 'REQUEST_COMPLETED' | 'REQUEST_FAILED' | 'REQUEST_CANCELLED' = 'IDLE';
   private _trustMap: Map<string, string> = new Map(); // path -> trust_id
+  private _activeAbortController?: AbortController;
 
   private _generateRequestId(): string {
       return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7);
@@ -268,6 +267,9 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         case 'ask':
           await this._handleAsk(data.text, data.model);
           break;
+        case 'stopAsk':
+          this._handleStopAsk();
+          break;
         case 'applyAction':
           await this._handleApplyAction(data.action);
           break;
@@ -304,6 +306,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
     this._isAskInFlight = true;
     this._activeRequestId = this._generateRequestId();
+    this._activeAbortController = new AbortController();
     this._sendStateEvent('REQUEST_INITIATED', 'Checking connection...');
 
     // ── Immediate Health Check ─────────────────────────────────
@@ -363,6 +366,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         code: buildCodeContext(text, wsContext),
         model,
         agent_mode: agentMode,
+        stream: !agentMode,
         allow_write_tools: true,
         file_path: wsContext.filePath || '',
         active_file: wsContext.filePath || '',
@@ -407,7 +411,14 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         replace: () => {}
       };
 
-      const result = await sendAskRequest(endpoint, apiKey, payload, mockOutput as any);
+      const result = await sendAskRequest(
+        endpoint,
+        apiKey,
+        payload,
+        mockOutput as any,
+        this._activeAbortController.signal,
+        { preferJson: agentMode },
+      );
 
       // Handle Trace Steps (Render timeline in sidebar)
       if (result.agentTrace && Array.isArray(result.agentTrace)) {
@@ -442,6 +453,16 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       }
 
     } catch (err) {
+      if (this._activeAbortController?.signal.aborted) {
+        this._view.webview.postMessage({
+          command: 'stream_chunk',
+          requestId: this._activeRequestId,
+          text: '\n\n⏹️ Yanıt durduruldu.',
+        });
+        this._sendStateEvent('REQUEST_CANCELLED', 'Yanıt durduruldu.');
+        return;
+      }
+
       const msg = err instanceof Error ? err.message : String(err);
       this._view.webview.postMessage({
         command: 'stream_chunk',
@@ -451,8 +472,16 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       this._sendStateEvent('REQUEST_FAILED', 'İstek başarısız oldu.');
     } finally {
       this._isAskInFlight = false;
+      this._activeAbortController = undefined;
       this._sendStateEvent('IDLE');
     }
+  }
+
+  private _handleStopAsk() {
+    if (!this._isAskInFlight) {
+      return;
+    }
+    this._activeAbortController?.abort();
   }
 
   private async _handleSetModel(modelValue: string) {

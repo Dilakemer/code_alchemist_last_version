@@ -573,6 +573,37 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         .btn-secondary:hover {
             background: rgba(255, 255, 255, 0.09);
         }
+        .btn-hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .send-stop-slot {
+            position: relative;
+            width: 114px;
+            height: 36px;
+        }
+        .send-stop-slot .btn {
+            position: absolute;
+            inset: 0;
+            transition: opacity 0.16s ease;
+        }
+        .btn-icon-square {
+            width: 36px;
+            height: 36px;
+            padding: 0;
+            border-radius: 8px;
+            flex: 0 0 36px;
+        }
+        .send-stop-slot .btn-icon-square {
+            width: 100%;
+            height: 100%;
+            flex: none;
+            border-radius: 6px;
+        }
+        .btn-icon-square svg {
+            width: 14px;
+            height: 14px;
+        }
         .btn-danger {
             background: rgba(239, 68, 68, 0.14);
             color: #fecaca;
@@ -781,10 +812,17 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             <textarea id="chat-input" rows="3" placeholder="Sorunuzu sorun veya '/' ile komutları görün..."></textarea>
             <div class="input-footer">
                 <div class="hint">Shift + Enter ile alt satıra geçin</div>
-                <button class="btn btn-primary" id="send-btn">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-4"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-                    Gönder
-                </button>
+                <div style="display:flex; gap:8px;">
+                    <div class="send-stop-slot">
+                        <button class="btn btn-secondary btn-icon-square btn-hidden" id="stop-btn" title="Yanıtı Durdur" aria-label="Yanıtı Durdur">
+                            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"></rect></svg>
+                        </button>
+                        <button class="btn btn-primary" id="send-btn" title="Gönder" aria-label="Gönder">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-4"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                            Gönder
+                        </button>
+                    </div>
+                </div>
             </div>
             <div class="model-picker">
                 <span>Model</span>
@@ -809,6 +847,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         const chatContainer = document.getElementById('chat-container');
         const chatInput = document.getElementById('chat-input');
         const sendBtn = document.getElementById('send-btn');
+        const stopBtn = document.getElementById('stop-btn');
         const resetBtn = document.getElementById('reset-btn');
         const historyBtn = document.getElementById('history-btn');
         const newChatBtn = document.getElementById('new-chat-btn');
@@ -905,10 +944,16 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             const isIdle = appState.phase === 'IDLE';
             const isOnline = appState.health === 'online';
             const canAttemptRequest = appState.health !== 'offline';
+            const isBusy = !isIdle;
 
             // Gating interaction
             sendBtn.disabled = !isFullyReady || !isIdle || !canAttemptRequest;
             chatInput.disabled = !isFullyReady || !isIdle || !canAttemptRequest;
+            if (stopBtn) {
+                stopBtn.disabled = !isFullyReady || !isBusy;
+                stopBtn.classList.toggle('btn-hidden', !isBusy);
+            }
+            sendBtn.classList.toggle('btn-hidden', isBusy);
             chatInput.placeholder = isOnline ? "Sorunuzu sorun veya '/' ile komutları görün..." : "Bakım modunda veya çevrimdışı...";
             resetBtn.disabled = !isFullyReady;
             historyBtn.disabled = !isFullyReady;
@@ -1089,14 +1134,31 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                             <div class="history-meta"><span>\${session.updatedAt.split('T')[0]}</span></div>
                         </div>
                         <div class="history-actions">
-                            <button class="history-action-btn pin-btn \${session.pinned ? 'pinned' : ''}" onclick="event.stopPropagation(); togglePinSession('\${session.id}')">
+                            <button class="history-action-btn pin-btn \${session.pinned ? 'pinned' : ''}">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Z"/></svg>
                             </button>
-                            <button class="history-action-btn delete-btn" onclick="event.stopPropagation(); requestDeleteSession('\${session.id}', '\${escapeHtml(session.title)}')">
+                            <button class="history-action-btn delete-btn">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
                             </button>
                         </div>
                     </div>\`;
+
+                const pinBtn = item.querySelector('.pin-btn');
+                if (pinBtn) {
+                    pinBtn.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        window.togglePinSession(session.id);
+                    });
+                }
+
+                const deleteBtn = item.querySelector('.delete-btn');
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        window.requestDeleteSession(session.id, session.title);
+                    });
+                }
+
                 item.onclick = () => switchSession(session.id);
                 historyList.appendChild(item);
             }
@@ -1247,6 +1309,28 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             else if (action.action === 'multi_edit') action.changes.forEach(c => addActionCard({ ...c, action: 'edit_file' }));
         }
 
+        function bindActionCardButtons(card, cardId) {
+            const keepBtn = card.querySelector('.action-keep-btn');
+            if (keepBtn) {
+                keepBtn.addEventListener('click', () => window.resolveCard(cardId, 'accept'));
+            }
+
+            const discardBtn = card.querySelector('.action-discard-btn');
+            if (discardBtn) {
+                discardBtn.addEventListener('click', () => window.resolveCard(cardId, 'reject'));
+            }
+
+            const previewBtn = card.querySelector('.action-preview-btn');
+            if (previewBtn) {
+                previewBtn.addEventListener('click', () => window.previewAction(cardId));
+            }
+
+            const undoBtn = card.querySelector('.action-undo-btn');
+            if (undoBtn) {
+                undoBtn.addEventListener('click', () => window.resolveCard(cardId, 'undo'));
+            }
+        }
+
         function addActionCard(action) {
             const cardId = 'card-' + Math.random().toString(36).slice(2, 9);
             const card = document.createElement('div');
@@ -1256,12 +1340,13 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             card.innerHTML = '<div class="action-header"><div class="action-title"><span>File Change</span></div></div>' +
                 '<div class="action-status">' + escapeHtml(action.file) + '</div>' +
                 '<div class="action-footer">' +
-                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\\\'' + cardId + '\\\', \\\'accept\\\')">Keep</button>' +
-                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\\\'' + cardId + '\\\', \\\'reject\\\')">Discard</button>' +
-                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\\\'' + cardId + '\\\')">Preview</button>' +
+                    '<button class="btn btn-primary action-keep-btn">Keep</button>' +
+                    '<button class="btn btn-secondary action-discard-btn">Discard</button>' +
+                    '<button class="btn btn-secondary action-preview-btn">Preview</button>' +
                     renderBtn +
                 '</div>';
             card._actionData = action;
+            bindActionCardButtons(card, cardId);
             appState.currentAiMessageElement.appendChild(card);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
@@ -1303,19 +1388,21 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             
             if (status === 'applied') {
                 const footer = card.querySelector('.action-footer');
-                footer.innerHTML = '<button class="btn btn-secondary" onclick="resolveCard(\\\'' + aid + '\\\', \\\'undo\\\')">Undo</button>';
+                footer.innerHTML = '<button class="btn btn-secondary action-undo-btn">Undo</button>';
                 const action = card._actionData;
                 if (action && action.render_url) {
                     footer.innerHTML += '<a class="btn btn-secondary" href="' + action.render_url + '" target="_blank">Render</a>';
                 }
+                bindActionCardButtons(card, aid);
             } else if (status === 'reverted') {
                 const action = card._actionData;
                 const renderBtn = action.render_url ? '<a class="btn btn-secondary" href="' + action.render_url + '" target="_blank">Render</a>' : '';
                 card.querySelector('.action-footer').innerHTML = 
-                    '<button class="btn btn-primary action-keep-btn" onclick="resolveCard(\\\'' + aid + '\\\', \\\'accept\\\')">Keep</button>' +
-                    '<button class="btn btn-secondary action-discard-btn" onclick="resolveCard(\\\'' + aid + '\\\', \\\'reject\\\')">Discard</button>' +
-                    '<button class="btn btn-secondary action-preview-btn" onclick="previewAction(\\\'' + aid + '\\\')">Preview</button>' +
+                    '<button class="btn btn-primary action-keep-btn">Keep</button>' +
+                    '<button class="btn btn-secondary action-discard-btn">Discard</button>' +
+                    '<button class="btn btn-secondary action-preview-btn">Preview</button>' +
                     renderBtn;
+                bindActionCardButtons(card, aid);
             } else {
                 card.querySelectorAll('button').forEach(b => b.disabled = true);
             }
@@ -1325,6 +1412,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             const text = chatInput.value.trim();
             if (!text || appState.phase !== 'IDLE') return;
             addMessage(text, 'user');
+            // Start a fresh AI container for this request before streaming begins.
+            addMessage('', 'ai');
             chatInput.value = '';
             dispatch({ type: 'UX_ASK' });
             vscode.postMessage({ command: 'ask', text, model: appState.selectedModel });
@@ -1332,6 +1421,11 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
         if (sendBtn) {
             sendBtn.onclick = sendMsg;
+        }
+        if (stopBtn) {
+            stopBtn.onclick = () => {
+                vscode.postMessage({ command: 'stopAsk' });
+            };
         }
         if (chatInput) {
             chatInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };

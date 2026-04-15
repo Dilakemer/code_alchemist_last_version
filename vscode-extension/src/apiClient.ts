@@ -227,19 +227,26 @@ export async function sendAskRequest(
   apiKey: string,
   payload: AskRequestPayload,
   output: vscode.OutputChannel,
+  signal?: AbortSignal,
+  options?: { preferJson?: boolean },
 ): Promise<AskResult> {
   // ── Send request ────────────────────────────────────────────────
   output.appendLine(`[API] Requesting: ${endpoint}`);
   let res: Response;
+  const acceptHeader = options?.preferJson
+    ? 'application/json'
+    : 'text/event-stream, application/json';
+
   try {
     res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'text/event-stream, application/json',
+        'Accept': acceptHeader,
         'X-API-Key': apiKey,
       },
       body: JSON.stringify(payload),
+      signal,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -343,7 +350,7 @@ export async function pingBackend(endpoint: string): Promise<boolean> {
 
   for (const url of candidates) {
     try {
-      const res = await fetchWithTimeout(url, 10000);
+      const res = await fetchWithTimeout(url, 3000);
       // Auth or method errors still prove server is reachable and route exists.
       if (res.ok || res.status === 401 || res.status === 403 || res.status === 405) {
         return true;

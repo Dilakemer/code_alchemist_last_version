@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -9,8 +10,17 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 from models import ProjectFile, db
 
 
-MAX_AGENT_STEPS = 8
+MAX_AGENT_STEPS = 4
 DEFAULT_MAX_FILE_CHARS = 120000
+
+
+def _max_agent_steps() -> int:
+    raw = os.getenv("AGENT_MAX_STEPS")
+    try:
+        value = int(raw) if raw is not None else MAX_AGENT_STEPS
+    except Exception:
+        value = MAX_AGENT_STEPS
+    return max(1, min(12, value))
 
 
 def _safe_json_loads(raw: Any, default: Optional[dict] = None) -> dict:
@@ -24,8 +34,6 @@ def _safe_json_loads(raw: Any, default: Optional[dict] = None) -> dict:
     except Exception:
         return default or {}
 
-
-import os
 
 def _normalize_path(path_str: str, workspace_root: Optional[str] = None) -> str:
     """
@@ -853,7 +861,9 @@ def _run_openai_agent(
     trace: List[dict] = []
     tools = _build_openai_tools(tool_runtime.get_tool_specs()) if tool_runtime and tool_runtime.has_tool_access else None
 
-    for step in range(MAX_AGENT_STEPS):
+    max_steps = _max_agent_steps()
+
+    for step in range(max_steps):
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -870,6 +880,38 @@ def _run_openai_agent(
         choice = response.choices[0]
         message = choice.message
         tool_calls = getattr(message, "tool_calls", None) or []
+
+        if tool_calls and step >= max_steps - 1:
+            # Avoid another costly tool round at the limit; ask for final synthesis now.
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Tool budget reached. Without calling any more tools, provide your best final answer "
+                        "using only the gathered context."
+                    ),
+                }
+            )
+            try:
+                forced = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    tools=None,
+                    tool_choice=None,
+                    parallel_tool_calls=None,
+                    temperature=0.2,
+                    max_completion_tokens=2200,
+                )
+                forced_message = forced.choices[0].message
+                forced_text = getattr(forced_message, "content", None) or ""
+                return AgentRunResult(
+                    text=str(forced_text).strip() or "I reached the tool-step limit, but here is the best possible answer from collected data.",
+                    trace=trace,
+                    changed_files=list(tool_runtime.changed_files if tool_runtime else []),
+                    tool_capable=bool(tool_runtime and tool_runtime.has_tool_access),
+                )
+            except Exception:
+                pass
 
         if tool_calls and tool_runtime and tool_runtime.has_tool_access:
             assistant_payload = {
@@ -961,7 +1003,9 @@ def _run_anthropic_agent(
     trace: List[dict] = []
     tools = _build_anthropic_tools(tool_runtime.get_tool_specs()) if tool_runtime and tool_runtime.has_tool_access else None
 
-    for step in range(MAX_AGENT_STEPS):
+    max_steps = _max_agent_steps()
+
+    for step in range(max_steps):
         response = client.messages.create(
             model=model,
             max_tokens=2200,
@@ -974,6 +1018,33 @@ def _run_anthropic_agent(
 
         blocks = getattr(response, "content", []) or []
         tool_blocks = [block for block in blocks if getattr(block, "type", None) == "tool_use"]
+
+        if tool_blocks and step >= max_steps - 1:
+            # Avoid another costly tool round at the limit; ask for final synthesis now.
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Tool budget reached. Without calling any more tools, provide your best final answer using only the gathered context.",
+                }
+            )
+            try:
+                forced = client.messages.create(
+                    model=model,
+                    max_tokens=2200,
+                    system=system_prompt,
+                    messages=messages,
+                    tools=None,
+                    tool_choice=None,
+                    temperature=0.2,
+                )
+                return AgentRunResult(
+                    text=_extract_anthropic_text(forced) or "I reached the tool-step limit, but here is the best possible answer from collected data.",
+                    trace=trace,
+                    changed_files=list(tool_runtime.changed_files if tool_runtime else []),
+                    tool_capable=bool(tool_runtime and tool_runtime.has_tool_access),
+                )
+            except Exception:
+                pass
 
         if tool_blocks and tool_runtime and tool_runtime.has_tool_access:
             assistant_content = []
@@ -1072,7 +1143,9 @@ def _run_gemini_agent(
         tools=_build_gemini_tools(tool_runtime.get_tool_specs()) if tool_runtime and tool_runtime.has_tool_access else None,
     )
 
-    for step in range(MAX_AGENT_STEPS):
+    max_steps = _max_agent_steps()
+
+    for step in range(max_steps):
         response = client.models.generate_content(
             model=model,
             contents=contents,
@@ -1091,6 +1164,42 @@ def _run_gemini_agent(
                 model_content = candidate_content
 
         if function_calls and tool_runtime and tool_runtime.has_tool_access:
+            if step >= max_steps - 1:
+                # Avoid another costly tool round at the limit; ask for final synthesis now.
+                contents.append(
+                    gemini_types.Content(
+                        role="user",
+                        parts=[
+                            gemini_types.Part.from_text(
+                                text=(
+                                    "Tool budget reached. Without calling any more tools, provide your best final answer "
+                                    "using only the gathered context."
+                                )
+                            )
+                        ],
+                    )
+                )
+                try:
+                    forced_config = gemini_types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=0.2,
+                        tools=None,
+                    )
+                    forced_response = client.models.generate_content(
+                        model=model,
+                        contents=contents,
+                        config=forced_config,
+                    )
+                    forced_text = _extract_gemini_text_from_candidates(forced_response)
+                    return AgentRunResult(
+                        text=forced_text or "I reached the tool-step limit, but here is the best possible answer from collected data.",
+                        trace=trace,
+                        changed_files=list(tool_runtime.changed_files if tool_runtime else []),
+                        tool_capable=bool(tool_runtime and tool_runtime.has_tool_access),
+                    )
+                except Exception:
+                    pass
+
             if model_content is not None:
                 contents.append(model_content)
             else:

@@ -21,6 +21,7 @@ export interface AskRequestPayload {
   code: string;
   model: string;
   agent_mode: boolean;
+  stream?: boolean;
   allow_write_tools?: boolean;
   file_path: string;
   active_file?: string;
@@ -42,6 +43,7 @@ export interface AskRequestPayload {
 /** Standard JSON response from the backend. */
 export interface AskResponse {
   answer?: string;
+  steps?: number;
   error?: string;
   details?: string;
   agent_mode?: boolean;

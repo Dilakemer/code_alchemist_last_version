@@ -78,6 +78,7 @@ def _find_project_file(project, path: str):
 
 
 MAX_CHARS = 120_000
+MAX_READ_CHARS = 500_000
 
 
 def _clip(text: str) -> str:
@@ -125,18 +126,43 @@ async def _read_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     if not path:
         return {"ok": False, "error": "path is required"}
 
+    try:
+        offset = max(0, int(args.get("offset", 0) or 0))
+    except Exception:
+        offset = 0
+
+    requested = args.get("max_chars", args.get("length", MAX_CHARS))
+    try:
+        read_chars = max(200, min(MAX_READ_CHARS, int(requested or MAX_CHARS)))
+    except Exception:
+        read_chars = MAX_CHARS
+
+    def _window(content: str) -> Dict[str, Any]:
+        total = len(content)
+        start = min(offset, total)
+        end = min(total, start + read_chars)
+        clipped = content[start:end]
+        return {
+            "content": clipped,
+            "truncated": end < total,
+            "offset": start,
+            "returned_chars": len(clipped),
+            "total_chars": total,
+            "next_offset": end if end < total else None,
+        }
+
     project = _get_project(ctx)
     if project is not None:
         pf = _find_project_file(project, path)
         if not pf:
             return {"ok": False, "error": f"File not found: {path}"}
         content = pf.content or ""
+        window = _window(content)
         return {
             "ok": True, "scope": "project",
             "path": _norm(pf.name),
             "language": pf.language or "plaintext",
-            "content": _clip(content),
-            "truncated": len(content) > MAX_CHARS,
+            **window,
         }
 
     ws = _get_ws(ctx)
@@ -147,12 +173,12 @@ async def _read_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     if not entry:
         return {"ok": False, "error": f"File not found: {path}"}
     content = entry.get("content") or ""
+    window = _window(content)
     return {
         "ok": True, "scope": "workspace",
         "path": entry["path"],
         "language": entry.get("language", "plaintext"),
-        "content": _clip(content),
-        "truncated": len(content) > MAX_CHARS,
+        **window,
     }
 
 
@@ -183,6 +209,9 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     path = _norm(args.get("path") or "")
     content = str(args.get("content") or "").replace("\x00", "")
     language = str(args.get("language") or "plaintext")
+    mode = str(args.get("mode") or "replace").strip().lower()
+    if mode not in {"replace", "append", "prepend"}:
+        return {"ok": False, "error": "mode must be one of: replace, append, prepend"}
     if not path:
         return {"ok": False, "error": "path is required"}
 
@@ -198,8 +227,20 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
                 pf = ProjectFile(project_id=project.id, name=path, content=content, language=language)
                 db.session.add(pf)
             else:
-                pf.name = path; pf.content = content
+                base = pf.content or ""
+                if mode == "append":
+                    pf.content = base + content
+                elif mode == "prepend":
+                    pf.content = content + base
+                else:
+                    pf.content = content
+                pf.name = path
                 if language: pf.language = language
+
+            if created and mode in {"append", "prepend"}:
+                # For new files, append/prepend are equivalent to replace.
+                pf.content = content
+
             db.session.commit()
 
             # Invalidate embedding cache if callback present
@@ -220,7 +261,7 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
             return {
                 "ok": True, "scope": "project",
                 "path": _norm(pf.name), "language": pf.language,
-                "size": len(pf.content or ""), "created": created, "persisted": True,
+                "size": len(pf.content or ""), "created": created, "persisted": True, "mode": mode,
                 "render_url": render_url,
             }
         except Exception as exc:
@@ -231,9 +272,20 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
         return {"ok": False, "error": "No writable workspace attached."}
     created = path not in ws and path.lower() not in {k.lower() for k in ws}
     existing = ws.get(path) or {}
+    base_content = existing.get("content") or ""
+    if mode == "append":
+        next_content = base_content + content
+    elif mode == "prepend":
+        next_content = content + base_content
+    else:
+        next_content = content
+
+    if created and mode in {"append", "prepend"}:
+        next_content = content
+
     ws[path] = {
         "path": path,
-        "content": content,
+        "content": next_content,
         "language": language,
         "trust_id": existing.get("trust_id"),
         "trust_scope": existing.get("trust_scope"),
@@ -243,7 +295,7 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
         "create" if created else "update",
         path,
         persisted=False,
-        content=content,
+        content=next_content,
         language=language,
         trust_id=ws[path].get("trust_id"),
         trust_scope=ws[path].get("trust_scope"),
@@ -252,7 +304,7 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     return {
         "ok": True, "scope": "workspace",
         "path": path, "language": language,
-        "size": len(content), "created": created, "persisted": False,
+        "size": len(next_content), "created": created, "persisted": False, "mode": mode,
         "render_url": render_url,
         "message": "Updated workspace snapshot. Apply changes locally on the client.",
     }
@@ -323,13 +375,16 @@ def make_workspace_file_tools() -> List[Tool]:
         Tool(
             name="read_file",
             description=(
-                "Read the full content of a file by its exact relative path. "
+                "Read file content by exact relative path. "
+                "Supports paginated reads with offset/max_chars for large files. "
                 "Always read a file before modifying it to avoid overwriting unrelated code."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Relative file path to read."}
+                    "path": {"type": "string", "description": "Relative file path to read."},
+                    "offset": {"type": "integer", "description": "0-based start character offset.", "default": 0},
+                    "max_chars": {"type": "integer", "description": "Maximum characters to return in this read window.", "default": 120000},
                 },
                 "required": ["path"],
             },
@@ -339,8 +394,8 @@ def make_workspace_file_tools() -> List[Tool]:
         Tool(
             name="write_file",
             description=(
-                "Create or overwrite a file in the active project or workspace. "
-                "Provide the complete new file content; partial edits are not supported."
+                "Create or update a file in the active project or workspace. "
+                "Supports replace (default), append, and prepend modes."
             ),
             input_schema={
                 "type": "object",
@@ -348,6 +403,12 @@ def make_workspace_file_tools() -> List[Tool]:
                     "path": {"type": "string", "description": "Relative file path."},
                     "content": {"type": "string", "description": "Complete file content."},
                     "language": {"type": "string", "description": "Language label (optional)."},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["replace", "append", "prepend"],
+                        "default": "replace",
+                        "description": "Write mode: replace existing content, append to end, or prepend to beginning.",
+                    },
                 },
                 "required": ["path", "content"],
             },

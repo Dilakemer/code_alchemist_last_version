@@ -161,11 +161,9 @@ function buildQuestionWithOutputConstraints(question: string, activeFilePath?: s
     (qLower.includes('sonuna') || qLower.includes('en sona') || qLower.includes('sona')) &&
     (qLower.includes('tarih') || qLower.includes('nisan') || qLower.includes('date'));
 
-  if (!asksDateAtEnd && !asksForFileEdit) {
-    return q;
-  }
-
-  const rules: string[] = [];
+  const rules: string[] = [
+    'Response rule: Return only the final user-facing answer. Do not include internal reasoning, tool chatter, scratchpad text, or meta lines like "let me check/read_file".',
+  ];
 
   if (asksForFileEdit) {
     rules.push('Execution rule: This is a file-edit request. Do not explain steps. Use tools to perform the edit and return structured file changes (edit_file or multi_edit).');
