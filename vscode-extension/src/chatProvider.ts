@@ -298,16 +298,36 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       const fallbackAction = action ?? buildLocalDateAppendFallbackAction(text, wsContext.filePath || '', wsContext.workspaceRoot || '');
 
       if (fallbackAction) {
+        const shouldAutoApply = Boolean(action) && agentMode;
+
+        if (shouldAutoApply) {
+          this._view.webview.postMessage({
+            command: 'stream_chunk',
+            text: '\n[System]: Agent değişiklikleri alındı. Diff önizleme açılıyor...\n',
+          });
+          try {
+            await this._handleApplyAction(fallbackAction);
+          } catch (applyErr) {
+            const applyMsg = applyErr instanceof Error ? applyErr.message : String(applyErr);
+            this._view.webview.postMessage({
+              command: 'stream_chunk',
+              text: `\n[System]: Otomatik uygulama başarısız oldu: ${applyMsg}\n`,
+            });
+          }
+        }
+
         if (!action) {
           this._view.webview.postMessage({
             command: 'stream_chunk',
             text: '\n\n[System]: Model aksiyon formatında dönmedi. İstek için lokal güvenli düzenleme aksiyonu hazırlandı.\n',
           });
         }
-        this._view.webview.postMessage({
-          command: 'action_found',
-          action: fallbackAction
-        });
+        if (!shouldAutoApply) {
+          this._view.webview.postMessage({
+            command: 'action_found',
+            action: fallbackAction
+          });
+        }
       }
 
     } catch (err) {

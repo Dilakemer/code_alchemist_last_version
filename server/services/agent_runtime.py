@@ -345,14 +345,25 @@ class AgentToolRuntime:
         safe_text = str(text or "")
         return safe_text[: self.max_file_chars]
 
-    def _register_change(self, operation: str, path: str, persisted: bool, trust_id: Optional[str] = None):
+    def _register_change(
+        self,
+        operation: str,
+        path: str,
+        persisted: bool,
+        trust_id: Optional[str] = None,
+        content: Optional[str] = None,
+        language: Optional[str] = None,
+    ):
+        normalized_path = _normalize_path(path)
         self.changed_files.append(
             {
                 "operation": operation,
-                "path": _normalize_path(path),
+                "path": normalized_path,
                 "persisted": bool(persisted),
                 "trust_id": trust_id,
-                "trust_scope": self.trusted_files.get(path, {}).get("trust_scope") if path in self.trusted_files else None
+                "trust_scope": self.trusted_files.get(path, {}).get("trust_scope") if path in self.trusted_files else None,
+                "content": self._truncate_content(content) if content is not None and operation != "delete" else None,
+                "language": language or "plaintext",
             }
         )
 
@@ -479,7 +490,13 @@ class AgentToolRuntime:
                     self.invalidate_project_cache(self.project.id)
                 except Exception:
                     pass
-            self._register_change("create" if created else "update", path, persisted=True)
+            self._register_change(
+                "create" if created else "update",
+                path,
+                persisted=True,
+                content=safe_content,
+                language=pf.language or language or "plaintext",
+            )
             return {
                 "ok": True,
                 "scope": "project",
@@ -504,7 +521,14 @@ class AgentToolRuntime:
             "trust_id": trust_id,
             "trust_scope": self.trusted_files.get(path, {}).get("trust_scope")
         }
-        self._register_change("create" if created else "update", path, persisted=False, trust_id=trust_id)
+        self._register_change(
+            "create" if created else "update",
+            path,
+            persisted=False,
+            trust_id=trust_id,
+            content=safe_content,
+            language=language or "plaintext",
+        )
         
         return {
             "ok": True,

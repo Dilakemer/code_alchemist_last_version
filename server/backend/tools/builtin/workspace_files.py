@@ -33,10 +33,29 @@ def _get_ws(ctx: Any) -> Dict[str, Any]:
     return getattr(ctx, "workspace_files", {}) or {}
 
 
-def _register_change(ctx: Any, op: str, path: str, persisted: bool) -> None:
+def _register_change(
+    ctx: Any,
+    op: str,
+    path: str,
+    persisted: bool,
+    content: str | None = None,
+    language: str | None = None,
+    trust_id: str | None = None,
+    trust_scope: str | None = None,
+) -> None:
     changed = getattr(ctx, "changed_files", None)
     if isinstance(changed, list):
-        changed.append({"operation": op, "path": _norm(path), "persisted": persisted})
+        changed.append(
+            {
+                "operation": op,
+                "path": _norm(path),
+                "persisted": persisted,
+                "content": _clip(content) if content is not None and op != "delete" else None,
+                "language": language or "plaintext",
+                "trust_id": trust_id,
+                "trust_scope": trust_scope,
+            }
+        )
 
 
 def _find_project_file(project, path: str):
@@ -164,7 +183,14 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
                 try: inv(project.id)
                 except Exception: pass
 
-            _register_change(ctx, "create" if created else "update", path, persisted=True)
+            _register_change(
+                ctx,
+                "create" if created else "update",
+                path,
+                persisted=True,
+                content=content,
+                language=pf.language or language,
+            )
             return {
                 "ok": True, "scope": "project",
                 "path": _norm(pf.name), "language": pf.language,
@@ -177,8 +203,24 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     if ws is None:
         return {"ok": False, "error": "No writable workspace attached."}
     created = path not in ws and path.lower() not in {k.lower() for k in ws}
-    ws[path] = {"path": path, "content": content, "language": language}
-    _register_change(ctx, "create" if created else "update", path, persisted=False)
+    existing = ws.get(path) or {}
+    ws[path] = {
+        "path": path,
+        "content": content,
+        "language": language,
+        "trust_id": existing.get("trust_id"),
+        "trust_scope": existing.get("trust_scope"),
+    }
+    _register_change(
+        ctx,
+        "create" if created else "update",
+        path,
+        persisted=False,
+        content=content,
+        language=language,
+        trust_id=ws[path].get("trust_id"),
+        trust_scope=ws[path].get("trust_scope"),
+    )
     return {
         "ok": True, "scope": "workspace",
         "path": path, "language": language,

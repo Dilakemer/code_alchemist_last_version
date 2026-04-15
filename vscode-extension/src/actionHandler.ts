@@ -236,11 +236,14 @@ function extractChangesFromTrace(trace: any[]): FileChange[] {
       let file = '';
       let content = '';
       let operation = '';
+      const sourceObject = (typeof entry.input === 'object' && entry.input !== null)
+        ? entry.input
+        : (typeof entry.args === 'object' && entry.args !== null ? entry.args : null);
 
-      if (typeof entry.input === 'object' && entry.input !== null) {
-        file = entry.input.path || entry.input.file || entry.input.filename || '';
-        content = entry.input.content || entry.input.text || entry.input.data || '';
-        operation = entry.input.operation || '';
+      if (sourceObject) {
+        file = sourceObject.path || sourceObject.file || sourceObject.filename || '';
+        content = sourceObject.content || sourceObject.text || sourceObject.data || '';
+        operation = sourceObject.operation || '';
       } else if (typeof entry.input === 'string') {
         // AI might send a JSON string as input
         try {
@@ -256,8 +259,8 @@ function extractChangesFromTrace(trace: any[]): FileChange[] {
           file,
           content,
           operation: typeof operation === 'string' && operation.trim().length > 0 ? operation : undefined,
-          trust_id: entry.input?.trust_id || entry.trust_id,
-          trust_scope: entry.input?.trust_scope || entry.trust_scope,
+          trust_id: sourceObject?.trust_id || entry.input?.trust_id || entry.trust_id,
+          trust_scope: sourceObject?.trust_scope || entry.input?.trust_scope || entry.trust_scope,
         });
         handledPaths.add(file);
       }
