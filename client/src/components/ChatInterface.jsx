@@ -22,6 +22,112 @@ const LoadingDots = () => (
 );
 
 
+const getAgentTraceKind = (entry = {}) => {
+  const rawKind = String(entry.kind || entry.type || '').toLowerCase();
+  if (rawKind.includes('status')) return 'status';
+  if (rawKind.includes('call')) return 'tool_call';
+  if (rawKind.includes('result')) return 'tool_result';
+  return 'tool_result';
+};
+
+
+const getAgentTraceMeta = (entry = {}) => {
+  const kind = getAgentTraceKind(entry);
+  const text = String(entry.summary || entry.status || entry.message || '').toLowerCase();
+  const toolName = String(entry.tool_name || entry.tool || '').toLowerCase();
+
+  if (kind === 'status') {
+    if (text.includes('araştır') || text.includes('search')) {
+      return { icon: '🔍', label: 'Searching', tone: 'text-cyan-300', border: 'border-cyan-500/20', bg: 'bg-cyan-500/10' };
+    }
+    if (text.includes('getir') || text.includes('fetch') || text.includes('read') || text.includes('okun')) {
+      return { icon: '📄', label: 'Reading', tone: 'text-sky-300', border: 'border-sky-500/20', bg: 'bg-sky-500/10' };
+    }
+    if (text.includes('işlen') || text.includes('analy') || text.includes('think') || text.includes('düşün')) {
+      return { icon: '🧠', label: 'Analyzing', tone: 'text-violet-300', border: 'border-violet-500/20', bg: 'bg-violet-500/10' };
+    }
+    return { icon: '⚡', label: 'Working', tone: 'text-emerald-300', border: 'border-emerald-500/20', bg: 'bg-emerald-500/10' };
+  }
+
+  if (toolName === 'web_search') return { icon: '🔍', label: 'Web search', tone: 'text-cyan-300', border: 'border-cyan-500/20', bg: 'bg-cyan-500/10' };
+  if (toolName === 'web_fetch' || toolName === 'api_get' || toolName === 'read_file') return { icon: '📄', label: 'Read', tone: 'text-sky-300', border: 'border-sky-500/20', bg: 'bg-sky-500/10' };
+  if (toolName === 'write_file' || toolName === 'delete_file') return { icon: '✍️', label: 'Edit', tone: 'text-amber-300', border: 'border-amber-500/20', bg: 'bg-amber-500/10' };
+  if (toolName === 'project_search' || toolName === 'search_files') return { icon: '🔎', label: 'Project search', tone: 'text-cyan-300', border: 'border-cyan-500/20', bg: 'bg-cyan-500/10' };
+  if (toolName === 'memory_lookup') return { icon: '💾', label: 'Memory', tone: 'text-fuchsia-300', border: 'border-fuchsia-500/20', bg: 'bg-fuchsia-500/10' };
+  if (toolName === 'db_read') return { icon: '🗄️', label: 'Database', tone: 'text-emerald-300', border: 'border-emerald-500/20', bg: 'bg-emerald-500/10' };
+  return { icon: '⚙️', label: 'Tool', tone: 'text-gray-300', border: 'border-gray-500/20', bg: 'bg-gray-500/10' };
+};
+
+
+const AgentTracePanel = React.memo(({ trace = [], agentMode, provider, model }) => {
+  if (!agentMode && (!trace || trace.length === 0)) return null;
+
+  const hasTrace = Array.isArray(trace) && trace.length > 0;
+
+  return (
+    <div className="mt-3 rounded-xl border border-cyan-500/20 bg-cyan-950/15 overflow-hidden">
+      <div className="px-3 py-2 flex items-center justify-between gap-2 border-b border-cyan-500/15">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] font-semibold text-cyan-300">
+          <span>Agent Trace</span>
+          {provider && <span className="text-[10px] text-cyan-200/70 normal-case font-mono">{provider}{model ? ` / ${model}` : ''}</span>}
+        </div>
+        <span className="text-[10px] text-cyan-200/60 font-mono">{hasTrace ? `${trace.length} events` : 'waiting...'}</span>
+      </div>
+
+      <div className="p-3 space-y-2">
+        {hasTrace ? trace.map((entry, index) => {
+          const meta = getAgentTraceMeta(entry);
+          const kind = getAgentTraceKind(entry);
+          const result = entry.result;
+          const recommendedUrls = Array.isArray(result?.recommended_fetch_urls) ? result.recommended_fetch_urls : [];
+          return (
+            <div key={`${entry.step ?? index}-${entry.tool_name || entry.tool || kind}-${index}`} className={`rounded-lg border px-2.5 py-2 ${meta.border} ${meta.bg}`}>
+              <div className="flex items-start gap-2">
+                <span className={`text-sm leading-none mt-0.5 ${meta.tone}`}>{meta.icon}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
+                    <span className={`px-1.5 py-0.5 rounded border ${meta.border} ${meta.bg} ${meta.tone}`}>{meta.label}</span>
+                    <span className="text-gray-500">step {entry.step ?? index}</span>
+                    {(entry.tool_name || entry.tool) && (
+                      <span className="text-cyan-100/90">{entry.tool_name || entry.tool}</span>
+                    )}
+                    {entry.ok === true && <span className="text-emerald-400">✓</span>}
+                    {entry.ok === false && <span className="text-rose-400">✗</span>}
+                  </div>
+                  <div className="mt-1 text-[11px] text-gray-300 leading-snug">
+                    {entry.summary || entry.status || entry.message || 'In progress'}
+                  </div>
+
+                  {kind === 'tool_call' && entry.args && (
+                    <div className="mt-1 text-[10px] text-gray-500 font-mono break-words">
+                      {JSON.stringify(entry.args)}
+                    </div>
+                  )}
+
+                  {recommendedUrls.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {recommendedUrls.slice(0, 2).map((url) => (
+                        <span key={url} className="max-w-full truncate rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-200">
+                          {url}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="rounded-lg border border-dashed border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px] text-cyan-100/70">
+            Agent Mode is on. Trace events will appear here while the model searches, reads, and analyzes.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+
 const SmartMarkdown = React.memo(({ content, isStreaming, syntaxTheme, onCopyCode, copiedCodeId, messageId, onGenerateTests, generatingTestId, onApplyPatch }) => {
   const displayedText = useTypingEffect(content, isStreaming);
 
@@ -536,6 +642,8 @@ const ChatInterface = ({
   model,
   includePreviousModules,
   setIncludePreviousModules,
+  agentModeEnabled,
+  setAgentModeEnabled,
   apiBase,
   authHeaders,
   theme,
@@ -1343,6 +1451,11 @@ const ChatInterface = ({
                   <p className="font-medium mb-2 text-xs text-fuchsia-300 flex items-center flex-wrap gap-2">
                     <span className="flex items-center gap-1">
                       <span>{turn.selected_model || 'AI'}</span>
+                      {turn.agent_mode && (
+                        <span className="bg-cyan-500/10 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/20 text-[10px]">
+                          Agent Mode
+                        </span>
+                      )}
                       {turn.persona && (
                         <span className="bg-fuchsia-500/20 text-fuchsia-400 px-1.5 py-0.5 rounded border border-fuchsia-500/30 text-[10px] animate-pulse">
                           ✨ Personalized ({turn.persona})
@@ -1370,6 +1483,12 @@ const ChatInterface = ({
                       </>
                     )}
                   </p>
+                  <AgentTracePanel
+                    trace={turn.agent_trace || []}
+                    agentMode={Boolean(turn.agent_mode)}
+                    provider={turn.agent_provider}
+                    model={turn.agent_model}
+                  />
                   <div className="prose prose-invert prose-sm max-w-full w-full break-words overflow-x-auto">
                     {(turn.id === streamingHistoryId && socketIsStreaming && !liveStreamText) ? (
                       <div className="flex items-center gap-2 py-2 text-gray-400">
@@ -1468,6 +1587,7 @@ const ChatInterface = ({
                             {turn.reasoning && (
                               <ReactMarkdown>{turn.reasoning}</ReactMarkdown>
                             )}
+
                           </div>
                         </div>
                       )}
@@ -1782,6 +1902,18 @@ const ChatInterface = ({
                 title="Include previous module decisions in the prompt memory"
               >
                 {includePreviousModules ? 'Onceki moduller: ON' : 'Onceki moduller: OFF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAgentModeEnabled(v => !v)}
+                className={`text-[10px] px-2 py-1 rounded-full border transition-colors whitespace-nowrap ${
+                  agentModeEnabled
+                    ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-300'
+                    : 'border-gray-700 bg-gray-900/50 text-gray-400'
+                }`}
+                title="Enable Agent Mode (tool-using model runtime)"
+              >
+                {agentModeEnabled ? 'Agent Mode: ON' : 'Agent Mode: OFF'}
               </button>
               <ContextBar question={question} code={code} image={image} linkedRepo={linkedRepo} debug={debug} />
             </div>

@@ -26,8 +26,8 @@ class ModelRouter:
     """
 
     # Claude 4.5 model names
-    CLAUDE_SONNET = 'claude-sonnet-4-5'
-    CLAUDE_OPUS   = 'claude-opus-4-5'
+    CLAUDE_SONNET = 'claude-sonnet-4-5-20250929'
+    CLAUDE_OPUS   = 'claude-opus-4-5-20251101'
 
     def __init__(self, default_model='gemini-3.1-flash-lite-preview'):
         self.default_model = default_model

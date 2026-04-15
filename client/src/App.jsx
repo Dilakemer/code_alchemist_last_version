@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ModelSelector from './components/ModelSelector';
 import ChatInterface from './components/ChatInterface';
 import HistoryList from './components/HistoryList';
@@ -15,6 +15,7 @@ import FollowingFeed from './components/FollowingFeed';
 import StatusModal from './components/StatusModal';
 import ExportButton from './components/ExportButton';
 import CodeHealthDashboard from './components/CodeHealthDashboard';
+import GitHubGraph from './components/GitHubGraph';
 import FeedbackModal from './components/FeedbackModal';
 import OnboardingTour, { shouldShowOnboarding } from './components/OnboardingTour';
 import ProjectManager from './components/ProjectManager';
@@ -26,7 +27,7 @@ import TokenWallet from './components/TokenWallet';
 import TokenDashboardModal from './components/TokenDashboardModal';
 import ThemeStore from './components/ThemeStore';
 import WeeklyReport from './components/WeeklyReport';
-import { requestNotificationPermission, isNotificationEnabled } from './utils/notifications';
+import { requestNotificationPermission } from './utils/notifications';
 import { API_BASE } from './config';
 import { useCollabSocket } from './hooks/useCollabSocket';
 
@@ -47,13 +48,10 @@ function App() {
   const [showCodeHealth, setShowCodeHealth] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackHistoryId, setFeedbackHistoryId] = useState(null);
-  const [showGamificationData, setShowGamificationData] = useState(false);
   const [gamificationToasts, setGamificationToasts] = useState([]);
-  const [showThemeStore, setShowThemeStore] = useState(false);
   const [collabToken, setCollabToken] = useState(null);
   const [isCollabView, setIsCollabView] = useState(false);
   const [collabOwner, setCollabOwner] = useState(null);
-  const [gamificationRefreshKey, setGamificationRefreshKey] = useState(0);
   const [collabReview, setCollabReview] = useState({ status: 'open', updated_by: null, updated_at: null, comments: [] });
   const [collabReviewLoading, setCollabReviewLoading] = useState(false);
   const [collabReviewComment, setCollabReviewComment] = useState('');
@@ -77,6 +75,9 @@ function App() {
     const raw = localStorage.getItem('codebrain_user');
     return raw ? JSON.parse(raw) : null;
   });
+  const authHeaders = useMemo(() => (
+    token ? { Authorization: `Bearer ${token}` } : {}
+  ), [token]);
   const [authOpen, setAuthOpen] = useState(false);
   const [showCommunityFeed, setShowCommunityFeed] = useState(false);
   const [activeTab, setActiveTab] = useState('conversations'); // 'conversations' or 'community'
@@ -85,10 +86,10 @@ function App() {
   const [statusMessage, setStatusMessage] = useState(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
 
-  const handleShowAlert = (msg) => {
+  const handleShowAlert = useCallback((msg) => {
     setStatusMessage(msg);
     setIsStatusModalOpen(true);
-  };
+  }, []);
 
 
   // Share State
@@ -108,6 +109,11 @@ function App() {
   const [includePreviousModules, setIncludePreviousModules] = useState(() => {
     const savedValue = localStorage.getItem('codebrain_include_previous_modules');
     if (savedValue === null) return true;
+    return savedValue === 'true';
+  });
+  const [agentModeEnabled, setAgentModeEnabled] = useState(() => {
+    const savedValue = localStorage.getItem('codebrain_agent_mode');
+    if (savedValue === null) return false;
     return savedValue === 'true';
   });
 
@@ -151,7 +157,6 @@ function App() {
 
   // Debug State for Memory/Carryover Monitoring
   const [debug, setDebug] = useState(null);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [currentlySpeakingId, setCurrentlySpeakingId] = useState(null);
   // Onboarding
   const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding());
@@ -161,13 +166,177 @@ function App() {
   const [projects, setProjects] = useState([]);
     const [projectConversations, setProjectConversations] = useState({}); // { [projectId]: [convs] }
     const [expandedProjects, setExpandedProjects] = useState(new Set());
+    const [isStreamingAgent, setIsStreamingAgent] = useState(false);
 
-  // Request notification permission when user logs in
+  const fetchProjects = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/projects`, { headers: authHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.projects || []);
+      }
+    } catch (e) {
+      console.error('Projects fetch error:', e);
+    }
+  }, [token, authHeaders]);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/notifications`, { headers: authHeaders });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
+      }
+    } catch (err) {
+      console.error("Bildirim hatası:", err);
+    }
+  }, [authHeaders]);
+
+  const fetchConversations = useCallback(async () => {
+    if (isStreamingAgent) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/conversations`, { headers: authHeaders });
+      const data = await res.json();
+      setConversations(data.conversations || []);
+    } catch (err) {
+      console.error("Failed to fetch conversations", err);
+    }
+  }, [isStreamingAgent, authHeaders]);
+
+  const fetchCommunityItems = useCallback(async () => {
+    try {
+      // Sidebar listesi için hala genel history veya feed kullanılabilir
+      const res = await fetch(`${API_BASE}/api/community/feed`);
+      const data = await res.json();
+      setCommunityItems(data.feed || []);
+    } catch (err) {
+      console.error("Failed to fetch community items", err);
+    }
+  }, []);
+
+  const fetchCollabReview = useCallback(async (tokenValue = collabToken) => {
+    if (!tokenValue) return;
+    setCollabReviewLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/collaboration/session/${tokenValue}/review`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setCollabReview(data);
+    } catch (err) {
+      console.error('Collab review fetch error:', err);
+    } finally {
+      setCollabReviewLoading(false);
+    }
+  }, [collabToken]);
+
+
+  const loadSharedSession = useCallback(async (token) => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/collaboration/session/${token}`);
+      if (!resp.ok) throw new Error('Paylaşım linki geçersiz');
+      const data = await resp.json();
+      setChatHistory((data.history || []).map(item => ({ ...item, is_response_complete: true })));
+      setCollabToken(token);
+      setIsCollabView(true);
+      setCollabOwner(data.owner_display_name);
+      setActiveConversationId(data.conversation_id);
+      fetchCollabReview(token);
+      handleShowAlert(`Paylaşılan oturuma katıldınız: ${data.owner_display_name}`);
+    } catch (err) {
+      handleShowAlert(err.message);
+    }
+  }, [fetchCollabReview, handleShowAlert]);
+
+  const fetchUsageLimits = useCallback(async () => {
+    if (!token) {
+      setUsageInfo(null);
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE}/api/billing/usage`, { headers: authHeaders });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setUsageInfo(data);
+    } catch (err) {
+      console.error('Billing usage fetch error:', err);
+    }
+  }, [token, authHeaders]);
+
+  const refreshTokenBalance = useCallback(async () => {
+    if (!token) return null;
+    try {
+      const resp = await fetch(`${API_BASE}/api/tokens/usage?limit=5`, { headers: authHeaders });
+      if (!resp.ok) return null;
+
+      const data = await resp.json();
+      if (typeof data?.balance === 'number') {
+        setUser(prev => {
+          if (!prev) return prev;
+          const next = { ...prev, tokens: data.balance };
+          localStorage.setItem('codebrain_user', JSON.stringify(next));
+          return next;
+        });
+      }
+
+      return data;
+    } catch (err) {
+      console.error('Token balance refresh error:', err);
+      return null;
+    }
+  }, [token, authHeaders]);
+
+  const syncDailyGamification = useCallback(async () => {
+    if (!token || !user) return;
+
+    const storageKey = 'codebrain_gamification_sync_date';
+    const today = new Date().toISOString().slice(0, 10);
+    if (localStorage.getItem(storageKey) === today) return;
+
+    try {
+      const resp = await fetch(`${API_BASE}/api/gamification/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ activity_date: today })
+      });
+
+      if (!resp.ok) return;
+
+      const data = await resp.json();
+      localStorage.setItem(storageKey, today);
+
+      const syncedCoins = data?.total_coins ?? data?.xp_awarded?.total_coins;
+      if (typeof syncedCoins === 'number') {
+        setUser(prev => prev ? { ...prev, coins: syncedCoins } : prev);
+        const storedUser = localStorage.getItem('codebrain_user');
+        if (storedUser) {
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            parsedUser.coins = syncedCoins;
+            localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
+          } catch (err) {
+            console.warn('Failed to persist synced coins', err);
+          }
+        }
+      }
+
+      if (data && data.events && data.events.length > 0) {
+        const newToasts = data.events.map(ev => ({ id: Date.now() + Math.random(), ...ev }));
+        setGamificationToasts(prev => [...prev, ...newToasts]);
+        setTimeout(() => {
+          setGamificationToasts(prev => prev.filter(t => !newToasts.includes(t)));
+        }, 5000);
+      }
+    } catch (err) {
+      console.error('Error syncing gamification', err);
+    }
+  }, [token, user, authHeaders]);
+
   // Request notification permission when user logs in
   useEffect(() => {
     if (user) {
-      requestNotificationPermission().then(granted => {
-        setNotificationsEnabled(granted);
+      requestNotificationPermission().then(() => {
+        // Notification permission handled
       });
     }
 
@@ -181,7 +350,7 @@ function App() {
     if (tokenParam) {
       loadSharedSession(tokenParam);
     }
-  }, [user]);
+  }, [user, loadSharedSession]);
 
   // ---- Live Sync Collaboration (Socket.io) ----
   const collabUserName = user?.display_name || 'Guest';
@@ -252,68 +421,13 @@ function App() {
     } else {
       setUsageInfo(null);
     }
-  }, [token]);
+  }, [token, fetchUsageLimits]);
 
   useEffect(() => {
     if (token && user) {
       syncDailyGamification();
     }
-  }, [token, user]);
-
-  const loadSharedSession = async (token) => {
-    try {
-      const resp = await fetch(`${API_BASE}/api/collaboration/session/${token}`);
-      if (!resp.ok) throw new Error('Paylaşım linki geçersiz');
-      const data = await resp.json();
-      setChatHistory((data.history || []).map(item => ({ ...item, is_response_complete: true })));
-      setCollabToken(token);
-      setIsCollabView(true);
-      setCollabOwner(data.owner_display_name);
-      setActiveConversationId(data.conversation_id);
-      fetchCollabReview(token);
-      handleShowAlert(`Paylaşılan oturuma katıldınız: ${data.owner_display_name}`);
-    } catch (err) {
-      handleShowAlert(err.message);
-    }
-  };
-
-  const fetchUsageLimits = async () => {
-    if (!token) {
-      setUsageInfo(null);
-      return;
-    }
-    try {
-      const resp = await fetch(`${API_BASE}/api/billing/usage`, { headers: authHeaders });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      setUsageInfo(data);
-    } catch (err) {
-      console.error('Billing usage fetch error:', err);
-    }
-  };
-
-  const refreshTokenBalance = async () => {
-    if (!token) return null;
-    try {
-      const resp = await fetch(`${API_BASE}/api/tokens/usage?limit=5`, { headers: authHeaders });
-      if (!resp.ok) return null;
-
-      const data = await resp.json();
-      if (typeof data?.balance === 'number') {
-        setUser(prev => {
-          if (!prev) return prev;
-          const next = { ...prev, tokens: data.balance };
-          localStorage.setItem('codebrain_user', JSON.stringify(next));
-          return next;
-        });
-      }
-
-      return data;
-    } catch (err) {
-      console.error('Token balance refresh error:', err);
-      return null;
-    }
-  };
+  }, [token, user, syncDailyGamification]);
 
   useEffect(() => {
     if (!token) return;
@@ -341,55 +455,8 @@ function App() {
     };
 
     applyPostCheckoutState();
-  }, [token]);
+  }, [token, fetchUsageLimits, refreshTokenBalance, handleShowAlert]);
 
-  const syncDailyGamification = async () => {
-    if (!token || !user) return;
-
-    const storageKey = 'codebrain_gamification_sync_date';
-    const today = new Date().toISOString().slice(0, 10);
-    if (localStorage.getItem(storageKey) === today) return;
-
-    try {
-      const resp = await fetch(`${API_BASE}/api/gamification/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ activity_date: today })
-      });
-
-      if (!resp.ok) return;
-
-      const data = await resp.json();
-      localStorage.setItem(storageKey, today);
-
-      const syncedCoins = data?.total_coins ?? data?.xp_awarded?.total_coins;
-      if (typeof syncedCoins === 'number') {
-        setUser(prev => prev ? { ...prev, coins: syncedCoins } : prev);
-        const storedUser = localStorage.getItem('codebrain_user');
-        if (storedUser) {
-          try {
-            const parsedUser = JSON.parse(storedUser);
-            parsedUser.coins = syncedCoins;
-            localStorage.setItem('codebrain_user', JSON.stringify(parsedUser));
-          } catch (err) {
-            console.warn('Failed to persist synced coins', err);
-          }
-        }
-      }
-
-      if (data && data.events && data.events.length > 0) {
-        const newToasts = data.events.map(ev => ({ id: Date.now() + Math.random(), ...ev }));
-        setGamificationToasts(prev => [...prev, ...newToasts]);
-        setTimeout(() => {
-          setGamificationToasts(prev => prev.filter(t => !newToasts.includes(t)));
-        }, 5000);
-      }
-
-      setGamificationRefreshKey(prev => prev + 1);
-    } catch (err) {
-      console.error('Error syncing gamification', err);
-    }
-  };
 
   const switchSubscriptionPlan = async (plan) => {
     if (plan === 'premium') {
@@ -407,21 +474,6 @@ function App() {
     }
 
     handleShowAlert('Select a token package to continue.');
-  };
-
-  const fetchCollabReview = async (tokenValue = collabToken) => {
-    if (!tokenValue) return;
-    setCollabReviewLoading(true);
-    try {
-      const resp = await fetch(`${API_BASE}/api/collaboration/session/${tokenValue}/review`);
-      if (!resp.ok) return;
-      const data = await resp.json();
-      setCollabReview(data);
-    } catch (err) {
-      console.error('Collab review fetch error:', err);
-    } finally {
-      setCollabReviewLoading(false);
-    }
   };
 
   const submitCollabReviewComment = async () => {
@@ -556,6 +608,10 @@ function App() {
     localStorage.setItem('codebrain_include_previous_modules', includePreviousModules ? 'true' : 'false');
   }, [includePreviousModules]);
 
+  useEffect(() => {
+    localStorage.setItem('codebrain_agent_mode', agentModeEnabled ? 'true' : 'false');
+  }, [agentModeEnabled]);
+
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
@@ -599,32 +655,6 @@ function App() {
   };
 
   // Export chat as Markdown
-  const exportChatAsMarkdown = () => {
-    if (chatHistory.length === 0) {
-      alert('No chat to export.');
-      return;
-    }
-
-    let markdown = `# Chat - ${new Date().toLocaleDateString('en-US')}\n\n`;
-
-    chatHistory.forEach((turn, idx) => {
-      markdown += `## Question ${idx + 1}\n\n`;
-      markdown += `**User:** ${turn.user_question}\n\n`;
-      if (turn.code_snippet) {
-        markdown += `**Code:**\n\`\`\`\n${turn.code_snippet}\n\`\`\`\n\n`;
-      }
-      markdown += `**${turn.selected_model || 'AI'}:** ${turn.ai_response}\n\n`;
-      markdown += `---\n\n`;
-    });
-
-    const blob = new Blob([markdown], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-${Date.now()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const handleDeleteProject = async (projectId) => {
     if (!window.confirm('Bu projeyi ve ona ait tüm sohbetleri silmek istediğinizden emin misiniz?')) return;
@@ -641,10 +671,6 @@ function App() {
       console.error('Project delete error:', e);
     }
   };
-
-  const authHeaders = useMemo(() =>
-    token ? { 'Authorization': `Bearer ${token}` } : {}
-    , [token]);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -670,7 +696,7 @@ function App() {
       fetchCommunityItems();
     };
     bootstrap();
-  }, []); // Run once on mount
+  }, [token, fetchConversations, fetchCommunityItems]); // Run on mount and when token/funcs change
 
   const [notifications, setNotifications] = useState([]);
 
@@ -680,7 +706,7 @@ function App() {
       fetchNotifications(); // Initial fetch
       fetchProjects();
     }
-  }, [token]);
+  }, [token, fetchConversations, fetchNotifications, fetchProjects]);
 
   const refreshUserInfo = async () => {
     if (!token) return;
@@ -698,20 +724,8 @@ function App() {
     }
   };
 
-  const fetchProjects = async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/projects`, { headers: authHeaders });
-      if (res.ok) {
-        const data = await res.json();
-        setProjects(data.projects || []);
-      }
-    } catch (e) {
-      console.error('Projects fetch error:', e);
-    }
-  };
-
     const fetchProjectConversations = async (projectId) => {
+      if (isStreamingAgent) return;
       try {
         const res = await fetch(`${API_BASE}/api/conversations?project_id=${projectId}`, { headers: authHeaders });
         if (res.ok) {
@@ -735,28 +749,6 @@ function App() {
         return next;
       });
     };
-
-  const fetchNotifications = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/notifications`, { headers: authHeaders });
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data);
-      }
-    } catch (err) {
-      console.error("Bildirim hatası:", err);
-    }
-  };
-
-  const fetchConversations = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/conversations`, { headers: authHeaders });
-      const data = await res.json();
-      setConversations(data.conversations || []);
-    } catch (err) {
-      console.error("Failed to fetch conversations", err);
-    }
-  };
 
   const fetchArchivedConversations = async () => {
     if (!token) return;
@@ -785,17 +777,6 @@ function App() {
       }
     } catch (err) {
       console.error('Error fetching favorites:', err);
-    }
-  };
-
-  const fetchCommunityItems = async () => {
-    try {
-      // Sidebar listesi için hala genel history veya feed kullanılabilir
-      const res = await fetch(`${API_BASE}/api/community/feed`);
-      const data = await res.json();
-      setCommunityItems(data.feed || []);
-    } catch (err) {
-      console.error("Failed to fetch community items", err);
     }
   };
 
@@ -944,7 +925,7 @@ function App() {
     if (detectedLanguage === 'python' || detectedLanguage === 'java' || detectedLanguage === 'sql') {
       selectedModel = 'gpt-4o';
     } else if (detectedLanguage === 'javascript') {
-      selectedModel = detectedIntent === 'architecture' ? 'claude-opus-4-5' : 'gpt-4o';
+      selectedModel = detectedIntent === 'architecture' ? 'claude-opus-4-5-20251101' : 'gpt-4o';
     } else if (detectedLanguage === 'bash') {
       selectedModel = 'gemini-2.5-flash-lite';
     }
@@ -1134,6 +1115,7 @@ function App() {
     setCode('');
     setImage(null);
     setLoading(true);
+    setIsStreamingAgent(true);
 
     try {
       let endpoint = isBlendMode ? `${API_BASE}/api/blend` : `${API_BASE}/api/ask`;
@@ -1145,7 +1127,9 @@ function App() {
         formData.append('question', currentQuestion);
         formData.append('code', currentCode);
         formData.append('model', currentModel);
+        formData.append('agent_mode', String(Boolean(agentModeEnabled)));
         if (effectiveConversationId) formData.append('conversation_id', effectiveConversationId);
+        if (semanticProjectId) formData.append('project_id', String(semanticProjectId));
 
         // Add repo/branch if this is the first message
         if (!effectiveConversationId && preLinkedRepo) {
@@ -1168,6 +1152,8 @@ function App() {
           repo: !effectiveConversationId ? preLinkedRepo : null,
           branch: !effectiveConversationId ? preLinkedBranch : 'main',
           include_previous_modules: includePreviousModules,
+          agent_mode: Boolean(agentModeEnabled && !isBlendMode),
+          project_id: semanticProjectId,
         });
       }
 
@@ -1236,7 +1222,7 @@ function App() {
               }
 
               // Early routing metadata (can arrive before done)
-              if (data.routing_reason || data.selected_model || data.detected_language || data.detected_intent) {
+              if (data.routing_reason || data.selected_model || data.detected_language || data.detected_intent || data.agent_mode !== undefined || data.agent_provider || data.agent_model) {
                 setChatHistory(prev => prev.map(item =>
                   item.id === tempId
                     ? {
@@ -1245,6 +1231,9 @@ function App() {
                       selected_model: data.selected_model || item.selected_model,
                       detected_language: data.detected_language || item.detected_language,
                       detected_intent: data.detected_intent || item.detected_intent,
+                      agent_mode: data.agent_mode !== undefined ? data.agent_mode : item.agent_mode,
+                      agent_provider: data.agent_provider || item.agent_provider,
+                      agent_model: data.agent_model || item.agent_model,
                     }
                     : item
                 ));
@@ -1270,6 +1259,62 @@ function App() {
               }
 
 
+              // Agent status updates (real-time trace)
+              if (data.type === 'status') {
+                const statusText = data.message || data.text || data.status || 'Working...';
+                const statusTraceEntry = {
+                  kind: 'status',
+                  step: data.step ?? null,
+                  tool_name: data.name || data.tool_name || 'status',
+                  summary: statusText,
+                  ok: null,
+                  status: statusText,
+                };
+                setChatHistory(prev => prev.map(item =>
+                  item.id === tempId
+                    ? { ...item, agent_trace: [...(item.agent_trace || []), statusTraceEntry] }
+                    : item
+                ));
+              }
+              // Agent Tool Traces (Real-time)
+              if (data.type === 'tool_call') {
+                const newTraceEntry = {
+                  step: (data.step ?? 0),
+                  kind: 'tool_call',
+                  tool_name: data.name,
+                  args: data.args,
+                  call_id: data.call_id,
+                  ok: null, // Pending
+                  summary: `Executing ${data.name}...`
+                };
+                setChatHistory(prev => prev.map(item =>
+                  item.id === tempId 
+                    ? { ...item, agent_trace: [...(item.agent_trace || []), newTraceEntry] } 
+                    : item
+                ));
+              }
+
+              if (data.type === 'tool_result') {
+                setChatHistory(prev => prev.map(item => {
+                  if (item.id !== tempId) return item;
+                  const newTrace = (item.agent_trace || []).map(t => {
+                    const matchesCallId = data.call_id && (t.call_id === data.call_id);
+                    const matchesToolName = !data.call_id && (t.tool_name === data.name && t.ok === null);
+                    
+                    if (matchesCallId || matchesToolName) {
+                      return { 
+                        ...t, 
+                        kind: 'tool_result',
+                        ok: data.ok, 
+                        result: data.result, 
+                        summary: data.summary || (data.ok ? `Successfully executed ${data.name}` : `Failed to execute ${data.name}`)
+                      };
+                    }
+                    return t;
+                  });
+                  return { ...item, agent_trace: newTrace };
+                }));
+              }
               if (data.done) {
                 receivedDoneEvent = true;
 
@@ -1305,6 +1350,12 @@ function App() {
                     routing_reason: data.routing_reason,
                     detected_language: data.detected_language || item.detected_language,
                     detected_intent: data.detected_intent || item.detected_intent,
+                    agent_mode: data.agent_mode !== undefined ? data.agent_mode : item.agent_mode,
+                    agent_provider: data.agent_provider || item.agent_provider,
+                    agent_model: data.agent_model || item.agent_model,
+                    agent_tool_capable: data.agent_tool_capable,
+                    agent_trace: (item.agent_trace && item.agent_trace.length > 0) ? item.agent_trace : (data.agent_trace || item.agent_trace),
+                    agent_changed_files: data.agent_changed_files || item.agent_changed_files,
                     persona: data.persona,
                     memory_used: data.memory_used,
                     memory_hits: data.memory_hits,
@@ -1312,6 +1363,8 @@ function App() {
                     timeToFirstToken: ttf
                   } : item
                 ));
+
+                setIsStreamingAgent(false);
 
                 if (token && user && data.xp_awarded && typeof data.xp_awarded.total_coins === 'number') {
                   const updatedCoins = data.xp_awarded.total_coins;
@@ -1343,7 +1396,6 @@ function App() {
                 }
 
                 if (token && user && (data.xp_awarded || typeof data.new_token_balance === 'number')) {
-                  setGamificationRefreshKey(prev => prev + 1);
                   refreshUserInfo();
                 }
 
@@ -1377,9 +1429,11 @@ function App() {
               selected_model: item.selected_model || autoRoutingFallback?.selectedModel || currentModel,
               detected_language: item.detected_language || autoRoutingFallback?.detectedLanguage,
               detected_intent: item.detected_intent || autoRoutingFallback?.detectedIntent,
+              agent_mode: item.agent_mode ?? Boolean(agentModeEnabled && !isBlendMode),
             }
             : item
         ));
+        setIsStreamingAgent(false);
       }
 
       // After streaming is complete, sync gamification silently
@@ -1390,6 +1444,7 @@ function App() {
 
     } catch (error) {
       console.error("Error:", error);
+      setIsStreamingAgent(false);
       const endTime = Date.now();
       const totalDuration = ((endTime - startTime) / 1000).toFixed(2);
       const ttf = (firstChunkTime ? ((firstChunkTime - startTime) / 1000).toFixed(2) : null);
@@ -1543,7 +1598,6 @@ function App() {
       setTheme(defaultTheme);
       document.documentElement.setAttribute('data-theme', defaultTheme);
       setConversations([]);
-      setShowThemeStore(false); // Close theme store modal
       handleNewChat();
     }
   };
@@ -1968,6 +2022,7 @@ function App() {
             project={activeProject}
             apiBase={API_BASE}
             authHeaders={authHeaders}
+            isPollingDisabled={isStreamingAgent}
             onNewChat={(conv, initialMsg) => {
               setActiveConversationId(conv.id);
               setChatHistory([]);
@@ -2272,6 +2327,8 @@ function App() {
               model={model}
               includePreviousModules={includePreviousModules}
               setIncludePreviousModules={setIncludePreviousModules}
+              agentModeEnabled={agentModeEnabled}
+              setAgentModeEnabled={setAgentModeEnabled}
               apiBase={API_BASE}
               authHeaders={authHeaders}
               theme={theme}

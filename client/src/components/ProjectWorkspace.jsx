@@ -5,9 +5,13 @@ const LANGUAGES = ['python', 'javascript', 'typescript', 'go', 'rust', 'java', '
 
 const MODELS = [
   { value: 'auto', label: '⚡ Auto' },
+  { value: 'gemini-3-flash-preview', label: '✦ Gemini 3 Flash (Preview)' },
   { value: 'gemini-3.1-flash-lite-preview', label: '✦ Gemini 3.1 Flash Lite (Preview)' },
   { value: 'gemini-2.5-flash', label: '✦ Gemini 2.5 Flash' },
   { value: 'gemini-2.5-flash-lite', label: '✦ Gemini Flash Lite' },
+  { value: 'gemma-4-12b-it', label: '✦ Gemma 4 12B IT' },
+  { value: 'gemma-4-26b-a4b-it', label: '✦ Gemma 4 26B A4B IT' },
+  { value: 'gemma-4-31b-it', label: '✦ Gemma 4 31B IT' },
   { value: 'gpt-4o', label: '◎ GPT-4o' },
   { value: 'claude-sonnet-4-5-20250929', label: '◆ Claude 4.5 Sonnet' },
   { value: 'claude-opus-4-5-20251101', label: '◆ Claude 4.5 Opus' },
@@ -33,7 +37,7 @@ const BINARY_EXTENSIONS = new Set([
   'mp4', 'mov', 'avi', 'mkv', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'
 ]);
 
-const ProjectWorkspace = ({ project, apiBase, authHeaders, onNewChat, onOpenChat, onDeleteChat, model, setModel }) => {
+const ProjectWorkspace = ({ project, apiBase, authHeaders, onNewChat, onOpenChat, onDeleteChat, model, setModel, isPollingDisabled }) => {
   const [activeTab, setActiveTab] = useState('chats');
   const [projectChats, setProjectChats] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -67,6 +71,7 @@ const ProjectWorkspace = ({ project, apiBase, authHeaders, onNewChat, onOpenChat
   }, [project]);
 
   const fetchProjectChats = async () => {
+    if (isPollingDisabled) return;
     setLoading(true);
     try {
       const res = await fetch(`${apiBase}/api/conversations?project_id=${project.id}`, { headers: authHeaders });

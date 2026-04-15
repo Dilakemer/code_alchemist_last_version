@@ -1,0 +1,276 @@
+"""
+AgentRuntime — the top-level orchestrator for the agent system.
+
+Wires together:
+  AdapterDispatcher → BaseAdapter
+  ToolRegistry
+  ContextAssembler
+  AgentLoop
+  SSE event stream
+
+This is the only object that should be imported by the API layer.
+
+Usage::
+
+    runtime = AgentRuntime()                      # uses env vars
+    async for chunk in runtime.stream(request):   # SSE chunks
+        yield chunk
+
+    result = await runtime.run_sync(request)      # AgentResult
+"""
+from __future__ import annotations
+
+import asyncio
+import uuid
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+
+from ..adapters.dispatcher import AdapterDispatcher
+from ..agents.base import AgentEvent, AgentEventType, AgentResult, ChangedFile, ToolTrace
+from ..agents.loop import AgentLoop
+from ..tools.registry import ToolRegistry, create_default_registry
+from .context import ContextAssembler
+from .limits import ContextCompressor
+from .sse import (
+    SSEEventType,
+    build_sse_event,
+    done_event,
+    error_event,
+    metadata_event,
+    message_event,
+    tool_call_event,
+    tool_result_event,
+)
+
+
+class AgentRuntime:
+    """
+    Production-ready agent runtime.
+
+    Parameters
+    ----------
+    tool_registry
+        Pre-built ToolRegistry; defaults to create_default_registry().
+    get_history_fn
+        Callable(conversation_id: int) → list[{user, ai}]
+    get_project_rag_fn
+        Callable(project, question: str) → str
+    get_memory_fn
+        Callable(user_id: int, question: str) → str
+    openai_key / anthropic_key / gemini_key
+        API keys; fall back to environment variables when omitted.
+    """
+
+    def __init__(
+        self,
+        *,
+        tool_registry: Optional[ToolRegistry] = None,
+        get_history_fn: Optional[Callable] = None,
+        get_project_rag_fn: Optional[Callable] = None,
+        get_memory_fn: Optional[Callable] = None,
+        openai_key: Optional[str] = None,
+        anthropic_key: Optional[str] = None,
+        gemini_key: Optional[str] = None,
+    ) -> None:
+        self.registry = tool_registry or create_default_registry()
+        self._dispatcher = AdapterDispatcher(
+            openai_key=openai_key,
+            anthropic_key=anthropic_key,
+            gemini_key=gemini_key,
+        )
+        self._assembler = ContextAssembler(
+            get_history_fn=get_history_fn,
+            get_project_rag_fn=get_project_rag_fn,
+            get_memory_fn=get_memory_fn,
+        )
+        self._compressor = ContextCompressor()
+
+    # ── Public API ────────────────────────────────────────────────────────
+
+    async def stream(self, request: Dict[str, Any]) -> AsyncIterator[str]:
+        """
+        Run the agent and yield raw SSE strings.
+
+        Intended for use in a FastAPI StreamingResponse.
+        """
+        run_id = request.get("run_id") or f"run_{uuid.uuid4().hex[:8]}"
+        ctx = await self._build_context(request, run_id=run_id)
+
+        provider = ctx.provider
+        model = ctx.model
+        tool_names = [t.name for t in self.registry.list_tools()]
+
+        # ── metadata event ────────────────────────────────────────────────
+        yield metadata_event(
+            run_id=run_id,
+            model=model,
+            provider=provider,
+            project_id=ctx.project_id,
+            tools_available=tool_names,
+        )
+
+        try:
+            adapter = self._dispatcher.get(provider)
+        except Exception as exc:
+            yield error_event(str(exc), code="ADAPTER_ERROR")
+            return
+
+        loop = AgentLoop(adapter, self.registry, self._compressor)
+
+        try:
+            async for event in loop.run(ctx):
+                yield self._event_to_sse(event)
+        except Exception as exc:
+            yield error_event(str(exc), code="RUNTIME_ERROR")
+
+    async def run_sync(self, request: Dict[str, Any]) -> AgentResult:
+        """
+        Run the agent and collect a final AgentResult (no streaming).
+
+        Useful for synchronous callers (e.g. the existing `/api/ask` bridge).
+        """
+        run_id = request.get("run_id") or f"run_{uuid.uuid4().hex[:8]}"
+        ctx = await self._build_context(request, run_id=run_id)
+
+        try:
+            adapter = self._dispatcher.get(ctx.provider)
+        except Exception as exc:
+            return AgentResult(text="", error=str(exc), finish_reason="error")
+
+        loop_obj = AgentLoop(adapter, self.registry, self._compressor)
+
+        text_parts: List[str] = []
+        trace: List[ToolTrace] = []
+        changed: List[Dict] = []
+        pending_confirmations: List[Dict] = []
+        finish_reason = "stop"
+        total_steps = 0
+        token_estimate = 0
+
+        async for event in loop_obj.run(ctx):
+            if event.type == AgentEventType.MESSAGE:
+                text_parts.append(event.payload.get("text") or "")
+            elif event.type == AgentEventType.DONE:
+                finish_reason = event.payload.get("finish_reason", "stop")
+                total_steps = event.payload.get("total_steps", 0)
+                token_estimate = (event.payload.get("token_usage") or {}).get("estimated_tokens", 0)
+                changed = event.payload.get("changed_files") or []
+                pending_confirmations = event.payload.get("pending_confirmations") or []
+                for t in event.payload.get("trace") or []:
+                    trace.append(ToolTrace(
+                        step=t.get("step", 0),
+                        tool_name=t.get("tool", ""),
+                        args=t.get("args") or {},
+                        result={},
+                        summary=t.get("summary", ""),
+                        ok=t.get("ok", True),
+                        duration_ms=t.get("duration_ms", 0.0),
+                    ))
+            elif event.type == AgentEventType.ERROR:
+                return AgentResult(
+                    text="".join(text_parts),
+                    error=event.payload.get("message"),
+                    finish_reason="error",
+                )
+
+        return AgentResult(
+            text="".join(text_parts),
+            trace=trace,
+            changed_files=[
+                ChangedFile(
+                    operation=c.get("operation", "update"),
+                    path=c.get("path", ""),
+                    persisted=c.get("persisted", False),
+                )
+                for c in changed
+            ],
+            pending_confirmations=[
+                p if isinstance(p, dict) else {"item": str(p)}
+                for p in pending_confirmations
+            ],
+            tool_capable=bool(self.registry.list_tools()),
+            total_steps=total_steps,
+            finish_reason=finish_reason,
+            token_estimate=token_estimate,
+        )
+
+    def list_tools(self) -> List[Dict[str, Any]]:
+        """Return all registered enabled tools as dicts."""
+        return self.registry.get_specs()
+
+    def available_providers(self) -> Dict[str, bool]:
+        return self._dispatcher.available_providers()
+
+    # ── Internal helpers ──────────────────────────────────────────────────
+
+    async def _build_context(self, request: Dict[str, Any], run_id: str):
+        """Delegate context assembly to ContextAssembler."""
+        model = request.get("model") or "gpt-4o"
+        provider = request.get("provider") or self._dispatcher.infer_provider(model)
+
+        return await self._assembler.assemble(
+            run_id=run_id,
+            user_id=request.get("user_id"),
+            conversation_id=request.get("conversation_id"),
+            project_id=request.get("project_id"),
+            question=request.get("question") or "",
+            code=request.get("code") or "",
+            provider=provider,
+            model=model,
+            workspace_files_raw=request.get("workspace_files") or [],
+            project=request.get("_project"),
+            search_project_callback=request.get("_search_project_callback"),
+            db_read_callback=request.get("_db_read_callback"),
+            invalidate_project_cache=request.get("_invalidate_project_cache"),
+            include_history=bool(request.get("include_history", True)),
+            max_tool_calls=int(request.get("max_tool_calls") or 8),
+            max_tokens=int(request.get("max_tokens") or 8000),
+            temperature=float(request.get("temperature") or 0.2),
+            allow_write_tools=bool(request.get("allow_write_tools", False)),
+            user_prefs=request.get("user_prefs") or {},
+            stream=bool(request.get("stream", True)),
+            rag_context_override=request.get("_rag_context") or "",
+            memory_context_override=request.get("_memory_context") or "",
+            # Bridge pre-supply: skip DB history fetch if already assembled
+            pre_assembled_history=request.get("_pre_assembled_history"),
+        )
+
+    @staticmethod
+    def _event_to_sse(event: AgentEvent) -> str:
+        """Convert an AgentEvent to a raw SSE data string."""
+        etype = event.type
+        payload = event.payload
+
+        if etype == AgentEventType.TOOL_CALL:
+            return tool_call_event(
+                step=payload.get("step", 0),
+                name=payload.get("name", ""),
+                args=payload.get("args") or {},
+            )
+        if etype == AgentEventType.TOOL_RESULT:
+            return tool_result_event(
+                step=payload.get("step", 0),
+                name=payload.get("name", ""),
+                ok=payload.get("ok", True),
+                summary=payload.get("summary", ""),
+                result=payload.get("result") or {},
+                duration_ms=payload.get("duration_ms", 0.0),
+            )
+        if etype == AgentEventType.MESSAGE:
+            return message_event(payload.get("text", ""))
+        if etype == AgentEventType.DONE:
+            return done_event(
+                run_id=payload.get("run_id", ""),
+                finish_reason=payload.get("finish_reason", "stop"),
+                total_steps=payload.get("total_steps", 0),
+                token_usage=payload.get("token_usage") or {},
+                trace=payload.get("trace") or [],
+                changed_files=payload.get("changed_files") or [],
+                pending_confirmations=payload.get("pending_confirmations") or [],
+            )
+        if etype == AgentEventType.ERROR:
+            return error_event(
+                message=payload.get("message", "Unknown error"),
+                code=payload.get("code", "AGENT_ERROR"),
+            )
+        # metadata and reasoning passthrough
+        return build_sse_event(SSEEventType(etype.value), payload)

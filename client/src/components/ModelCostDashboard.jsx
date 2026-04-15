@@ -8,16 +8,15 @@ const MODEL_PRICING = {
   'gpt-4o': { input: 2.50, output: 10.00 },
   'gpt-4o-mini': { input: 0.15, output: 0.60 },
   // Claude 4.5 Pricing (Per 1M tokens)
-  'claude-sonnet-4-5': { input: 3.00, output: 15.00 },
-  'claude-opus-4-5': { input: 5.00, output: 25.00 },
+  'claude-sonnet-4-5-20250929': { input: 3.00, output: 15.00 },
+  'claude-opus-4-5-20251101': { input: 5.00, output: 25.00 },
   'claude-sonnet': { input: 3.00, output: 15.00 }, // Alias
   'claude-opus': { input: 5.00, output: 25.00 },   // Alias
-  'claude-3-5-sonnet': { input: 3.00, output: 15.00 },
-  'claude-3-opus': { input: 15.00, output: 75.00 },
   'gemini-2.5-flash': { input: 0.00, output: 0.00 },
   'gemini-3-flash-preview': { input: 0.00, output: 0.00 },
   'gemini-2.5-flash-lite': { input: 0.00, output: 0.00 },
   'gemini-3.1-flash-lite-preview': { input: 0.00, output: 0.00 },
+  'gemma-4-12b-it': { input: 0.00, output: 0.00 },
   'text-embedding-004': { input: 0.00, output: 0.00 },
   'dall-e-3': { cost_per_img: 0.040 },
   'Unknown': { input: 0, output: 0 }

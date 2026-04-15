@@ -16,9 +16,11 @@ import random
 import datetime
 import math
 import smtplib
+import traceback
 import resend
 from types import SimpleNamespace
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text as sql_text
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import timedelta
@@ -48,6 +50,35 @@ from utils.memory_utils import (
     extract_memory_candidates,
 )
 from services.lifecycle_orchestrator import start_worker, LifecycleOrchestrator
+from services.agent_runtime import AgentToolRuntime, run_agent_turn, stream_text_chunks
+
+
+def _classify_openai_error(error: Exception) -> str:
+    message = str(error or '').strip()
+    lowered = message.lower()
+
+    if 'authentication' in lowered or 'api key' in lowered or 'unauthorized' in lowered:
+        return 'authentication_or_key_issue'
+    if 'insufficient_quota' in lowered or 'quota' in lowered or 'rate limit' in lowered or '429' in lowered:
+        return 'quota_or_rate_limit'
+    if 'model' in lowered and ('not found' in lowered or 'does not exist' in lowered or 'unsupported' in lowered):
+        return 'model_not_available'
+    if 'timeout' in lowered or 'timed out' in lowered:
+        return 'timeout'
+    if 'connection' in lowered or 'network' in lowered or 'temporary failure' in lowered:
+        return 'network_or_transport'
+
+    status_code = getattr(error, 'status_code', None)
+    if status_code == 401 or status_code == 403:
+        return 'authentication_or_permission_issue'
+    if status_code == 404:
+        return 'model_not_available'
+    if status_code == 429:
+        return 'quota_or_rate_limit'
+    if status_code and int(status_code) >= 500:
+        return 'provider_server_error'
+
+    return 'unknown_openai_error'
 
 
 def _normalize_gemini_model_name(model_name):
@@ -184,8 +215,8 @@ TOKEN_COSTS = {
     'gpt-3.5-turbo': 2,
     # Anthropic ailesi
     'claude': 10,
-    'claude-sonnet-4-5': 10,
-    'claude-opus-4-5': 18,
+    'claude-sonnet-4-5-20250929': 10,
+    'claude-opus-4-5-20251101': 18,
     'claude-sonnet': 10,
     'claude-opus': 18,
     'claude-haiku': 5,
@@ -477,6 +508,163 @@ def get_project_semantic_hits(project, question, top_k=6):
         'query_model': query_model,
         'hits': hits,
         'total_chunks': len(index_data['chunks']),
+    }
+
+
+def invalidate_project_embedding_cache(project_id):
+    try:
+        pid = int(project_id)
+    except Exception:
+        return
+    project_embedding_cache.pop(pid, None)
+
+
+def _agent_project_search(project, query, top_k=6):
+    result = get_project_semantic_hits(project, query, top_k=top_k)
+    if not result:
+        return None
+    return {
+        'hits': [
+            {
+                'file': hit.get('file'),
+                'score': hit.get('score'),
+                'text': hit.get('snippet'),
+                'chunk_index': hit.get('chunk_index'),
+            }
+            for hit in (result.get('hits') or [])
+        ]
+    }
+
+
+def _agent_db_read(query, limit=100):
+    """Run read-only SQL for agent db_read tool with a server-side row cap."""
+    sql = str(query or '').strip()
+    if not sql:
+        return {'ok': False, 'error': 'query is required'}
+
+    lowered = sql.lower().strip()
+    if not (lowered.startswith('select') or lowered.startswith('with')):
+        return {'ok': False, 'error': 'Only SELECT/WITH queries are allowed.'}
+
+    safe_limit = max(1, min(500, int(limit or 100)))
+    wrapped = f"SELECT * FROM ({sql}) AS _agent_read LIMIT :agent_limit"
+    rows = db.session.execute(sql_text(wrapped), {'agent_limit': safe_limit}).mappings().all()
+    return {
+        'ok': True,
+        'limit': safe_limit,
+        'row_count': len(rows),
+        'rows': [dict(r) for r in rows],
+    }
+
+
+def _parse_workspace_files_payload(raw_value, max_files=80, max_chars_per_file=18000):
+    parsed = raw_value
+    if isinstance(raw_value, str):
+        raw_text = raw_value.strip()
+        if not raw_text:
+            return []
+        try:
+            parsed = json.loads(raw_text)
+        except Exception:
+            return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    files = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get('path') or item.get('name') or '').strip()
+        if not path:
+            continue
+        content = str(item.get('content') or item.get('text') or '')
+        language = str(item.get('language') or item.get('lang') or 'plaintext')
+        files.append({
+            'path': path,
+            'content': content[:max_chars_per_file],
+            'language': language,
+        })
+        if len(files) >= max_files:
+            break
+    return files
+
+
+def _resolve_agent_provider_model(selected_model):
+    raw_model = str(selected_model or '').strip()
+    normalized = raw_model.replace('models/', '', 1) if raw_model.startswith('models/') else raw_model
+    model_lc = normalized.lower()
+
+    if 'claude' in model_lc:
+        return 'anthropic', normalized
+    if 'gpt' in model_lc or model_lc.startswith('o1') or model_lc.startswith('o3'):
+        return 'openai', normalized
+    if 'gemini' in model_lc or 'gemma' in model_lc:
+        return 'gemini', normalized
+    return None, normalized
+
+
+SUPPORTED_GEMINI_AGENT_MODELS = (
+    'gemini-3-flash-preview',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+)
+
+
+def _is_agent_model_supported(provider: str, model: str) -> bool:
+    provider_lc = str(provider or '').lower().strip()
+    model_lc = str(model or '').lower().strip()
+
+    if provider_lc in {'openai', 'anthropic'}:
+        return True
+
+    if provider_lc == 'gemini':
+        if model_lc.startswith('gemma-'):
+            return True
+        # Agent Mode allows Gemini text/tool-calling families.
+        return any(model_lc.startswith(prefix) for prefix in SUPPORTED_GEMINI_AGENT_MODELS)
+
+    return False
+
+
+def _resolve_agent_project(user, conversation, payload_project_id):
+    if conversation and conversation.project_id:
+        project = db.session.get(Project, conversation.project_id)
+        if project and user and project.user_id == user.id:
+            return project, 'conversation'
+        if project and user is None:
+            return project, 'conversation'
+
+    if payload_project_id and user:
+        try:
+            project_id_int = int(payload_project_id)
+        except Exception:
+            project_id_int = None
+        if project_id_int:
+            project = Project.query.filter_by(id=project_id_int, user_id=user.id).first()
+            if project:
+                return project, 'payload'
+
+    # --- FALLBACK: Auto-Discovery Removed ---
+    # We no longer automatically link conversations to the last project. 
+    # Users must explicitly select a project or be in a project workspace.
+    
+    return None, None
+
+
+
+def _clip_agent_metadata(trace, changed_files, max_trace=10, max_changed=20):
+    safe_trace = trace if isinstance(trace, list) else []
+    safe_changed = changed_files if isinstance(changed_files, list) else []
+    return {
+        'trace': safe_trace[:max_trace],
+        'changed_files': safe_changed[:max_changed],
+        'trace_total': len(safe_trace),
+        'changed_total': len(safe_changed),
+        'trace_truncated': len(safe_trace) > max_trace,
+        'changed_truncated': len(safe_changed) > max_changed,
     }
 
 # Load environment variables
@@ -794,7 +982,7 @@ else:
 
 # --- 2. CLAUDE KONFIGURASYONU ---
 # Varsayılan model olarak hızlı ve zeki olan Sonnet 4.5'i seçtik
-ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-opus-4-5')
+ANTHROPIC_MODEL = os.getenv('CLAUDE_MODEL_NAME', 'claude-sonnet-4-5-20250929')
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 claude_client = None
@@ -855,9 +1043,9 @@ def transcribe_audio_with_gemini(audio_path):
         # Denenecek model listesi (En yüksek ücretsiz kotadan en düşüğe)
         model_candidates = [
             GEMINI_MODEL.replace('models/', ''), # .env'deki model
-            "gemini-3.1-flash-lite", 
-            "gemini-2.5-flash-lite", 
-            "gemini-3-flash",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-2.5-flash-lite",
+            "gemini-3-flash-preview",
             "gemini-2.5-flash"
         ]
         
@@ -965,8 +1153,14 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         model_mapping = {
             'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite-preview',
             'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
-            'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',  # 10 RPM
-            'gemini-2.5-flash': 'gemini-2.5-flash',            # 5 RPM
+            'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
+            'gemini-2.5-flash': 'gemini-2.5-flash',
+            'gemma-4-31b': 'gemma-4-31b-it',
+            'gemma-4-31b-it': 'gemma-4-31b-it',
+            'gemma-4-12b': 'gemma-4-12b-it',
+            'gemma-4-12b-it': 'gemma-4-12b-it',
+            'gemma-4-26b': 'gemma-4-26b-a4b-it',
+            'gemma-4-26b-a4b-it': 'gemma-4-26b-a4b-it',
         }
         
         target_id = model_mapping.get(requested_model, requested_model)
@@ -978,7 +1172,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         fallback_chain.append(target_id)
         
         # 2. Kota sırasına göre yedek modeller
-        for alt in ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-2.5-flash']:
+        for alt in ['gemini-3.1-flash-lite-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']:
             if alt not in fallback_chain:
                 fallback_chain.append(alt)
 
@@ -997,7 +1191,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             system_instruction += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
     else:
         # Varsayılan (Fallback zinciri ile)
-        fallback_chain = [GEMINI_MODEL, 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemini-3-flash', 'gemini-2.5-flash']
+        fallback_chain = [GEMINI_MODEL, 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
 
     system_prompt = (
         "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
@@ -1208,7 +1402,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
 
     if not model_success:
         yield "\n\n*> [System]: All Gemini models failed (Quota/Service). Falling back to **Claude Opus 4.6**...*\n\n"
-        yield from generate_claude_answer(question, code, history_context, 'claude-opus-4-5', image_path, prefs, github_context, depth + 1)
+        yield from generate_claude_answer(question, code, history_context, 'claude-opus-4-5-20251101', image_path, prefs, github_context, depth + 1)
 
 
 def generate_claude_answer(question: str, code: str, history_context: list = None, requested_model: str = None, image_path: str = None, prefs: dict = None, github_context: str = None, depth: int = 0):
@@ -1223,7 +1417,7 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
     if requested_model and 'claude' in requested_model:
         target_model = requested_model
     else:
-        target_model = ANTHROPIC_MODEL if ANTHROPIC_MODEL else 'claude-sonnet-4-5'
+        target_model = ANTHROPIC_MODEL if ANTHROPIC_MODEL else 'claude-sonnet-4-5-20250929'
 
     print(f"Claude İsteği (Stream) şu modelle yapılıyor: {target_model}")
 
@@ -1515,8 +1709,15 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
                 yield chunk.choices[0].delta.content
 
     except Exception as e:
-        yield f"\n\n*> [System]: OpenAI Error ({target_model}): {e}. Falling back to Gemini...*\n\n"
-        yield from generate_gemini_answer(question, code, history_context, 'gemini-2.5-flash', image_path, prefs, github_context, depth + 1)
+        print("OPENAI ERROR:", repr(e))
+        error_kind = _classify_openai_error(e)
+        print(f"[GPT DEBUG] model={target_model} kind={error_kind} error={e}")
+        traceback.print_exc()
+        yield (
+            f"\n\n*> [System]: OpenAI Error ({target_model}) [{error_kind}]: {e}. "
+            f"GPT request stopped because the explicit GPT model failed.*\n\n"
+        )
+        return
 
 
 def generate_conversation_title(question: str, answer: str = None):
@@ -2905,19 +3106,20 @@ def serialize_user(user: User) -> dict:
         'id': user.id,
         'email': user.email,
         'display_name': user.display_name,
-        'bio': prefs.get('bio', ''),
+        'bio': prefs.get('bio', '') if isinstance(prefs, dict) else '',
         'is_admin': user.is_admin,
-        'profile_image': f"/api/files/{os.path.basename(user.profile_image)}" if user.profile_image else None,
-        'created_at': user.created_at.strftime('%Y-%m-%d %H:%M'),
+        'profile_image': f"/api/files/{os.path.basename(str(user.profile_image))}" if user.profile_image else None,
+        'created_at': user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else None,
         'preferences': prefs,
-        'xp': user.xp,
-        'total_xp_earned': user.total_xp_earned,
-        'coins': user.coins,
-        'level': user.level,
-        'streak_days': user.streak_days,
-        'last_active_date': user.last_active_date.strftime('%Y-%m-%d %H:%M') if user.last_active_date else None,
-        'longest_streak': user.longest_streak,
+        'xp': getattr(user, 'xp', 0),
+        'total_xp_earned': getattr(user, 'total_xp_earned', 0),
+        'coins': getattr(user, 'coins', 0),
+        'level': getattr(user, 'level', 1),
+        'streak_days': getattr(user, 'streak_days', 0),
+        'last_active_date': user.last_active_date.isoformat() if hasattr(user.last_active_date, 'isoformat') else None,
+        'longest_streak': getattr(user, 'longest_streak', 0),
         'tokens': tokens
+
     }
 
 def hash_password(password: str) -> str:
@@ -4017,6 +4219,10 @@ def ask():
 
     payload = {}
     include_previous_modules = None
+    payload_project_id = None
+    workspace_files = []
+    agent_mode = False
+    allow_write_tools = False
     
     # Handle multipart/form-data
     if request.content_type and 'multipart/form-data' in request.content_type:
@@ -4025,6 +4231,10 @@ def ask():
         model = request.form.get('model', 'auto')
         conversation_id = request.form.get('conversation_id')
         include_previous_modules = request.form.get('include_previous_modules')
+        payload_project_id = request.form.get('project_id')
+        agent_mode = _parse_bool(request.form.get('agent_mode'))
+        allow_write_tools = _parse_bool(request.form.get('allow_write_tools'))
+        workspace_files = _parse_workspace_files_payload(request.form.get('workspace_files'))
         if conversation_id == 'null' or conversation_id == 'undefined':
             conversation_id = None
 
@@ -4044,6 +4254,10 @@ def ask():
         model = payload.get('model', 'auto')
         conversation_id = payload.get('conversation_id')
         include_previous_modules = payload.get('include_previous_modules')
+        payload_project_id = payload.get('project_id')
+        agent_mode = _parse_bool(payload.get('agent_mode'))
+        allow_write_tools = _parse_bool(payload.get('allow_write_tools'))
+        workspace_files = _parse_workspace_files_payload(payload.get('workspace_files'))
         repo_param = payload.get('repo')
         branch_param = payload.get('branch', 'main')
         image_path = None
@@ -4053,6 +4267,7 @@ def ask():
     # Kullanıcı tespiti
     user = get_current_user()
     user_id = user.id if user else None
+    print(f"DEBUG: agent_mode value received: {agent_mode} (type: {type(agent_mode)})")
     include_previous_modules = _resolve_include_previous_modules(
         user,
         {'include_previous_modules': include_previous_modules} if include_previous_modules is not None else payload,
@@ -4086,7 +4301,10 @@ def ask():
     # Konuşma Yönetimi
     conversation = None
     history_context = []
+    agent_history_context = []
     github_context = ""
+    resolved_agent_project = None
+    agent_project_source = None
 
     if not no_save:
         if conversation_id:
@@ -4114,6 +4332,13 @@ def ask():
                 conversation.repo_branch = branch_param
                 print(f"DEBUG: Pre-linking repo {repo_param} to new conversation {conversation.id}")
                 
+            db.session.add(conversation)
+            db.session.commit()
+
+        resolved_agent_project, agent_project_source = _resolve_agent_project(user, conversation, payload_project_id)
+        if resolved_agent_project and conversation and not conversation.project_id:
+            # Persist project binding for new conversations created from project workspace requests.
+            conversation.project_id = resolved_agent_project.id
             db.session.add(conversation)
             db.session.commit()
 
@@ -4150,8 +4375,9 @@ def ask():
 
         # Inject project file context if conversation belongs to a project
         if conversation.project_id:
-            proj = db.session.get(Project, conversation.project_id)
+            proj = resolved_agent_project or db.session.get(Project, conversation.project_id)
             if proj:
+                resolved_agent_project = proj
                 # Prefer relevance-ranked embedding context. Fallback to static context if embeddings fail.
                 project_context = build_project_context_for_question(proj, question)
 
@@ -4177,6 +4403,23 @@ def ask():
 
     else:
         print(f"Model İsteği (no_save): {model}, Image: {image_path}")
+
+    # Agent mode state should carry full conversation turns when conversation_id is provided.
+    if agent_mode and conversation_id:
+        if conversation is None:
+            conversation = db.session.get(Conversation, conversation_id)
+        if conversation:
+            full_prev_items = History.query.filter_by(conversation_id=conversation.id)\
+                .order_by(History.timestamp.asc())\
+                .all()
+            for item in full_prev_items:
+                agent_history_context.append({
+                    'user': item.user_question or '',
+                    'ai': item.ai_response or '',
+                })
+
+    if resolved_agent_project is None and agent_mode:
+        resolved_agent_project, agent_project_source = _resolve_agent_project(user, conversation, payload_project_id)
 
     memory_context = {'text': '', 'hit_count': 0, 'hits': []}
     if include_previous_modules and user:
@@ -4310,11 +4553,38 @@ def ask():
                 'balance': balance_final
             }), 402
 
+    # ── HEURISTIC GUARDRAIL FOR AGENT MODE ──────────────
+    if agent_mode:
+        q_clean = question.lower().strip()
+        words = q_clean.split()
+        is_trivial = False
+        
+        chat_keywords = {'selam', 'merhaba', 'nasılsın', 'teşekkürler', 'sa', 'as', 'teşekkür', 'günaydın', 'iyi akşamlar', 'hi', 'hello', 'selamlar', 'naber'}
+        
+        if len(words) < 5:
+            if any(w in chat_keywords for w in words):
+                is_trivial = True
+            elif 'nedir' in q_clean or 'kimdir' in q_clean:
+                if len(words) < 3:
+                    is_trivial = True
+                
+        if is_trivial:
+            agent_mode = False
+            routing_reason = "🛡️ Basit/Sohbet amaçlı istek tespit edildi, Agent Modu atlandı."
+            print(f"DEBUG: Agent mode overridden by guardrail for trivial query: '{question}'")
+    # ────────────────────────────────────────────────────
+
     answer = ""
+    agent_trace = []
+    agent_changed_files = []
+    agent_tool_capable = False
+    agent_provider = None
+    agent_effective_model = None
 
     # --- Model Yönlendirme Mantığı ---
     def generate_stream():
         nonlocal answer # Outer scope answer variable updating
+        nonlocal agent_trace, agent_changed_files, agent_tool_capable, agent_provider, agent_effective_model
         full_answer = ""
 
         # Send routing metadata as an early event so UI can show model/language even if stream ends early.
@@ -4323,7 +4593,11 @@ def ask():
             'routing_reason': routing_reason,
             'selected_model': model,
             'detected_language': detected_lang,
-            'detected_intent': detected_intent
+            'detected_intent': detected_intent,
+            'agent_mode': bool(agent_mode),
+            'agent_project_id': resolved_agent_project.id if resolved_agent_project else None,
+            'agent_project_source': agent_project_source,
+            'agent_workspace_file_count': len(workspace_files or []),
         }
         yield f"data: {json.dumps(early_meta)}\n\n"
         
@@ -4340,15 +4614,98 @@ def ask():
              generator = None # No further generation needed
 
 
-        if 'claude' in model:
-            generator = generate_claude_answer(question, code, history_context, model, model_image_path, prefs, github_context)
-        elif 'gpt' in model or 'o1' in model:
-             generator = generate_gpt_answer(question, code, history_context, model, model_image_path, prefs, github_context)
-        elif 'gemini' in model or 'gemma' in model:
-            generator = generate_gemini_answer(question, code, history_context, model, model_image_path, prefs, github_context)
+        agent_executed = False
+        if agent_mode and model != 'dall-e-3' and not model_image_path:
+            print(f"DEBUG: Attempting Agent Mode for model {model}")
+            provider_key, provider_model = _resolve_agent_provider_model(model)
+            print(f"DEBUG: Resolved provider: {provider_key}, model: {provider_model}")
+            if provider_key:
+                if not _is_agent_model_supported(provider_key, provider_model):
+                    blocked_msg = (
+                        f"Agent Mode bu modelde desteklenmiyor: {provider_model}. "
+                        "Agent Mode için Gemini tarafında gemini-2.5-flash, gemini-2.5-flash-lite veya bir Gemma modeli seçin."
+                    )
+                    json_data = json.dumps({'chunk': blocked_msg})
+                    yield f"data: {json_data}\n\n"
+                    full_answer = blocked_msg
+                    agent_executed = True
+                    agent_provider = provider_key
+                    agent_effective_model = provider_model
+                    agent_tool_capable = False
+                    print(f"DEBUG: Agent Mode blocked for unsupported model {provider_model}")
+                else:
+                    print("DEBUG: Calling stream_agent_bridge...")
+                    from services.agent_bridge import stream_agent_bridge
+
+                    agent_provider = provider_key
+                    agent_effective_model = provider_model
+
+                    agent_messages = []
+                    effective_history_context = agent_history_context if agent_history_context else history_context
+                    for turn in effective_history_context:
+                        u_text = (turn.get('user') or '').strip()
+                        a_text = (turn.get('ai') or '').strip()
+                        if u_text:
+                            agent_messages.append({"role": "user", "content": u_text})
+                        if a_text:
+                            agent_messages.append({"role": "assistant", "content": a_text})
+                    agent_messages.append({"role": "user", "content": question.strip() or "Unspecified"})
+                    print("DEBUG Agent messages:", agent_messages)
+
+                    for chunk_sse in stream_agent_bridge(
+                        question=question,
+                        code=code,
+                        model=provider_model,
+                        project=resolved_agent_project,
+                        user=user,
+                        conversation=conversation,
+                        workspace_files=workspace_files,
+                        prefs=prefs,
+                        messages=agent_messages[:-1],
+                        history_context=effective_history_context,
+                        github_context=github_context,
+                        allow_write_tools=allow_write_tools,
+                        search_project_callback=_agent_project_search,
+                        db_read_callback=_agent_db_read,
+                        invalidate_project_cache=invalidate_project_embedding_cache,
+                    ):
+                        yield chunk_sse
+
+                        # Capture state for DB persistence at the end of generator_stream
+                        if chunk_sse.startswith("data: "):
+                            try:
+                                data = json.loads(chunk_sse[6:].strip())
+                                etype = data.get("type")
+                                if etype == "message" or "chunk" in data:
+                                    # Standard chunk or mapped agent message
+                                    text_chunk = data.get("chunk") or data.get("text") or ""
+                                    full_answer += text_chunk
+                                elif etype == "done":
+                                    agent_trace = data.get("trace") or []
+                                    agent_changed_files = data.get("changed_files") or []
+                                    agent_tool_capable = bool(data.get("agent_tool_capable", True))
+                                    # If done event has final text, ensure it's captured
+                                    if data.get("text"):
+                                        # Depending on runtime, text might be empty if already streamed
+                                        # but we check just in case.
+                                        pass 
+                            except Exception:
+                                pass
+
+                    agent_executed = True
+                    full_answer = post_process_response(full_answer)
+
+
+        if not agent_executed:
+            if 'claude' in model:
+                generator = generate_claude_answer(question, code, history_context, model, model_image_path, prefs, github_context)
+            elif 'gpt' in model or 'o1' in model:
+                 generator = generate_gpt_answer(question, code, history_context, model, model_image_path, prefs, github_context)
+            elif 'gemini' in model or 'gemma' in model:
+                generator = generate_gemini_answer(question, code, history_context, model, model_image_path, prefs, github_context)
 
         # Ortak Generator Döngüsü
-        if generator:
+        if generator and not agent_executed:
             try:
                 for chunk in generator:
                     if chunk:
@@ -4367,13 +4724,26 @@ def ask():
 
         # Bitiş işlemleri (Veritabanı kayıt)
         with app.app_context():
+            clipped_agent_meta = _clip_agent_metadata(agent_trace, agent_changed_files)
             # Keep these available even if DB save fails; client can still close stream cleanly.
             final_data = {
                 'done': True,
                 'routing_reason': routing_reason,
                 'selected_model': model,
-                    'detected_language': detected_lang,
-                    'detected_intent': detected_intent,
+                'detected_language': detected_lang,
+                'detected_intent': detected_intent,
+                'agent_mode': bool(agent_mode),
+                'agent_provider': agent_provider,
+                'agent_model': agent_effective_model,
+                'agent_tool_capable': agent_tool_capable,
+                'agent_project_id': resolved_agent_project.id if resolved_agent_project else None,
+                'agent_project_source': agent_project_source,
+                'agent_trace': clipped_agent_meta['trace'],
+                'agent_changed_files': clipped_agent_meta['changed_files'],
+                'agent_trace_total': clipped_agent_meta['trace_total'],
+                'agent_changed_total': clipped_agent_meta['changed_total'],
+                'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
+                'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
                 'persona': prefs.get('persona', 'General User') if user else 'General User',
                 'memory_used': bool(memory_context.get('text')),
                 'memory_hits': int(memory_context.get('hit_count') or 0),
@@ -8108,6 +8478,13 @@ def external_ask():
             data = {}
     question = data.get('question', '')
     code = data.get('code', '')
+    requested_model = str(data.get('model') or GEMINI_MODEL.replace('models/', '')).strip()
+    if requested_model == 'auto':
+        requested_model = GEMINI_MODEL.replace('models/', '')
+    agent_mode = _parse_bool(data.get('agent_mode'))
+    payload_project_id = data.get('project_id')
+    workspace_files = _parse_workspace_files_payload(data.get('workspace_files'))
+    history_context = data.get('history_context') if isinstance(data.get('history_context'), list) else []
     
     if not question and not code:
         return jsonify({'error': 'Either question or code must be provided'}), 400
@@ -8115,30 +8492,98 @@ def external_ask():
     user_id = key_record.user_id
     user = User.query.get(user_id)
     prefs = json.loads(user.preferences) if user and user.preferences else {}
+
+    project_for_agent = None
+    if payload_project_id:
+        try:
+            project_id_int = int(payload_project_id)
+        except Exception:
+            project_id_int = None
+        if project_id_int:
+            project_for_agent = Project.query.filter_by(id=project_id_int, user_id=user_id).first()
+
+    provider_key, provider_model = _resolve_agent_provider_model(requested_model)
+    if not provider_key:
+        provider_key = 'gemini'
+        provider_model = GEMINI_MODEL.replace('models/', '')
+
+    if agent_mode and not _is_agent_model_supported(provider_key, provider_model):
+        return jsonify({
+            'error': f'Agent Mode bu modelde desteklenmiyor: {provider_model}',
+            'agent_mode_blocked': True,
+            'selected_model': provider_model,
+            'supported_agent_models': list(SUPPORTED_GEMINI_AGENT_MODELS) + ['gemma-*', 'gpt-*', 'claude-*'],
+        }), 400
+
+    workspace_root = data.get('workspace_root')
     
-    generator = generate_gemini_answer(
-        question=question, 
-        code=code, 
-        prefs=prefs
+    tool_runtime = None
+    if agent_mode:
+        tool_runtime = AgentToolRuntime(
+            project=project_for_agent,
+            workspace_root=workspace_root,
+            workspace_files=workspace_files,
+            search_project_callback=_agent_project_search,
+            invalidate_project_cache=invalidate_project_embedding_cache,
+        )
+
+    agent_result = run_agent_turn(
+        provider=provider_key,
+        model=provider_model,
+        question=question,
+        code=code,
+        prefs=prefs,
+        history_context=history_context,
+        github_context='',
+        tool_runtime=tool_runtime,
+        openai_client=openai_client,
+        anthropic_client=claude_client,
+        gemini_client=getattr(genai, '_client', None),
     )
+    clipped_agent_meta = _clip_agent_metadata(agent_result.trace, agent_result.changed_files)
     
-    wants_stream = request.headers.get('Accept') == 'text/event-stream'
+    wants_stream = 'text/event-stream' in (request.headers.get('Accept') or '').lower()
     
     if wants_stream:
         def generate():
-            for chunk in generator:
-                # Eklenti hazır olduğunda Server-Sent Events akışı kullanılabilir
+            meta = {
+                'meta': True,
+                'agent_mode': bool(agent_mode),
+                'selected_model': provider_model,
+                'agent_provider': provider_key,
+                'agent_project_id': project_for_agent.id if project_for_agent else None,
+                'agent_workspace_file_count': len(workspace_files or []),
+                'agent_tool_capable': bool(agent_result.tool_capable),
+            }
+            yield f"data: {json.dumps(meta)}\n\n"
+            for chunk in stream_text_chunks(agent_result.text or ''):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
+            done_payload = {
+                'done': True,
+                'agent_trace': clipped_agent_meta['trace'],
+                'agent_changed_files': clipped_agent_meta['changed_files'],
+                'agent_trace_total': clipped_agent_meta['trace_total'],
+                'agent_changed_total': clipped_agent_meta['changed_total'],
+                'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
+                'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
+            }
+            yield f"data: {json.dumps(done_payload)}\n\n"
             yield "data: [DONE]\n\n"
         return Response(stream_with_context(generate()), mimetype='text/event-stream')
     else:
-        # V1.0 için senkron (toplu) JSON yanıt
-        full_text = ""
-        for chunk in generator:
-            full_text += chunk
-            
         return jsonify({
-            'answer': full_text
+            'answer': agent_result.text,
+            'agent_mode': bool(agent_mode),
+            'selected_model': provider_model,
+            'agent_provider': provider_key,
+            'agent_project_id': project_for_agent.id if project_for_agent else None,
+            'agent_tool_capable': bool(agent_result.tool_capable),
+            'agent_trace': clipped_agent_meta['trace'],
+            'agent_changed_files': clipped_agent_meta['changed_files'],
+            'agent_trace_total': clipped_agent_meta['trace_total'],
+            'agent_changed_total': clipped_agent_meta['changed_total'],
+            'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
+            'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
         })
 
 @app.route('/', defaults={'path': ''})

@@ -539,14 +539,224 @@ Debug panel:
 	\item Hicbir kullanici etkisini almaz (read-only).
 \end{itemize}
 
+
+\section{Hafta 9.4 Agent Modu -- Entegrasyon ve Optimizasyon}
+
+Bu bolum, CodeAlchemist platformuna eklenen Agent Modu ozelliginin teknik mimarisini, entegrasyon adimlarini ve ardindan uygulanan optimizasyonlari kapsamaktadir.
+
+\subsection{Agent Modu Nedir?}
+
+Agent Modu, klasik tek donus (request-response) sohbet modelinin otesine gecerek LLM'nin \textit{arac kullanabilmesini} (tool use) ve \textit{cok adimli gorev yurutebilmesini} saglayan bir calisma modudur.
+
+Standart moddaki farki:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Standart Mod}: Kullanici mesaj gonderir $\rightarrow$ model tek bir yanit uretir $\rightarrow$ akis biter.
+    \item \textbf{Agent Modu}: Kullanici mesaj gonderir $\rightarrow$ model hedefi analiz eder $\rightarrow$ gerekli araclari (web arama, kod analizi, dosya okuma vb.) cagirip sonuclari degerlendirerek nihai yaniti olusturur.
+\end{itemize}
+
+\begin{notebox}[Agent Modu Kullanim Ornekleri]
+``Bugunku hava durumu nedir?'' $\rightarrow$ web arama araci kullanilir.\\
+``Bu Python kodundaki hatayi bul ve duzelt.'' $\rightarrow$ kod analiz araci devreye girer.\\
+``Bu projedeki dosyalara gore mimari ozet cikar.'' $\rightarrow$ proje dosya okuma araci kullanilir.
+\end{notebox}
+
+\subsection{Mimari Yapi}
+
+Agent Modu, hibrit bir mimaride hayata gecirilmistir:
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+Katman & Aciklama \\
+\midrule
+\texttt{server/services/agent\_runtime.py} & Legacy Flask runtime; \texttt{run\_agent\_turn} giris noktasi \\
+\texttt{server/backend/runtime/context.py} & Yeni FastAPI tabanli unified runtime; \texttt{ContextAssembler.assemble} \\
+\texttt{server/services/agent\_bridge.py} & Flask $\leftrightarrow$ AgentRuntime koprusu; SSE aktarimini yonetir \\
+\texttt{server/app.py} & \texttt{/api/ask} endpoint'i; \texttt{agent\_mode} parametresini alir \\
+\texttt{client/src/App.jsx} & \texttt{agentModeEnabled} state ve toggle UI \\
+\texttt{client/src/components/ChatInterface.jsx} & \texttt{AgentTracePanel} -- gercek zamanli arac izi goruntuleyici \\
+\bottomrule
+\end{tabularx}
+\caption{Agent Modu mimarisi -- katmanlar ve dosyalar}
+\end{table}
+
+\subsection{Entegrasyon Adimlari}
+
+\textbf{1) Backend -- Agent Bridge:}
+\begin{itemize}[leftmargin=1.5em]
+    \item \texttt{/api/ask} endpoint'ine \texttt{agent\_mode} boolean parametresi eklendi.
+    \item \texttt{agent\_mode=True} geldiginde \texttt{stream\_agent\_bridge()} cagrilarak istek \texttt{AgentRuntime}'a yonlendirilir.
+    \item \texttt{AgentRuntime}, mevcut arac kayit defterini (\texttt{tool\_registry}) kullanarak LLM cevrimleri baslatir.
+    \item Her arac cagrisi ve LLM adimi SSE (Server-Sent Events) uzerinden \\ anlık olarak frontend'e iletilir.
+\end{itemize}
+
+\textbf{2) Sistem Promptu:}
+\begin{itemize}[leftmargin=1.5em]
+    \item Her iki runtime icin farkli \texttt{build\_system\_prompt} fonksiyonlari mevcuttu.
+    \item Her ikisine de Agent Modu karar mantigi talimatlari eklendi (bkz. Bolum 9.4.5).
+\end{itemize}
+
+\textbf{3) Frontend -- Toggle ve Trace:}
+\begin{itemize}[leftmargin=1.5em]
+    \item \texttt{App.jsx} icinde \texttt{agentModeEnabled} state tanimlanmis; kullanici bu dugmeye basarak Agent Modunu acip kapayabiliyor.
+    \item \texttt{agent\_mode: Boolean(agentModeEnabled)} olarak her POST istegine ekleniyor.
+    \item \texttt{ChatInterface.jsx} icindeki \texttt{AgentTracePanel} bileseni, SSE olaylarini dinleyerek arac cagrilari, adim sayisi ve sonuclari gercek zamanli gosteriyor.
+\end{itemize}
+
+\textbf{4) SSE Streaming Protokolu:}
+
+Agent Modu aktifken sunucu su tipte olaylar yayinlar:
+\begin{itemize}[leftmargin=1.5em]
+    \item \texttt{type: "message"} -- LLM'den gelen metin parcalari.
+    \item \texttt{type: "tool\_call"} -- Bir aracin cagrildigini bildiren olay.
+    \item \texttt{type: "tool\_result"} -- Aracin donduhu sonuc.
+    \item \texttt{type: "done"} -- Akis bitmis; \texttt{trace} ve \texttt{changed\_files} listeleri eklenmis.
+\end{itemize}
+
+\texttt{agent\_bridge.py} bu olaylari legacy UI formatina donusturur (\texttt{chunk} anahtari).
+
+\subsection{Desteklenen Modeller}
+
+Agent Modu, arac cagrisini (function calling / tool use) destekleyen modeller ile calisir:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Gemini}: \texttt{gemini-2.5-flash}, \texttt{gemini-2.5-pro}
+    \item \textbf{GPT}: \texttt{gpt-4o}, \texttt{gpt-4o-mini}
+    \item \textbf{Claude}: \texttt{claude-3-5-sonnet}, \texttt{claude-opus-4-5}
+\end{itemize}
+
+Desteklenmeyen modellerde Agent Modu secilirse kullaniciya aciklayici bir hata mesaji dondurulur.
+
+\subsection{Optimizasyon Gereksinimi -- Problem Tanimi}
+
+Agent Modu entegrasyonunun ardindan iki kritik sorun tespit edildi:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Gereksiz Agent Tetiklemesi}: ``selam'', ``tesekkurler'' gibi basit sohbet mesajlari da tum Agent arac cagri altyapisini devreye sokuyordu; bu durum gecikmeye ve token israfina yol aciyordu.
+    \item \textbf{Kayip Sohbetler}: Agent Modu acikken baslanan yeni sohbetler, sistemin ``Auto-Discovery'' mekanizmasi tarafindan kullanicinin son projesine otomatik olarak baglaniyordu. Bu nedenle bu sohbetler sol menudeki Conversations listesinde gorunmuyordu.
+\end{itemize}
+
+\subsection{Cozum 1 -- Yonlendirme Prompt Enjeksiyonu}
+
+Her iki agent runtime'ina da yonlendirme talimatlari eklendi:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Legacy Runtime}: \texttt{server/services/agent\_runtime.py} icindeki \texttt{build\_agent\_system\_prompt} fonksiyonuna Turkce yonlendirme blogu eklendi.
+    \item \textbf{Yeni Runtime}: \texttt{server/backend/runtime/context.py} icindeki \texttt{\_build\_system\_prompt} fonksiyonuna ayni yonlendirme blogu eklendi.
+\end{itemize}
+
+Eklenen talimat blogu modele iki kategori tanimladi:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{AGENT MODUNU KULLAN}: Web aramasi, kod yazma, dosya isleme, cok adimli gorevler, gercek zamanli veri.
+    \item \textbf{NORMAL YANIT VER}: Selamlama, tesekkur, kisa tanim sorulari, evet/hayir sorulari.
+\end{itemize}
+
+Enjeksiyon, modelin son gordugundan etkilenmesi nedeniyle prompt sonuna yapildi (append stratejisi).
+
+\subsection{Cozum 2 -- Heuristik Koruma Katmani (Guardrail)}
+
+LLM'nin her zaman prompt talimatlarina uymasi beklenemeyecegi icin \texttt{server/app.py} icine \texttt{/api/ask} endpoint'inde hafif bir ontest mekanizmasi eklendi.
+
+Gelen mesaj 5 kelimeden kisa ise su kontroller uygulanir:
+\begin{itemize}[leftmargin=1.5em]
+    \item Mesaj bilinen sohbet kelimeleri iceriyorsa (selam, merhaba, tesekkur, hi vb.) Agent Modu iptal edilir.
+    \item Mesaj ``nedir'' veya ``kimdir'' icerip 3 kelimeden kisaysa Agent Modu iptal edilir.
+\end{itemize}
+
+Agent Modu iptal edildiginde kullaniciya dogrudan \texttt{routing\_reason} aciklamasi dondurulur.
+
+\textbf{Test Sonuclari} (\texttt{server/test\_routing.py}):
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}lccX@{}}
+\toprule
+Girdi & Beklenen & Sonuc & Aciklama \\
+\midrule
+selam & Normal & \checkmark PASS & Sohbet kelimesi \\
+hava durumu nedir & Agent & \checkmark PASS & 3+ kelime, arac gerekli \\
+tesekkurler & Normal & \checkmark PASS & Sohbet kelimesi \\
+python ile fibonacci yaz & Agent & \checkmark PASS & Kod gorevi \\
+api nedir & Normal & \checkmark PASS & Kisa tanim, 2 kelime \\
+su log dosyasini analiz et & Agent & \checkmark PASS & Analiz gorevi \\
+\bottomrule
+\end{tabularx}
+\caption{Routing heuristic test sonuclari (6/6 basarili)}
+\end{table}
+
+\subsection{Cozum 3 -- Otomatik Proje Baglama (Auto-Link) Kaldirildi}
+
+Onceki surumde \texttt{\_resolve\_agent\_project} fonksiyonunda bir ``Auto-Discovery'' mekanizmasi mevcuttu:
+\begin{itemize}[leftmargin=1.5em]
+    \item Agent Modu acikken baslanan her yeni sohbet, kullanicinin en son aktif projesine otomatik baglaniyordu.
+    \item Proje bagli sohbetler \texttt{GET /api/conversations} endpoint'inde \texttt{project\_id IS NULL} filtresi nedeniyle Conversations listesinde gorunmuyordu.
+\end{itemize}
+
+Uygulanan degisiklikler:
+\begin{itemize}[leftmargin=1.5em]
+    \item \texttt{app.py} icindeki auto-fallback kod blogu tamamen kaldirildi; yorumlanmis sekilde log ucak birakildi.
+    \item \texttt{server/models.py} icindeki \texttt{Conversation} modeline \texttt{is\_auto\_linked} Boolean alani eklendi. Bu alan, sistem tarafindan baglanan sohbetleri kullanici el ile bagladigi sohbetlerden ayirt etmeyi saglar.
+\end{itemize}
+
+\begin{notebox}[Duzeltilen Davranis]
+Onceki hali: \texttt{agent\_mode=True} $\rightarrow$ son projeye otomatik bagla (sohbet gizlenir).\newline
+Yeni hali: \texttt{agent\_mode=True} $\rightarrow$ Conversations listesinde gorunur; kullanici isterse manuel projeye ekler.
+\end{notebox}
+
+\subsection{Cozum 4 -- Veritabani Migrasyonu ve Gecmis Sohbet Kurtarma}
+
+Ayni oturumda onceden kaybolan sohbetleri geri getirmek icin \texttt{server/migrate\_auto\_link.py} migration scrip'i gelistirildi ve calistirildi.
+
+Migration adimlari:
+\begin{enumerate}[leftmargin=1.5em]
+    \item \texttt{conversation} tablosuna \texttt{is\_auto\_linked} kolonu eklendi (mevcut kayitlar False ile dolduruldu).
+    \item Son 6 saat icinde olusturulan, \texttt{project\_id IS NOT NULL} olan sohbetler heuristik olarak auto-linked kabul edildi ve isaretlendi.
+    \item Bu sohbetlerin \texttt{project\_id} degeri NULL yapilarak Conversations listesine geri tasinmasi saglandi.
+\end{enumerate}
+
+\textbf{Migration Ciktisi:}
+\begin{itemize}[leftmargin=1.5em]
+    \item \texttt{is\_auto\_linked} kolonu basariyla eklendi.
+    \item 19 sohbet yeniden ``genel'' olarak isaretlen.
+    \item 19 sohhet sol menudeki Conversations listesine geri kazandirildi.
+\end{itemize}
+
+\subsection{Etkilenen Dosyalar}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+Dosya & Degisiklik \\
+\midrule
+\texttt{server/app.py} & Guardrail blogu eklendi; auto-fallback kaldirildi \\
+\texttt{server/models.py} & \texttt{is\_auto\_linked} alani eklendi \\
+\texttt{server/services/agent\_runtime.py} & Routing talimatlari prompt sonuna eklendi \\
+\texttt{server/backend/runtime/context.py} & Routing talimatlari prompt sonuna eklendi \\
+\texttt{server/test\_routing.py} & Tam test suiti guncellendi (6/6 basarili) \\
+\texttt{server/migrate\_auto\_link.py} & Yeni migration scrip'i olusturuldu ve calistirildi \\
+\bottomrule
+\end{tabularx}
+\caption{9.4 guncellemesinde etkilenen dosyalar}
+\end{table}
+
+\subsection{Mimari Karar: Neden Auto-Link Kaldirildi?}
+
+Bu karar, buyuk AI platformlarinin (ChatGPT, Claude, Gemini) proje yonetim modeliyle hizalanmak icin alinmistir:
+\begin{itemize}[leftmargin=1.5em]
+    \item Kullanici nereye kaydedeceğine kendisi karar verir.
+    \item Sistem asla otomatik baglamaz.
+    \item Temiz ayirim (general chat vs. project workspace) daha iyi UX saglar.
+    \item Kullanici isterse sohbeti sonradan projeye ekleyebilir; bu dogal ve anlasilir bir akistir.
+\end{itemize}
+
 \section{Sonuc}
 
-Hafta 9.1 ciktilariyla birlikte:
+Hafta 9 ciktilariyla birlikte:
 \begin{itemize}[leftmargin=1.5em]
-	\item VS Code extension tarafinda calisir MVP akisina ek olarak SecretStorage ve SSE canli cikti katmani eklendi.
-	\item Token satin alma mekanizmasi idempotency sertlestirmesi ile daha guvenli hale getirildi.
-	\item Checkout sonrasi otomatik bakiye yenileme ile kullanici deneyimi hizlandi.
-	\item Sistem hem urunlestirme (extension) hem gelir modeli (token ekonomisi) acisindan daha olgun ve dayanikli bir seviyeye tasindi.
+    \item VS Code extension tarafinda calisir MVP akisina ek olarak SecretStorage ve SSE canli cikti katmani eklendi.
+    \item Token satin alma mekanizmasi idempotency sertlestirmesi ile daha guvenli hale getirildi.
+    \item Checkout sonrasi otomatik bakiye yenileme ile kullanici deneyimi hizlandi.
+    \item Hafta 9.4 kapsaminda Agent Modu akilli yonlendirme (routing prompt + heuristik guardrail), kayip sohbet sorunu cozumu ve veritabani migrasyonu ile kullanici kontrolune dayali temiz bir mimari benimsendi.
+    \item Sistem hem urunlestirme (extension) hem gelir modeli (token ekonomisi) hem de AI kalitesi (agent routing) acisindan daha olgun ve dayanikli bir seviyeye tasindi.
 \end{itemize}
 
 \end{document}

@@ -12,20 +12,82 @@
   ],
   "activationEvents": [
     "onCommand:codeAlchemist.setApiKey",
-    "onCommand:codeAlchemist.ask"
+    "onCommand:codeAlchemist.ask",
+    "onCommand:codeAlchemist.selectModel",
+    "onCommand:codeAlchemist.toggleAgentMode",
+    "onCommand:codeAlchemist.applyChanges",
+    "onCommand:codeAlchemist.focusChat"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "code-alchemist-container",
+          "title": "CodeAlchemist",
+          "icon": "$(hubot)"
+        }
+      ]
+    },
+    "views": {
+      "code-alchemist-container": [
+        {
+          "id": "code-alchemist-chat",
+          "type": "webview",
+          "name": "Chat"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "codeAlchemist.focusChat",
+        "title": "CodeAlchemist: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
       {
         "command": "codeAlchemist.setApiKey",
         "title": "CodeAlchemist: Set API Key"
       },
       {
         "command": "codeAlchemist.ask",
-        "title": "CodeAlchemist: Ask (Send Selected Code)"
+        "title": "CodeAlchemist: Ask (Quick Input)"
+      },
+      {
+        "command": "codeAlchemist.selectModel",
+        "title": "CodeAlchemist: Select Model"
+      },
+      {
+        "command": "codeAlchemist.toggleAgentMode",
+        "title": "CodeAlchemist: Toggle Agent Mode"
+      },
+      {
+        "command": "codeAlchemist.applyChanges",
+        "title": "CodeAlchemist: Apply AI Changes"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "codeAlchemist.focusChat",
+          "group": "navigation",
+          "when": "config.codeAlchemist.apiKey != ''"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "codeAlchemist.focusChat",
+          "group": "codealchemist",
+          "when": "config.codeAlchemist.apiKey != ''"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "codeAlchemist.focusChat",
+          "group": "codealchemist",
+          "when": "config.codeAlchemist.apiKey != ''"
+        }
+      ]
+    },
     "configuration": {
       "title": "CodeAlchemist",
       "properties": {
@@ -38,6 +100,50 @@
           "type": "string",
           "default": "https://code-alchemist-last-version.onrender.com/v1/ask",
           "description": "Backend endpoint for /v1/ask."
+        },
+        "codeAlchemist.agentMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send requests in Agent Mode with tool-ready payload metadata."
+        },
+        "codeAlchemist.model": {
+          "type": "string",
+          "default": "gemini-2.5-flash",
+          "enum": [
+            "auto",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "gemma-4-26b-a4b-it",
+            "gemma-4-31b-it",
+            "gpt-4o",
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-5-20251101"
+          ],
+          "enumItemLabels": [
+            "Auto (Smart Model)",
+            "Gemini 3.1 Flash Lite (Preview)",
+            "Gemini 2.5 Flash Lite (Fast)",
+            "Gemini 2.5 Flash (New)",
+            "Gemma 4 26B A4B IT (Agent)",
+            "Gemma 4 31B IT (Agent)",
+            "GPT-4o (OpenAI)",
+            "Claude 4.5 Sonnet",
+            "Claude 4.5 Opus"
+          ],
+          "description": "The AI model to use for generating responses."
+        },
+        "codeAlchemist.projectId": {
+          "type": "number",
+          "default": 0,
+          "description": "Optional backend project id to bind ask requests to a stored project workspace."
+        },
+        "codeAlchemist.workspaceFileLimit": {
+          "type": "number",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Maximum number of workspace files to include in extension ask payload snapshots."
         }
       }
     }
