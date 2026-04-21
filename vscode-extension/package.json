@@ -10,14 +10,7 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onCommand:codeAlchemist.setApiKey",
-    "onCommand:codeAlchemist.ask",
-    "onCommand:codeAlchemist.selectModel",
-    "onCommand:codeAlchemist.toggleAgentMode",
-    "onCommand:codeAlchemist.applyChanges",
-    "onCommand:codeAlchemist.focusChat"
-  ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -25,7 +18,14 @@
         {
           "id": "code-alchemist-container",
           "title": "CodeAlchemist",
-          "icon": "$(hubot)"
+          "icon": "media/code-alchemist.svg"
+        }
+      ],
+      "secondarySidebar": [
+        {
+          "id": "code-alchemist-secondary",
+          "title": "CodeAlchemist",
+          "icon": "media/code-alchemist.svg"
         }
       ]
     },
@@ -36,9 +36,20 @@
           "type": "webview",
           "name": "Chat"
         }
+      ],
+      "code-alchemist-secondary": [
+        {
+          "id": "code-alchemist-chat-right",
+          "type": "webview",
+          "name": "Chat (Right)"
+        }
       ]
     },
     "commands": [
+      {
+        "command": "codeAlchemist.login",
+        "title": "CodeAlchemist: Login"
+      },
       {
         "command": "codeAlchemist.focusChat",
         "title": "CodeAlchemist: Open Chat",
@@ -63,6 +74,18 @@
       {
         "command": "codeAlchemist.applyChanges",
         "title": "CodeAlchemist: Apply AI Changes"
+      },
+      {
+        "command": "antigravity.importAntigravitySettings",
+        "title": "Antigravity: Import Settings"
+      },
+      {
+        "command": "antigravity.importAntigravityExtensions",
+        "title": "Antigravity: Import Extensions"
+      },
+      {
+        "command": "antigravity.prioritized.chat.open",
+        "title": "Antigravity: Open Chat"
       }
     ],
     "menus": {
@@ -143,7 +166,23 @@
           "default": 20,
           "minimum": 5,
           "maximum": 120,
-          "description": "Maximum number of workspace files to include in extension ask payload snapshots."
+          "description": "Maximum number of workspace files to include in agent-mode payloads. Chat mode is capped at 10 automatically."
+        },
+        "codeAlchemist.allowCommands": {
+          "type": "string",
+          "default": "ask",
+          "enum": [
+            "always",
+            "ask",
+            "never"
+          ],
+          "enumItemLabels": [
+            "Always (auto-run, no prompt)",
+            "Ask (confirm before running)",
+            "Never (block all commands)"
+          ],
+          "description": "Controls command execution trust level. 'ask' (default) shows a confirmation dialog with command preview. 'always' runs commands automatically. 'never' blocks all AI-triggered commands.",
+          "scope": "machine"
         }
       }
     }
@@ -159,5 +198,8 @@
     "@types/node": "^22.10.2",
     "@types/vscode": "^1.90.0",
     "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.1"
   }
 }

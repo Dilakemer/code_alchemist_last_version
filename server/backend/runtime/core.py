@@ -40,6 +40,7 @@ from .sse import (
     tool_call_event,
     tool_result_event,
 )
+from ..prompt_optimizer import optimize_prompt
 
 
 class AgentRuntime:
@@ -93,6 +94,14 @@ class AgentRuntime:
         Intended for use in a FastAPI StreamingResponse.
         """
         run_id = request.get("run_id") or f"run_{uuid.uuid4().hex[:8]}"
+
+        # ── Step 0: Optimize Prompt ───────────────────────────────────────
+        try:
+            self._run_prompt_optimization(request)
+        except ValueError as e:
+            yield error_event(str(e), code="VALIDATION_ERROR")
+            return
+
         ctx = await self._build_context(request, run_id=run_id)
 
         provider = ctx.provider
@@ -106,6 +115,8 @@ class AgentRuntime:
             provider=provider,
             project_id=ctx.project_id,
             tools_available=tool_names,
+            intent=request.get("intent"),
+            optimizer_version=request.get("optimizer_version")
         )
 
         try:
@@ -129,6 +140,13 @@ class AgentRuntime:
         Useful for synchronous callers (e.g. the existing `/api/ask` bridge).
         """
         run_id = request.get("run_id") or f"run_{uuid.uuid4().hex[:8]}"
+        
+        # ── Step 0: Optimize Prompt ───────────────────────────────────────
+        try:
+            self._run_prompt_optimization(request)
+        except ValueError as e:
+            return AgentResult(text="", error=str(e), finish_reason="error")
+
         ctx = await self._build_context(request, run_id=run_id)
 
         try:
@@ -200,6 +218,39 @@ class AgentRuntime:
     def available_providers(self) -> Dict[str, bool]:
         return self._dispatcher.available_providers()
 
+    def _run_prompt_optimization(self, request: Dict[str, Any]) -> None:
+        """
+        Runs the Prompt Optimizer on the request question.
+        
+        Failure of the optimizer (other than ValueError) will fall back 
+        to the original question to avoid crashing the runtime.
+        """
+        # 1. Prevent double optimization
+        if request.get("optimized"):
+            return
+
+        question = request.get("question") or ""
+        request["original_question"] = question
+
+        try:
+            # 2. Run optimization
+            result = optimize_prompt(question)
+            
+            # 3. Store result
+            request["question"] = result["optimized_prompt"]
+            request["intent"] = result["intent"]
+            request["optimizer_version"] = result["optimizer_version"]
+            request["optimized"] = True
+            
+        except ValueError:
+            # Re-raise validation errors for the caller to handle
+            raise
+        except Exception as exc:
+            # 4. Fallback for unexpected internal errors
+            print(f"[runtime] Prompt optimization failed (fallback to original): {exc}")
+            request["intent"] = "general"
+            request["optimized"] = False
+
     # ── Internal helpers ──────────────────────────────────────────────────
 
     async def _build_context(self, request: Dict[str, Any], run_id: str):
@@ -225,6 +276,9 @@ class AgentRuntime:
             max_tool_calls=int(request.get("max_tool_calls") or 8),
             max_tokens=int(request.get("max_tokens") or 8000),
             temperature=float(request.get("temperature") or 0.2),
+            max_files_touched=int(request.get("max_files_touched") or 3),
+            max_reads_per_file=int(request.get("max_reads_per_file") or 2),
+            min_token_reserve=int(request.get("min_token_reserve") or 512),
             allow_write_tools=bool(request.get("allow_write_tools", False)),
             user_prefs=request.get("user_prefs") or {},
             stream=bool(request.get("stream", True)),

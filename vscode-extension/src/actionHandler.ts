@@ -14,6 +14,19 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { AiAction, FileChange, AgentChangedFile, AskResponse } from './types.js';
 
+function pickString(source: Record<string, unknown> | null | undefined, keys: string[]): string {
+  if (!source) {
+    return '';
+  }
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return '';
+}
+
 function normalizeOperation(operation?: string): 'replace' | 'append' | 'prepend' {
   const op = (operation || 'replace').toLowerCase().trim();
   if (op === 'append' || op === 'prepend') {
@@ -182,15 +195,28 @@ export function isPathSafe(workspaceRoot: string, filePath: string, trustId?: st
  */
 export function validateFilePath(workspaceRoot: string, filePath: string, trustId?: string): string | null {
   if (!filePath || filePath.trim().length === 0) {
-    return 'File path is empty.';
+    return [
+      'Dosya yolu boş.',
+      `Workspace: ${workspaceRoot || 'tanımsız'}`,
+      `İstenen yol: ${filePath || 'boş'}`,
+    ].join('\n');
   }
 
   if (!workspaceRoot) {
-    return 'No workspace folder is open. Cannot write files.';
+    return [
+      'Workspace klasörü açık değil. Dosya yazılamaz.',
+      'Workspace: tanımsız',
+      `İstenen yol: ${path.resolve(filePath)}`,
+    ].join('\n');
   }
 
   if (!isPathSafe(workspaceRoot, filePath, trustId)) {
-    return `Unsafe file path rejected: "${filePath}" — must be a relative path within the workspace or a trusted file.`;
+    const absolutePath = path.resolve(workspaceRoot, filePath);
+    return [
+      `Dosya workspace dışında veya geçersiz yol: ${filePath}`,
+      `Workspace: ${workspaceRoot || 'tanımsız'}`,
+      `İstenen yol: ${absolutePath}`,
+    ].join('\n');
   }
 
   return null; // valid
@@ -219,6 +245,35 @@ export function parseAiActions(response: AskResponse): AiAction | null {
       operation: typeof raw.operation === 'string' ? raw.operation : undefined,
       trust_id: typeof raw.trust_id === 'string' ? raw.trust_id : undefined,
       trust_scope: typeof raw.trust_scope === 'string' ? raw.trust_scope : undefined,
+    };
+  }
+
+  if (raw.action === 'create_file' && typeof raw.file === 'string' && typeof raw.content === 'string') {
+    return {
+      action: 'create_file',
+      file: raw.file,
+      content: raw.content,
+      operation: typeof raw.operation === 'string' ? raw.operation : undefined,
+      trust_id: typeof raw.trust_id === 'string' ? raw.trust_id : undefined,
+      trust_scope: typeof raw.trust_scope === 'string' ? raw.trust_scope : undefined,
+    };
+  }
+
+  if (raw.action === 'delete_file' && typeof raw.file === 'string') {
+    return {
+      action: 'delete_file',
+      file: raw.file,
+      trust_id: typeof raw.trust_id === 'string' ? raw.trust_id : undefined,
+      trust_scope: typeof raw.trust_scope === 'string' ? raw.trust_scope : undefined,
+    };
+  }
+
+  if (raw.action === 'run_command' && typeof raw.command === 'string' && raw.command.trim().length > 0) {
+    return {
+      action: 'run_command',
+      command: raw.command,
+      cwd: typeof raw.cwd === 'string' ? raw.cwd : undefined,
+      background: typeof raw.background === 'boolean' ? raw.background : undefined,
     };
   }
 
@@ -271,6 +326,11 @@ export function parseAiActions(response: AskResponse): AiAction | null {
     }
     if (traceChanges.length > 1) {
       return { action: 'multi_edit', changes: traceChanges };
+    }
+
+    const nonEditAction = extractNonEditActionFromTrace(response.agent_trace);
+    if (nonEditAction) {
+      return nonEditAction;
     }
   }
 
@@ -330,16 +390,16 @@ function extractChangesFromTrace(trace: any[]): FileChange[] {
         : (typeof entry.args === 'object' && entry.args !== null ? entry.args : null);
 
       if (sourceObject) {
-        file = sourceObject.path || sourceObject.file || sourceObject.filename || '';
-        content = sourceObject.content || sourceObject.text || sourceObject.data || '';
-        operation = sourceObject.operation || '';
+        file = pickString(sourceObject, ['path', 'file', 'filename', 'filePath']);
+        content = pickString(sourceObject, ['content', 'text', 'data', 'newContent']);
+        operation = pickString(sourceObject, ['operation']);
       } else if (typeof entry.input === 'string') {
         // AI might send a JSON string as input
         try {
           const parsed = JSON.parse(entry.input);
-          file = parsed.path || parsed.file || parsed.filename || '';
-          content = parsed.content || parsed.text || parsed.data || '';
-          operation = parsed.operation || '';
+          file = pickString(parsed, ['path', 'file', 'filename', 'filePath']);
+          content = pickString(parsed, ['content', 'text', 'data', 'newContent']);
+          operation = pickString(parsed, ['operation']);
         } catch { /* ignore */ }
       }
 
@@ -358,6 +418,55 @@ function extractChangesFromTrace(trace: any[]): FileChange[] {
   }
 
   return changes;
+}
+
+function extractNonEditActionFromTrace(trace: any[]): AiAction | null {
+  for (const entry of trace) {
+    const tool = String(entry.tool || '').toLowerCase();
+    const sourceObject = (typeof entry.input === 'object' && entry.input !== null)
+      ? entry.input as Record<string, unknown>
+      : (typeof entry.args === 'object' && entry.args !== null ? entry.args as Record<string, unknown> : null);
+
+    let parsedInput: Record<string, unknown> | null = null;
+    if (!sourceObject && typeof entry.input === 'string') {
+      try {
+        const parsed = JSON.parse(entry.input);
+        if (parsed && typeof parsed === 'object') {
+          parsedInput = parsed as Record<string, unknown>;
+        }
+      } catch {
+        parsedInput = null;
+      }
+    }
+
+    const inputObject = sourceObject || parsedInput;
+
+    if (tool.includes('delete_file') || tool.includes('remove_file') || tool.includes('unlink')) {
+      const file = pickString(inputObject, ['path', 'file', 'filename', 'filePath', 'target']);
+      if (file) {
+        return {
+          action: 'delete_file',
+          file,
+          trust_id: pickString(inputObject, ['trust_id']) || undefined,
+          trust_scope: pickString(inputObject, ['trust_scope']) || undefined,
+        };
+      }
+    }
+
+    if (tool.includes('run_in_terminal') || tool.includes('run_command') || tool.includes('execute_command') || tool === 'shell' || tool.includes('terminal')) {
+      const command = pickString(inputObject, ['command', 'cmd', 'shell_command', 'script']);
+      if (command) {
+        return {
+          action: 'run_command',
+          command,
+          cwd: pickString(inputObject, ['cwd', 'workingDirectory', 'path']) || undefined,
+          background: typeof inputObject?.background === 'boolean' ? inputObject.background : true,
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -381,6 +490,35 @@ function tryParseEmbeddedAction(text: string): AiAction | null {
           operation: typeof parsed.operation === 'string' ? parsed.operation : undefined,
           trust_id: typeof parsed.trust_id === 'string' ? parsed.trust_id : undefined,
           trust_scope: typeof parsed.trust_scope === 'string' ? parsed.trust_scope : undefined,
+        };
+      }
+
+      if (parsed.action === 'create_file' && typeof parsed.file === 'string' && typeof parsed.content === 'string') {
+        return {
+          action: 'create_file',
+          file: parsed.file,
+          content: parsed.content,
+          operation: typeof parsed.operation === 'string' ? parsed.operation : undefined,
+          trust_id: typeof parsed.trust_id === 'string' ? parsed.trust_id : undefined,
+          trust_scope: typeof parsed.trust_scope === 'string' ? parsed.trust_scope : undefined,
+        };
+      }
+
+      if (parsed.action === 'delete_file' && typeof parsed.file === 'string') {
+        return {
+          action: 'delete_file',
+          file: parsed.file,
+          trust_id: typeof parsed.trust_id === 'string' ? parsed.trust_id : undefined,
+          trust_scope: typeof parsed.trust_scope === 'string' ? parsed.trust_scope : undefined,
+        };
+      }
+
+      if (parsed.action === 'run_command' && typeof parsed.command === 'string' && parsed.command.trim().length > 0) {
+        return {
+          action: 'run_command',
+          command: parsed.command,
+          cwd: typeof parsed.cwd === 'string' ? parsed.cwd : undefined,
+          background: typeof parsed.background === 'boolean' ? parsed.background : undefined,
         };
       }
 

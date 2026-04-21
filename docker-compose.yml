@@ -2,12 +2,15 @@ version: '3.8'
 
 services:
   backend:
-    build: ./server
+    build:
+      context: .
+      dockerfile: server/Dockerfile
     ports:
       - "5000:5000"
     env_file:
       - .env
     volumes:
+      - ./server:/app
       - ./server/instance:/app/instance
       - ./server/static:/app/static
 

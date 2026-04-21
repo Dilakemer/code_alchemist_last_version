@@ -20,22 +20,33 @@ function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-function deriveEndpointRoot(endpoint: string): string {
+export function deriveEndpointRoot(endpoint: string): string {
   const trimmed = (endpoint || '').trim();
   if (!trimmed) {
     return '';
   }
 
+  const stripKnownRoute = (pathname: string): string => {
+    const cleanPath = stripTrailingSlash(pathname || '/');
+    const knownRoutePattern = /\/(v1|api)\/(ask|status)$|\/health$/i;
+    if (knownRoutePattern.test(cleanPath)) {
+      return cleanPath.replace(knownRoutePattern, '') || '/';
+    }
+    return cleanPath;
+  };
+
   try {
     const parsed = new URL(trimmed);
-    const cleanPath = stripTrailingSlash(parsed.pathname);
-    if (/\/(v1|api)\/ask$/i.test(cleanPath)) {
-      parsed.pathname = cleanPath.replace(/\/(v1|api)\/ask$/i, '') || '/';
-    }
+    parsed.pathname = stripKnownRoute(parsed.pathname);
     return stripTrailingSlash(parsed.toString());
   } catch {
-    return stripTrailingSlash(trimmed.replace(/\/(v1|api)\/ask\/?$/i, ''));
+    return stripTrailingSlash(trimmed.replace(/\/(v1|api)\/(ask|status)\/?$|\/health\/?$/i, ''));
   }
+}
+
+export function deriveHealthUrl(endpoint: string): string {
+  const root = deriveEndpointRoot(endpoint);
+  return root ? `${root}/health` : '';
 }
 
 async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response> {
@@ -52,18 +63,41 @@ async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response
 
 /** Everything extracted from an /v1/ask response (JSON or SSE). */
 export interface AskResult {
-  /** The full text answer from the AI. */
   text: string;
-  /** Raw parsed JSON (for non-streamed responses). */
   raw: AskResponse;
-  /** Optional metadata returned by backend (SSE meta or JSON fields). */
   meta?: Record<string, unknown>;
-  /** Agent execution trace (from SSE done event or JSON body). */
+  balance?: number;
+  purchase_url?: string;
+  model_config?: Record<string, string>;
   agentTrace: AgentTraceEntry[];
-  /** Files changed by the agent. */
   agentChangedFiles: AgentChangedFile[];
-  /** Whether the response was streamed via SSE. */
   streamed: boolean;
+  error?: string;
+}
+
+// ── History Sync Types ─────────────────────────────────────────────
+
+export interface BackendConversation {
+  id: number;
+  title: string;
+  updatedAt: string;
+  pinned: boolean;
+}
+
+export interface BackendHistoryMessage {
+  role: 'user' | 'ai';
+  text: string;
+  createdAt: string;
+}
+
+export interface HistoryListResponse {
+  status: 'ok' | 'error' | 'unauthorized';
+  sessions?: BackendConversation[];
+}
+
+export interface ConversationDetailResponse {
+  status: 'ok' | 'error' | 'unauthorized';
+  messages?: BackendHistoryMessage[];
 }
 
 // ── SSE Parser ──────────────────────────────────────────────────────
@@ -81,11 +115,13 @@ function parseSseDataLine(raw: string): SseChunk | null {
 
 /**
  * Reads an SSE response body, appends text chunks to the output channel,
- * and extracts agent metadata from the `done` event.
+ * and extracts agent metadata.
  */
 async function streamSseResponse(
   res: Response,
   output: vscode.OutputChannel,
+  onMeta?: (meta: Record<string, unknown>) => void,
+  signal?: AbortSignal,
 ): Promise<{ text: string; trace: AgentTraceEntry[]; changedFiles: AgentChangedFile[]; meta: Record<string, unknown> }> {
   const body = res.body;
   if (!body) {
@@ -100,54 +136,57 @@ async function streamSseResponse(
   let changedFiles: AgentChangedFile[] = [];
   let meta: Record<string, unknown> = {};
   let firstRawDataLine = '';
+  let aborted = Boolean(signal?.aborted);
+
+  const abortHandler = () => {
+    aborted = true;
+    void reader.cancel();
+  };
+
+  if (signal) {
+    signal.addEventListener('abort', abortHandler);
+  }
 
   const mergeMetaFields = (parsed: SseChunk): void => {
     const maybeMeta: Record<string, unknown> = {};
-    if (parsed.selected_model !== undefined) {
-      maybeMeta.selected_model = parsed.selected_model;
-    }
-    if (parsed.agent_provider !== undefined) {
-      maybeMeta.agent_provider = parsed.agent_provider;
-    }
-    if (parsed.agent_mode !== undefined) {
-      maybeMeta.agent_mode = parsed.agent_mode;
-    }
-    if (parsed.agent_project_id !== undefined) {
-      maybeMeta.agent_project_id = parsed.agent_project_id;
-    }
-    if (parsed.agent_workspace_file_count !== undefined) {
-      maybeMeta.agent_workspace_file_count = parsed.agent_workspace_file_count;
-    }
-    if (parsed.agent_tool_capable !== undefined) {
-      maybeMeta.agent_tool_capable = parsed.agent_tool_capable;
-    }
+    if (parsed.selected_model !== undefined) maybeMeta.selected_model = parsed.selected_model;
+    if (parsed.agent_provider !== undefined) maybeMeta.agent_provider = parsed.agent_provider;
+    if (parsed.agent_mode !== undefined) maybeMeta.agent_mode = parsed.agent_mode;
+    if (parsed.agent_project_id !== undefined) maybeMeta.agent_project_id = parsed.agent_project_id;
+    if (parsed.agent_workspace_file_count !== undefined) maybeMeta.agent_workspace_file_count = parsed.agent_workspace_file_count;
+    if (parsed.agent_tool_capable !== undefined) maybeMeta.agent_tool_capable = parsed.agent_tool_capable;
+    if (parsed.intent !== undefined) maybeMeta.intent = parsed.intent;
+    if (parsed.optimized !== undefined) maybeMeta.optimized = parsed.optimized;
+    if (parsed.optimizer_version !== undefined) maybeMeta.optimizer_version = parsed.optimizer_version;
+    if (parsed.prompt_version !== undefined) maybeMeta.prompt_version = parsed.prompt_version;
+    if (parsed.trace_id !== undefined) maybeMeta.trace_id = parsed.trace_id;
+    if (parsed.optimization_score !== undefined) maybeMeta.optimization_score = parsed.optimization_score;
+    if (parsed.optimization_status !== undefined) maybeMeta.optimization_status = parsed.optimization_status;
+    if (parsed.balance !== undefined) maybeMeta.balance = parsed.balance;
+    if (parsed.conversation_id !== undefined) maybeMeta.conversation_id = parsed.conversation_id;
+    if (parsed.purchase_url !== undefined) maybeMeta.purchase_url = parsed.purchase_url;
+
     if (Object.keys(maybeMeta).length > 0) {
       meta = { ...meta, ...maybeMeta };
+      if (onMeta) onMeta(meta);
     }
   };
 
   const processChunk = (parsed: SseChunk): void => {
-    // Some backends may include metadata fields outside explicit meta events.
     mergeMetaFields(parsed);
 
-    // Meta event (first SSE line with metadata)
     if (parsed.meta) {
-      meta = { ...meta, ...parsed };
-      return;
+        meta = { ...meta, ...parsed };
+        if (onMeta) onMeta(meta);
+        return;
     }
 
-    // Done event — extract agent trace data
     if (parsed.done) {
-      if (Array.isArray(parsed.agent_trace)) {
-        trace = parsed.agent_trace;
-      }
-      if (Array.isArray(parsed.agent_changed_files)) {
-        changedFiles = parsed.agent_changed_files;
-      }
+      if (Array.isArray(parsed.agent_trace)) trace = parsed.agent_trace;
+      if (Array.isArray(parsed.agent_changed_files)) changedFiles = parsed.agent_changed_files;
       return;
     }
 
-    // Text chunk
     const chunk = parsed.chunk ?? parsed.text ?? parsed.delta ?? parsed.answer ?? '';
     if (chunk) {
       fullText += chunk;
@@ -155,56 +194,76 @@ async function streamSseResponse(
     }
   };
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      if (aborted) {
+        throw new Error('AbortError');
+      }
+
+      let chunkResult;
+      try {
+        chunkResult = await reader.read();
+      } catch (err) {
+        if (aborted || signal?.aborted) {
+          throw new Error('AbortError');
+        }
+        throw err;
+      }
+
+      const { done, value } = chunkResult;
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) {
+          continue;
+        }
+        const raw = line.slice(5).trim();
+        if (!firstRawDataLine && raw && raw !== '[DONE]') {
+          firstRawDataLine = raw;
+        }
+        const parsed = parseSseDataLine(raw);
+        if (parsed) {
+          processChunk(parsed);
+        } else if (raw && raw !== '[DONE]') {
+          // Unparseable text — append as-is
+          fullText += raw;
+          output.append(raw);
+        }
+      }
     }
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (!line.startsWith('data:')) {
-        continue;
+    // Process any remaining buffer
+    if (buffer.startsWith('data:')) {
+      const trailing = buffer.slice(5).trim();
+      if (!firstRawDataLine && trailing && trailing !== '[DONE]') {
+        firstRawDataLine = trailing;
       }
-      const raw = line.slice(5).trim();
-      if (!firstRawDataLine && raw && raw !== '[DONE]') {
-        firstRawDataLine = raw;
-      }
-      const parsed = parseSseDataLine(raw);
+      const parsed = parseSseDataLine(trailing);
       if (parsed) {
         processChunk(parsed);
-      } else if (raw && raw !== '[DONE]') {
-        // Unparseable text — append as-is
-        fullText += raw;
-        output.append(raw);
+      } else if (trailing && trailing !== '[DONE]') {
+        fullText += trailing;
+        output.append(trailing);
       }
     }
-  }
 
-  // Process any remaining buffer
-  if (buffer.startsWith('data:')) {
-    const trailing = buffer.slice(5).trim();
-    if (!firstRawDataLine && trailing && trailing !== '[DONE]') {
-      firstRawDataLine = trailing;
+    if (firstRawDataLine) {
+      meta = {
+        ...meta,
+        debug_first_sse_data_raw: firstRawDataLine.slice(0, 400),
+      };
     }
-    const parsed = parseSseDataLine(trailing);
-    if (parsed) {
-      processChunk(parsed);
-    } else if (trailing && trailing !== '[DONE]') {
-      fullText += trailing;
-      output.append(trailing);
+  } finally {
+    if (signal) {
+      signal.removeEventListener('abort', abortHandler);
     }
-  }
-
-  if (firstRawDataLine) {
-    meta = {
-      ...meta,
-      debug_first_sse_data_raw: firstRawDataLine.slice(0, 400),
-    };
   }
 
   return { text: fullText, trace, changedFiles, meta };
@@ -228,7 +287,7 @@ export async function sendAskRequest(
   payload: AskRequestPayload,
   output: vscode.OutputChannel,
   signal?: AbortSignal,
-  options?: { preferJson?: boolean },
+  options?: { preferJson?: boolean; onMeta?: (meta: Record<string, unknown>) => void },
 ): Promise<AskResult> {
   // ── Send request ────────────────────────────────────────────────
   output.appendLine(`[API] Requesting: ${endpoint}`);
@@ -279,7 +338,7 @@ export async function sendAskRequest(
 
   if (contentType.includes('text/event-stream')) {
     output.appendLine('Streaming response:');
-    const { text, trace, changedFiles, meta } = await streamSseResponse(res, output);
+    const { text, trace, changedFiles, meta } = await streamSseResponse(res, output, options?.onMeta, signal);
     if (!text.trim()) {
       output.appendLine('[No streamed text received]');
     }
@@ -287,8 +346,24 @@ export async function sendAskRequest(
 
     return {
       text,
-      raw: { answer: text, agent_trace: trace, agent_changed_files: changedFiles },
+      raw: { 
+        answer: text, 
+        agent_trace: trace, 
+        agent_changed_files: changedFiles,
+        intent: meta.intent as string,
+        optimized: meta.optimized as boolean,
+        optimizer_version: meta.optimizer_version as string,
+        prompt_version: meta.prompt_version as string,
+        trace_id: meta.trace_id as string,
+        optimization_score: meta.optimization_score as number,
+        optimization_status: meta.optimization_status as string,
+        balance: meta.balance as number,
+        conversation_id: meta.conversation_id as number,
+        purchase_url: meta.purchase_url as string
+      },
       meta,
+      balance: meta.balance as number | undefined,
+      purchase_url: meta.purchase_url as string | undefined,
       agentTrace: trace,
       agentChangedFiles: changedFiles,
       streamed: true,
@@ -324,6 +399,15 @@ export async function sendAskRequest(
       agent_mode: data.agent_mode,
       agent_project_id: data.agent_project_id,
       agent_tool_capable: data.agent_tool_capable,
+      intent: data.intent,
+      optimized: data.optimized,
+      optimizer_version: data.optimizer_version,
+      prompt_version: data.prompt_version,
+      trace_id: data.trace_id,
+      optimization_score: data.optimization_score,
+      optimization_status: data.optimization_status,
+      balance: data.balance,
+      conversation_id: data.conversation_id,
     },
     agentTrace: data.agent_trace ?? [],
     agentChangedFiles: data.agent_changed_files ?? [],
@@ -336,39 +420,22 @@ export async function sendAskRequest(
  * No auth required, very fast.
  */
 export async function pingBackend(endpoint: string): Promise<boolean> {
-  const root = deriveEndpointRoot(endpoint);
-  if (!root) {
+  const healthUrl = deriveHealthUrl(endpoint);
+  if (!healthUrl) {
     return false;
   }
 
-  const candidates = [
-    `${root}/health`,
-    `${root}/v1/status`,
-    `${root}/v1/ask`,
-    `${root}/api/ask`,
-  ];
-
-  for (const url of candidates) {
-    try {
-      const res = await fetchWithTimeout(url, 3000);
-      // Auth or method errors still prove server is reachable and route exists.
-      if (res.ok || res.status === 401 || res.status === 403 || res.status === 405) {
-        return true;
-      }
-      // Continue trying alternatives when a route is not found.
-      if (res.status === 404) {
-        continue;
-      }
-      // Any other HTTP response still indicates backend host is reachable.
-      if (res.status >= 100 && res.status <= 599) {
-        return true;
-      }
-    } catch {
-      // Try next probe URL.
+  try {
+    const res = await fetchWithTimeout(healthUrl, 3000);
+    if (!res.ok) {
+      return false;
     }
-  }
 
-  return false;
+    const payload = (await res.json().catch(() => null)) as { status?: string } | null;
+    return payload?.status === 'ok';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -406,5 +473,86 @@ export async function getBackendStatus(
     return await res.json() as BackendStatusResponse;
   } catch (err) {
     return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Fetches a one-time password (OTP) for secure browser authentication sync. */
+export async function getVscodeOtp(
+    endpoint: string,
+    apiKey: string
+): Promise<{ status: 'ok', otp: string } | { status: 'error', error: string }> {
+    const root = deriveEndpointRoot(endpoint);
+    const otpUrl = `${root}/v1/auth/vscode/generate-otp`;
+
+    try {
+        const res = await fetch(otpUrl, {
+            method: 'POST',
+            headers: {
+                'X-API-Key': apiKey,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!res.ok) {
+            return { status: 'error', error: `HTTP ${res.status}` };
+        }
+
+        return await res.json() as { status: 'ok', otp: string };
+    } catch (err) {
+        return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+}
+
+/** Fetch all VS Code sessions from backend. */
+export async function getHistory(
+  endpoint: string,
+  apiKey: string,
+): Promise<HistoryListResponse> {
+  const root = deriveEndpointRoot(endpoint);
+  const historyUrl = `${root}/v1/history`;
+
+  try {
+    const res = await fetch(historyUrl, {
+      method: 'GET',
+      headers: {
+        'X-API-Key': apiKey,
+        'Accept': 'application/json',
+      },
+    });
+    if (!res.ok) {
+        if (res.status === 401) return { status: 'unauthorized' };
+        return { status: 'error' };
+    }
+    return await res.json() as HistoryListResponse;
+  } catch {
+    return { status: 'error' };
+  }
+}
+
+/** Fetch detailed messages for a specific session title. */
+export async function getConversationHistory(
+  endpoint: string,
+  apiKey: string,
+  title: string
+): Promise<ConversationDetailResponse> {
+  const root = deriveEndpointRoot(endpoint);
+  const historyUrl = `${root}/v1/history/${encodeURIComponent(title)}`;
+
+  try {
+    const res = await fetch(historyUrl, {
+      method: 'GET',
+      headers: {
+        'X-API-Key': apiKey,
+        'Accept': 'application/json',
+      },
+    });
+    if (!res.ok) {
+        if (res.status === 401) return { status: 'unauthorized' };
+        return { status: 'error' };
+    }
+    return await res.json() as ConversationDetailResponse;
+  } catch {
+    return { status: 'error' };
   }
 }

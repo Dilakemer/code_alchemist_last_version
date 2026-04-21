@@ -1,0 +1,142 @@
+warning: in the working copy of 'client/Dockerfile', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'client/src/App.jsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'client/src/components/TokenDashboardModal.jsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'client/vite.config.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/week9_codebase_report.tex', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/Dockerfile', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/adapters/anthropic_adapter.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/agents/base.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/agents/loop.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/api/schemas.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/runtime/context.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/runtime/core.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/runtime/limits.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/runtime/sse.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/tools/builtin/workspace_files.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/backend/tools/registry.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/requirements.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/services/agent_bridge.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/services/lifecycle_orchestrator.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/src/actionHandler.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/src/apiClient.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/src/diffPreview.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/src/extension.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/src/healthMonitor.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/src/types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vscode-extension/src/workspaceContext.ts', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/client/Dockerfile b/client/Dockerfile[m
+[1mindex 52b7afe..e319c48 100644[m
+[1m--- a/client/Dockerfile[m
+[1m+++ b/client/Dockerfile[m
+[36m@@ -16,6 +16,7 @@[m [mFROM nginx:stable-alpine[m
+ [m
+ # Build çıktısını Nginx'in hizmet dizinine kopyala[m
+ COPY --from=build /app/dist /usr/share/nginx/html[m
+[32m+[m[32mCOPY nginx.conf /etc/nginx/conf.d/default.conf[m
+ [m
+ # Nginx portu[m
+ EXPOSE 80[m
+[1mdiff --git a/client/src/App.jsx b/client/src/App.jsx[m
+[1mindex e463be8..00cd3dd 100644[m
+[1m--- a/client/src/App.jsx[m
+[1m+++ b/client/src/App.jsx[m
+[36m@@ -31,6 +31,8 @@[m [mimport { requestNotificationPermission } from './utils/notifications';[m
+ import { API_BASE } from './config';[m
+ import { useCollabSocket } from './hooks/useCollabSocket';[m
+ [m
+[32m+[m[32mconst DB_INIT_SESSION_KEY = 'codebrain_db_init_requested';[m
+[32m+[m
+ function App() {[m
+   const [model, setModel] = useState('auto');[m
+   const [question, setQuestion] = useState('');[m
+[36m@@ -139,6 +141,7 @@[m [mfunction App() {[m
+     return !localStorage.getItem('codebrain_user');[m
+   });[m
+   const [multiModels, setMultiModels] = useState(['gemini-2.5-flash', 'gpt-4o']);[m
+[32m+[m[32m  const [tokenDashboardTab, setTokenDashboardTab] = useState('overview');[m
+ [m
+   // Notification Dropdown State[m
+   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);[m
+[36m@@ -194,7 +197,7 @@[m [mfunction App() {[m
+   }, [authHeaders]);[m
+ [m
+   const fetchConversations = useCallback(async () => {[m
+[31m-    if (isStreamingAgent) return;[m
+[32m+[m[32m    if (!token || isStreamingAgent) return;[m
+     try {[m
+       const res = await fetch(`${API_BASE}/api/conversations`, { headers: authHeaders });[m
+       const data = await res.json();[m
+[36m@@ -202,7 +205,7 @@[m [mfunction App() {[m
+     } catch (err) {[m
+       console.error("Failed to fetch conversations", err);[m
+     }[m
+[31m-  }, [isStreamingAgent, authHeaders]);[m
+[32m+[m[32m  }, [token, isStreamingAgent, authHeaders]);[m
+ [m
+   const fetchCommunityItems = useCallback(async () => {[m
+     try {[m
+[36m@@ -332,25 +335,45 @@[m [mfunction App() {[m
+     }[m
+   }, [token, user, authHeaders]);[m
+ [m
+[31m-  // Request notification permission when user logs in[m
+   useEffect(() => {[m
+[31m-    if (user) {[m
+[31m-      requestNotificationPermission().then(() => {[m
+[31m-        // Notification permission handled[m
+[31m-      });[m
+[32m+[m[32m    if (!user) return;[m
+[32m+[m[32m    requestNotificationPermission().catch(err => {[m
+[32m+[m[32m      console.error('Notification permission error:', err);[m
+[32m+[m[32m    });[m
+[32m+[m[32m  }, [user]);[m
+[32m+[m
+[32m+[m[32m  useEffect(() => {[m
+[32m+[m[32m    let shouldInitDb = true;[m
+[32m+[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      shouldInitDb = window.sessionStorage.getItem(DB_INIT_SESSION_KEY) !== '1';[m
+[32m+[m[32m      if (shouldInitDb) {[m
+[32m+[m[32m        window.sessionStorage.setItem(DB_INIT_SESSION_KEY, '1');[m
+[32m+[m[32m      }[m
+[32m+[m[32m    } catch {[m
+[32m+[m[32m      // sessionStorage can be unavailable in some embedded contexts; fall back to one request per mount.[m
+     }[m
+ [m
+[31m-    // Ensure DB tables exist[m
+[32m+[m[32m    if (!shouldInitDb) return;[m
+[32m+[m
+     fetch(`${API_BASE}/api/debug/init-db`, { method: 'POST' })[m
+[31m-      .catch(err => console.error('DB Init Error:', err));[m
+[32m+[m[32m      .catch(err => {[m
+[32m+[m[32m        try {[m
+[32m+[m[32m          window.sessionStorage.removeItem(DB_INIT_SESSION_KEY);[m
+[32m+[m[32m        } catch {[m
+[32m+[m[32m          // Ignore sessionStorage cleanup failures.[m
+[32m+[m[32m        }[m
+[32m+[m[32m        console.error('DB Init Error:', err);[m
+[32m+[m[32m      });[m
+[32m+[m[32m  }, []);[m
+ [m
+[31m-    // Check for collaboration token in URL[m
+[32m+[m[32m  useEffect(() => {[m
+     const urlParams = new URLSearchParams(window.location.search);[m
+     const tokenParam = urlParams.get('collab');[m
+     if (tokenParam) {[m
+       loadSharedSession(tokenParam);[m
+     }[m
+[31m-  }, [user, loadSharedSession]);[m
+[32m+[m[32m  }, [loadSharedSession]);[m
+ [m
+   // ---- Live Sync Collaboration (Socket.io) ----[m
+   const collabUserName = user?.display_name || 'Guest';[m
+[36m@@ -430,6 +453,15 @@[m [mfunction App() {[m
+   }, [token, user, syncDailyGamification]);[m
+ [m
+   useEffect(() => {[m
+[32m+[m[32m    const isDirectBillingPath = window.location.pathname === '/billing';[m
+[32m+[m[32m    if (isDirectBillingPath) {[m
+[32m+[m[32m      setShowLandingPage(false);[m[41m [m
+[32m+[m[32m      setTokenDashboardTab('upgrade');[m
+[32m+

@@ -19,13 +19,19 @@ import smtplib
 import traceback
 import resend
 from types import SimpleNamespace
+
+# Compatibility shim for libraries that incorrectly call datetime.utcnow() on the module.
+# This must run before importing third-party libraries to catch import-time calls.
+if not hasattr(datetime, 'utcnow'):
+    datetime.utcnow = datetime.datetime.utcnow
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text as sql_text
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import timedelta
 from dotenv import load_dotenv, dotenv_values
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify, Response, stream_with_context, redirect
 from flask_cors import CORS
 from flask_socketio import SocketIO, join_room, leave_room, emit as socket_emit
 from werkzeug.exceptions import HTTPException
@@ -34,10 +40,11 @@ from flask_jwt_extended import (
 )
 from passlib.hash import pbkdf2_sha256
 from google import genai as google_genai
-from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey
+from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey, VSCodeLoginState, VSCodeOTP
 from anthropic import Anthropic, APIError
 from openai import OpenAI
 import stripe
+import iyzipay
 from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
@@ -85,6 +92,16 @@ def _normalize_gemini_model_name(model_name):
     if not model_name:
         return model_name
     return model_name.replace('models/', '', 1) if model_name.startswith('models/') else model_name
+
+
+def _utcnow():
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def _get_iyzico_frontend_base_url(origin: str | None = None) -> str:
+    # Use origin if provided, otherwise fallback to env, otherwise use the current request host
+    default_url = request.host_url.rstrip('/') if request else 'http://localhost'
+    return (origin or os.getenv('FRONTEND_URL') or os.getenv('APP_FRONTEND_URL') or default_url).rstrip('/')
 
 
 def _extract_gemini_text(response_obj):
@@ -670,6 +687,24 @@ def _clip_agent_metadata(trace, changed_files, max_trace=10, max_changed=20):
 
 # Lightweight in-memory state for external tool conversations (VS Code extension, API clients).
 _external_conversation_state = {}
+# VS Code login state is now database-backed via VSCodeLoginState model
+VSCODE_LOGIN_STATE_TTL_SECONDS = 600
+
+
+def _cleanup_vscode_login_state():
+    now = time.time()
+    try:
+        expired = VSCodeLoginState.query.filter(VSCodeLoginState.expires_at < now).all()
+        for s in expired:
+            db.session.delete(s)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[VSCODE-AUTH] Cleanup error: {e}")
+
+
+def _is_valid_vscode_state(value: str) -> bool:
+    return bool(re.fullmatch(r'[A-Za-z0-9_-]{16,128}', str(value or '').strip()))
 
 
 def _normalise_path_for_match(value):
@@ -803,11 +838,84 @@ mimetypes.add_type('text/css', '.css')
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({'status': 'ok', 'version': '1.0.0-legacy'}), 200
+    return jsonify({'status': 'ok'}), 200
 
 CORS(app, resources={r"/*": {"origins": "*"}})
 db.init_app(app)
 jwt = JWTManager(app)
+
+
+@app.before_request
+def sanitize_auth_headers():
+    """
+    Pre-sanitize Authorization headers before JWT library processing.
+    
+    Purpose:
+    - Catch malformed/binary Authorization headers early
+    - Replace bad headers with empty string so JWT sees "missing token" instead of "malformed"
+    - Prevents UTF-8 codec errors from propagating through JWT library
+    
+    Approach:
+    - Try to get and decode Authorization header safely
+    - If it fails or contains non-printable chars, remove it
+    - API keys (ca-...) and Bearer tokens will still work as they're valid ASCII
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return  # No header, nothing to do
+        
+        # Try to convert to string safely
+        auth_str = str(auth_header)
+        
+        # Check if it's a valid JWT or API key format
+        # Valid formats: "Bearer <token>" or "ca-<key>"
+        if auth_str.lower().startswith('bearer '):
+            # Try to extract bearer token
+            parts = auth_str.split(None, 1)
+            if len(parts) != 2:
+                # Malformed bearer header, remove it
+                print(f"DEBUG: Removing malformed Bearer header")
+                request.environ['HTTP_AUTHORIZATION'] = ''
+                return
+            token = parts[1].strip()
+        elif auth_str.startswith('ca-'):
+            # API key format, keep it as-is
+            token = auth_str
+        else:
+            # Unknown format, could be garbage - remove it
+            print(f"DEBUG: Removing unknown auth format: {repr(auth_str[:60])}")
+            request.environ['HTTP_AUTHORIZATION'] = ''
+            return
+        
+        # Validate JWT structure if it's a Bearer token
+        if auth_str.lower().startswith('bearer '):
+            # Bearer tokens must be 3 dot-separated segments (header.payload.signature)
+            if token.count('.') != 2:
+                # Malformed JWT, remove it
+                print(f"DEBUG: Removing JWT with invalid segment count: {token.count('.') + 1} segments instead of 3")
+                request.environ['HTTP_AUTHORIZATION'] = ''
+                return
+        
+        # Try to validate token is safe ASCII/printable
+        try:
+            # If token decodes to valid UTF-8 and contains only printable chars, it's safe
+            token_bytes = token.encode('utf-8', errors='strict')
+            token.encode('ascii', errors='strict')  # JWT tokens should be ASCII
+            # If we got here, token looks valid
+        except (UnicodeEncodeError, UnicodeDecodeError) as e:
+            # Token contains non-ASCII or invalid UTF-8, remove header
+            print(f"DEBUG: Removing non-ASCII auth token: {e}")
+            request.environ['HTTP_AUTHORIZATION'] = ''
+            return
+    except Exception as e:
+        # Safety: if anything goes wrong in header sanitization, remove the header
+        print(f"DEBUG: Exception in sanitize_auth_headers: {e}, removing Authorization header")
+        try:
+            request.environ['HTTP_AUTHORIZATION'] = ''
+        except:
+            pass
+
 
 # SocketIO async mode is pinned to threading for cross-platform stability.
 socketio = SocketIO(
@@ -892,23 +1000,55 @@ with app.app_context():
 
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
-    print(f"JWT Invalid: {error}")
+    error_str = str(error)
+    print(f"DEBUG: JWT invalid_token_loader called: {error_str}")
+    
+    # Catch UTF-8 encoding errors from malformed headers
+    if 'utf-8' in error_str.lower() or 'codec' in error_str.lower() or 'decode' in error_str.lower():
+        print(f"DEBUG: ENCODING ERROR in JWT decode: {error_str}")
+        try:
+            auth = request.headers.get('Authorization', '')
+            if auth:
+                print(f"DEBUG: Problem auth header (first 80 chars): {repr(str(auth)[:80])}")
+        except:
+            pass
+        return jsonify({
+            'error': 'Authorization header encoding error',
+            'code': 'AUTH_ENCODING_ERROR'
+        }), 401
+    
     return jsonify({'error': f'Invalid token: {error}'}), 422
 
 @jwt.unauthorized_loader
 def missing_token_callback(error):
-    print(f"JWT Missing: {error}")
+    print(f"DEBUG: JWT missing_token_loader called: {error}")
     return jsonify({'error': f'Missing token: {error}'}), 401
 
 @jwt.expired_token_loader
 def expired_token_callback(jwt_header, jwt_payload):
-    print(f"JWT Expired: {jwt_payload}")
-    return jsonify({'error': 'Token expired'}), 401
+    print(f"DEBUG: JWT expired_token_loader called: {jwt_payload}")
+    return jsonify({'error': 'Token expired', 'code': 'TOKEN_EXPIRED'}), 401
 
 # --- MIDDLEWARE & ERROR HANDLERS ---
 
 @app.errorhandler(Exception)
 def handle_exception(e):
+    error_str = str(e)
+    
+    # Catch encoding errors early and return 401 instead of 500
+    if 'utf-8' in error_str.lower() or 'codec' in error_str.lower() or 'decode' in error_str.lower():
+        print(f"DEBUG: GLOBAL UTF-8 ENCODING ERROR: {error_str}")
+        try:
+            auth = request.headers.get('Authorization', '')
+            if auth:
+                print(f"DEBUG: Problem auth header: {repr(str(auth)[:80])}")
+        except:
+            pass
+        return jsonify({
+            'error': 'Request header encoding error',
+            'code': 'HEADER_ENCODING_ERROR'
+        }), 400
+    
     # Preserve HTTP errors like 404/405 instead of converting all of them to 500.
     if isinstance(e, HTTPException):
         return jsonify({
@@ -2003,7 +2143,7 @@ def _load_previous_memory_context(user, question, conversation=None, include_pre
     used_memory_ids = [hit.get('source_id') for hit in memory_context.get('hits', []) if hit.get('source_type') == 'memory' and hit.get('source_id')]
     if used_memory_ids:
         MemoryItem.query.filter(MemoryItem.id.in_(used_memory_ids)).update(
-            {MemoryItem.last_used_at: datetime.datetime.utcnow()},
+            {MemoryItem.last_used_at: _utcnow()},
             synchronize_session=False,
         )
 
@@ -2031,14 +2171,14 @@ def _upsert_conversation_summary(current_conv, history_id, user_id, summary_text
     summary_row.summary_text = summary_text
     summary_row.modules_json = json.dumps(merged_modules, ensure_ascii=False)
     summary_row.last_history_id = history_id
-    summary_row.updated_at = datetime.datetime.utcnow()
+    summary_row.updated_at = _utcnow()
 
     return summary_row
 
 
 def _store_memory_items(user_id, conversation_id, extracted_memory_items):
     stored_items = []
-    now = datetime.datetime.utcnow()
+    now = _utcnow()
 
     for item in extracted_memory_items:
         content = (item.get('content') or '').strip()
@@ -2169,7 +2309,7 @@ def _write_back_memory_graph(user_id, conversation_id, history_id, memory_contex
     transitions = memory_context.get('memory_transitions') or {}
     entries = list(structured.get('entries') or [])
     transition_map = {item.get('module_key'): item for item in transitions.get('transitions', []) if item.get('module_key')}
-    now = datetime.datetime.utcnow()
+    now = _utcnow()
 
     node_uids = []
     persisted_nodes = []
@@ -2464,7 +2604,7 @@ def update_streak(user, activity_date=None):
     elif isinstance(activity_date, str) and activity_date:
         today = datetime.datetime.strptime(activity_date[:10], '%Y-%m-%d').date()
     else:
-        today = datetime.datetime.utcnow().date()
+        today = _utcnow().date()
     
     if user.last_active_date == today:
         return False # Bugün zaten güncellenmiş
@@ -2605,6 +2745,8 @@ def get_gamification_profile():
     level_span = max(next_level_xp - current_level_min_xp, 1)
     progress_percent = round(((total_xp_earned - current_level_min_xp) / level_span) * 100, 1)
     progress_percent = max(0, min(progress_percent, 100))
+    # Ensure locale-independent JSON encoding (always use dot, not comma)
+    progress_percent = float(progress_percent)
 
     base_name = (user.display_name or '').strip()
     safe_handle = re.sub(r'[^a-z0-9_]', '', re.sub(r'\s+', '_', base_name.lower()))
@@ -2693,7 +2835,7 @@ def sync_gamification():
         XPEvent.user_id == user.id,
         XPEvent.source == 'daily_login',
         XPEvent.reason == 'Daily Login',
-        db.func.date(XPEvent.created_at) == (activity_date[:10] if isinstance(activity_date, str) and activity_date else datetime.datetime.utcnow().date().isoformat())
+        db.func.date(XPEvent.created_at) == (activity_date[:10] if isinstance(activity_date, str) and activity_date else _utcnow().date().isoformat())
     ).first():
         return jsonify({'status': 'noop', 'message': 'Daily login already synced today.'})
          
@@ -2766,8 +2908,8 @@ def _get_or_init_usage_counters(user):
     plan = _normalize_subscription_plan(prefs.get('subscription_plan', 'free'))
 
     usage_limits = prefs.get('usage_limits') or {}
-    today = datetime.datetime.utcnow().date().isoformat()
-    month_key = datetime.datetime.utcnow().strftime('%Y-%m')
+    today = _utcnow().date().isoformat()
+    month_key = _utcnow().strftime('%Y-%m')
 
     daily = usage_limits.get('daily') or {}
     monthly = usage_limits.get('monthly') or {}
@@ -3192,14 +3334,54 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return pbkdf2_sha256.verify(password, hashed)
 
-def get_current_user():
+
+def _get_safe_jwt_identity():
+    """
+    Safely get JWT identity.
+    Handles encoding errors from malformed Authorization headers.
+    Returns None if any error occurs (encoding, missing token, invalid token).
+    """
     try:
-        if verify_jwt_in_request(optional=True):
-            identity = get_jwt_identity()
-            if identity:
-                return db.session.get(User, identity)
+        # Get Authorization header safely - never call encode/decode on it
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
+            return None
+        
+        # Ensure it's a string (should always be from Flask)
+        auth_header = str(auth_header)
+        
+        # Log auth header details only when explicitly enabled for debugging.
+        if _parse_bool(os.getenv('SAFE_JWT_DEBUG_HEADERS')):
+            print(f"DEBUG: Safe JWT identity check, auth header (first 80): {repr(str(auth_header)[:80])}")
+        
+        # Try to get JWT identity through library
+        # Library will handle validation
+        verify_jwt_in_request(optional=True)
+        return get_jwt_identity()
+    except Exception as e:
+        error_msg = str(e)
+        # Log encoding errors distinctly
+        if 'utf-8' in error_msg.lower() or 'codec' in error_msg.lower():
+            print(f"DEBUG: UTF-8 ENCODING ERROR in _get_safe_jwt_identity: {error_msg}")
         return None
-    except Exception:
+
+
+def get_current_user():
+    """
+    Get current authenticated user.
+    Uses safe JWT extraction that handles encoding errors.
+    Returns None if not authenticated or on any error.
+    """
+    try:
+        identity = _get_safe_jwt_identity()
+        if identity:
+            user = db.session.get(User, identity)
+            return user
+        return None
+    except Exception as e:
+        error_msg = str(e)
+        if 'utf-8' in error_msg.lower() or 'codec' in error_msg.lower():
+            print(f"DEBUG: ENCODING ERROR in get_current_user: {error_msg}")
         return None
 
 
@@ -3339,7 +3521,7 @@ def _build_checkout_purchase(user: User, package: TokenPackage, session_obj, pay
     wallet.balance += tokens_granted
 
     purchase.status = 'completed'
-    purchase.completed_at = datetime.datetime.utcnow()
+    purchase.completed_at = _utcnow()
     db.session.add(purchase)
     db.session.add(TokenTransaction(
         user_id=user.id,
@@ -3412,7 +3594,7 @@ def check_tokens(user: User, model_name: str = 'default') -> tuple[bool, int, in
     return wallet.balance >= cost, wallet.balance, cost
 
 
-def deduct_tokens(user: User, model_name: str = 'default', description: str = None, reference_id: str = None) -> tuple[bool, int]:
+def deduct_tokens(user: User, model_name: str = "default", description: str = None, reference_id: str = None) -> tuple[bool, int]:
     """Kullanıcının cüzdanından token düşer ve işlemi loglar.
     
     Returns:
@@ -3421,7 +3603,10 @@ def deduct_tokens(user: User, model_name: str = 'default', description: str = No
     cost = _resolve_token_cost(model_name)
     wallet = get_or_create_token_balance(user)
 
+    print(f"[TOKEN] Deduction attempt for user {user.id} ({user.email}). Current: {wallet.balance}, Cost: {cost}, Model: {model_name}")
+
     if wallet.balance < cost:
+        print(f"[TOKEN] Deduction failed: Insufficient balance for user {user.id}. Required: {cost}, Found: {wallet.balance}")
         return False, wallet.balance
 
     wallet.balance -= cost
@@ -3430,12 +3615,19 @@ def deduct_tokens(user: User, model_name: str = 'default', description: str = No
     tx = TokenTransaction(
         user_id=user.id,
         amount=-cost,      # negatif = harcama
-        type='usage',
-        description=description or f'AI sorgu — {model_name}',
+        type="usage",
+        description=description or f"AI sorgu — {model_name}",
         reference_id=str(reference_id) if reference_id else None,
     )
     db.session.add(tx)
-    db.session.commit()
+    try:
+        db.session.commit()
+        print(f"[TOKEN] Deduction success for user {user.id}. New balance: {wallet.balance}")
+    except Exception as e:
+        db.session.rollback()
+        print(f"[TOKEN] DATABASE ERROR during deduction for user {user.id}: {e}")
+        return False, wallet.balance + cost # Balance might be inconsistent here, but rollback should help
+
     return True, wallet.balance
 
 
@@ -3980,7 +4172,7 @@ def forgot_password():
     token = PasswordResetToken(
         user_id=user.id,
         token=reset_code,
-        expires_at=datetime.datetime.utcnow() + timedelta(minutes=15)
+        expires_at=_utcnow() + timedelta(minutes=15)
     )
     db.session.add(token)
     db.session.commit()
@@ -4020,7 +4212,7 @@ def reset_password():
     if not token:
         return jsonify({'error': 'Invalid or expired code.'}), 400
     
-    if token.expires_at < datetime.datetime.utcnow():
+    if token.expires_at < _utcnow():
         return jsonify({'error': 'Code expired. Request a new code.'}), 400
     
     # Şifreyi güncelle
@@ -4277,6 +4469,7 @@ def bulk_refactor():
     })
 
 @app.route('/api/ask', methods=['POST'])
+@app.route('/v1/ask', methods=['POST'])
 def ask():
     # Debug logging
     print(f"DEBUG: /api/ask called. Content-Type: {request.content_type}")
@@ -5155,7 +5348,7 @@ Provide a clear reasoning/justification for why this blended response was chosen
                     ai_response=blended_response,
                     code_snippet=code if code else None,
                     selected_model=f"Blend: {', '.join(models[:2])}{'...' if len(models) > 2 else ''}",
-                    timestamp=datetime.datetime.utcnow(),
+                    timestamp=_utcnow(),
                     reasoning=referee_reasoning,
                     routing_reason=f"Blended {', '.join(models)} for enhanced accuracy",
                     persona=persona
@@ -5713,7 +5906,7 @@ def get_model_usage():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-from models import db, User, Conversation, History, Answer, PostLike, AnswerLike, NotificationRead, NotificationHidden
+from models import db, User, Conversation, History, Answer, PostLike, AnswerLike, NotificationRead, NotificationHidden, VSCodeLoginState, VSCodeOTP
 
 # ... (existing imports)
 
@@ -6235,31 +6428,63 @@ Example: "Initializing neural scan... Security protocols are holding, but test c
         traceback.print_exc()
         return jsonify({'error': f"Failed to fetch health metrics: {str(e)}"}), 500
     
-    # 1. SECURITY SCORE (0-100)
     security_score = 100
     security_issues = []
     
-    # Tehlikeli dosya/pattern'leri ara
+    # Stricter dangerous patterns (regex supported in later logic)
+    # We use a mix of keywords for file discovery and regex for content auditing
     dangerous_patterns = {
-        '.env': 10,
+        '.env': 15,
         'secret': 15,
         'password': 15,
-        'api_key': 15,
-        'private': 10,
+        'api_key': 20,
+        'private_key': 20,
         'credentials': 20,
-        '.pem': 15,
+        '.pem': 20,
         '.key': 15,
-        'token': 10
+        'token': 10,
+        'aws_access_key': 25,
+        'database_url': 15
+    }
+
+    # Directory exclusions as per architectural decision
+    EXCLUDED_DIRS = {
+        'node_modules', '.git', 'vendor', 'dist', 'build', 
+        '.venv', 'venv', 'env', '__pycache__', 
+        '.vscode', '.idea', '.next', 'target'
+    }
+
+    # API Key Regex Patterns for robust scanning
+    SECURITY_REGEX = {
+        'AWS Access Key': r'(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}',
+        'Google API Key': r'AIza[0-9A-Za-z-_]{35}',
+        'Stripe Secret Key': r'sk_live_[0-9a-zA-Z]{24}',
+        'GitHub Personal Access Token': r'ghp_[0-9a-zA-Z]{36}',
+        'Slack Token': r'xox[baprs]-[0-9a-zA-Z]{10,48}',
+        'Generic Private Key': r'-----BEGIN [A-Z ]+ PRIVATE KEY-----'
     }
     
     for path in paths:
+        # Skip excluded directories
+        path_segments = set(path.split('/'))
+        if path_segments.intersection(EXCLUDED_DIRS):
+            continue
+
+        # 1.1 Filename-based Discovery
         for pattern, penalty in dangerous_patterns.items():
             if pattern in path:
                 # .gitignore'da ise sorun yok
                 if 'gitignore' not in path:
                     security_score = max(0, security_score - penalty)
-                    security_issues.append(f"Found '{pattern}' in {path}")
+                    security_issues.append(f"Found risky keyword '{pattern}' in path: {path}")
                     break
+        
+        # 1.2 Content-based Auditing (Mock implementation as we only have paths here, 
+        # but in a real scenario we would read the blob content via parser.get_blob_content)
+        # To make it meaningful with just paths, we check if filename looks like a secret
+        if path.endswith('.pem') or path.endswith('.key'):
+             security_issues.append(f"Private key file exposed: {path}")
+             security_score = max(0, security_score - 20)
     
     # .gitignore varsa bonus
     if any('.gitignore' in p for p in paths):
@@ -7973,7 +8198,7 @@ def set_session_review_status(token):
     review.status = status
     review.updated_by_user_id = user.id if user else None
     review.updated_by_name = actor_name
-    review.updated_at = datetime.datetime.utcnow()
+    review.updated_at = _utcnow()
 
     db.session.commit()
 
@@ -7989,10 +8214,10 @@ def set_session_review_status(token):
 def get_weekly_stats():
     """Haftalık kullanım istatistiklerini getir."""
     from models import History, User, XPEvent
-    from datetime import datetime, timedelta
+    from datetime import datetime as dt, timedelta
     
     user_id = int(get_jwt_identity())
-    now = datetime.utcnow()
+    now = _utcnow()
     last_7_days = now - timedelta(days=7)
     prev_7_days = now - timedelta(days=14)
     
@@ -8116,6 +8341,264 @@ if _STRIPE_SECRET_KEY:
 else:
     print("Warning: STRIPE_SECRET_KEY not set. Billing disabled.")
 
+#💳 Iyzico entegrasyon rotaları
+_IYZICO_API_KEY = os.getenv('IYZICO_API_KEY', '')
+_IYZICO_SECRET_KEY = os.getenv('IYZICO_SECRET_KEY', '')
+_IYZICO_BASE_URL = os.getenv('IYZICO_BASE_URL', 'https://sandbox-api.iyzipay.com')
+
+def _normalize_iyzico_base_url(value: str) -> str:
+    base_url = (value or '').strip().rstrip('/')
+    if base_url.startswith('https://'):
+        return base_url[len('https://'):]
+    if base_url.startswith('http://'):
+        return base_url[len('http://'):]
+    return base_url
+
+iyzi_options = {
+    'api_key': _IYZICO_API_KEY,
+    'secret_key': _IYZICO_SECRET_KEY,
+    'base_url': _normalize_iyzico_base_url(_IYZICO_BASE_URL)
+}
+
+@app.route('/api/billing/iyzico/config', methods=['GET'])
+def iyzico_config():
+    """Frontend'in Iyzico'nun aktif olup olmadığını anlaması için config endpoint."""
+    credentials_configured = bool(_IYZICO_API_KEY and _IYZICO_SECRET_KEY)
+    enabled = bool(credentials_configured)
+
+    return jsonify({
+        'enabled': enabled,
+        'base_url': _IYZICO_BASE_URL if enabled else None,
+        'credentials_configured': credentials_configured,
+        'reason': None if enabled else 'credentials_missing',
+    })
+
+@app.route('/api/billing/iyzico/checkout-session', methods=['POST'])
+def iyzico_checkout_session():
+    """Iyzico Checkout oturumu oluşturur ve checkout URL'sini döndürür."""
+    user, _auth_mode, _key_record, err_payload, status_code = _resolve_authenticated_user(
+        preferred_api_key_client='vscode',
+        allow_jwt=True,
+    )
+    if err_payload:
+        return jsonify(err_payload), status_code
+
+    user_id = user.id
+
+    if not _IYZICO_API_KEY or not _IYZICO_SECRET_KEY:
+        return jsonify({'error': 'Iyzico is not configured on the server.'}), 503
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No JSON data in request'}), 400
+    package_id = data.get('package_id')
+    # Fallback is opt-in so explicit Iyzico choice does not silently redirect to Stripe.
+    allow_stripe_fallback = bool(data.get('allow_stripe_fallback', False))
+    package = TokenPackage.query.get(package_id)
+    if not package:
+        return jsonify({'error': 'Invalid package'}), 400
+
+    try:
+        # İsim/Soyisim ayrımı
+        full_name = user.display_name or "Code Alchemist User"
+        name_parts = full_name.split(' ', 1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else "User"
+
+        frontend_base_url = _get_iyzico_frontend_base_url(request.headers.get('Origin'))
+        callback_url = request.host_url.rstrip('/') + '/api/billing/iyzico/callback'
+
+        # Iyzico Checkout Form Initialize Request
+        iyzipay_request = {
+            'locale': 'tr',
+            'conversationId': str(user_id) + "_" + _utcnow().strftime('%Y%m%d%H%M%S'),
+            'price': str(package.price_usd * 32), # Örnek döviz kuru veya TRY fiyatı
+            'paidPrice': str(package.price_usd * 32),
+            'currency': 'TRY',
+            'basketId': 'B' + str(user_id),
+            'paymentGroup': 'PRODUCT',
+            'callbackUrl': callback_url,
+            'buyer': {
+                'id': str(user_id),
+                'name': first_name,
+                'surname': last_name,
+                'email': user.email,
+                'identityNumber': '11111111111', # Placeholder
+                'registrationAddress': 'Online Course Access',
+                'ip': request.remote_addr,
+                'city': 'Istanbul',
+                'country': 'Turkey'
+            },
+            'shippingAddress': {
+                'contactName': full_name,
+                'city': 'Istanbul',
+                'country': 'Turkey',
+                'address': 'Digital Product'
+            },
+            'billingAddress': {
+                'contactName': full_name,
+                'city': 'Istanbul',
+                'country': 'Turkey',
+                'address': 'Digital Product',
+                'zipCode': '34000'
+            },
+            'basketItems': [
+                {
+                    'id': 'TP' + str(package.id),
+                    'name': package.name + " Tokens",
+                    'category1': 'Tokens',
+                    'itemType': 'VIRTUAL',
+                    'price': str(package.price_usd * 32)
+                }
+            ]
+        }
+
+        checkout_form_initialize = iyzipay.CheckoutFormInitialize().create(iyzipay_request, iyzi_options)
+        raw_response = checkout_form_initialize.read()
+        checkout_result = json.loads(raw_response.decode('utf-8'))
+
+        if checkout_result.get('status') == 'success':
+            # Ödemeyi bekleme aşamasında DB'ye kaydet
+            purchase = TokenPurchase(
+                user_id=user_id,
+                package_id=package.id,
+                package_name=package.name,
+                tokens_granted=package.tokens,
+                amount_cents=int(package.price_usd * 3200),
+                currency='TRY',
+                stripe_checkout_session_id='iyz_' + checkout_result.get('token', ''), # Token'ı buraya saklıyoruz
+                status='pending',
+                metadata_json=json.dumps({'frontend_base_url': frontend_base_url})
+            )
+            db.session.add(purchase)
+            db.session.commit()
+
+            return jsonify({
+                'payment_url': checkout_result.get('paymentPageUrl'),
+                'token': checkout_result.get('token'),
+                'gateway': 'iyzico'
+            })
+        else:
+            if not allow_stripe_fallback:
+                error_code = checkout_result.get('errorCode')
+                status_code = 503 if error_code == '1001' else 400
+                error_message = checkout_result.get('errorMessage', 'Iyzico checkout failed')
+                if error_code == '1001':
+                    error_message = 'Iyzico API credentials are invalid or inactive.'
+                return jsonify({
+                    'error': error_message,
+                    'gateway': 'iyzico',
+                    'code': error_code
+                }), status_code
+
+            # Iyzico fail olursa (yalnizca opt-in durumunda) Stripe'a fallback yap
+            print(f"[FALLBACK] Iyzico failed: {checkout_result.get('errorMessage')}. Using Stripe instead.")
+
+            # Stripe Checkout Session oluştur
+            try:
+                stripe_session = stripe.checkout.Session.create(
+                    payment_method_types=['card'],
+                    line_items=[{
+                        'price_data': {
+                            'currency': 'usd',
+                            'product_data': {
+                                'name': package.name + " Tokens",
+                                'description': f"{package.tokens} tokens for Code Alchemist"
+                            },
+                            'unit_amount': int(package.price_usd * 100)
+                        },
+                        'quantity': 1
+                    }],
+                    mode='payment',
+                    success_url=frontend_base_url + '?billing=success&gateway=stripe',
+                    cancel_url=frontend_base_url + '?billing=cancel',
+                    metadata={
+                        'user_id': user_id,
+                        'package_id': package.id,
+                        'package_name': package.name,
+                        'tokens': package.tokens
+                    }
+                )
+
+                # Stripe session'ı DB'ye kaydet
+                purchase = TokenPurchase(
+                    user_id=user_id,
+                    package_id=package.id,
+                    package_name=package.name,
+                    tokens_granted=package.tokens,
+                    amount_cents=int(package.price_usd * 100),
+                    currency='USD',
+                    stripe_checkout_session_id=stripe_session.id,
+                    status='pending',
+                    metadata_json=json.dumps({'gateway': 'stripe'})
+                )
+                db.session.add(purchase)
+                db.session.commit()
+
+                return jsonify({
+                    'payment_url': stripe_session.url,
+                    'token': stripe_session.id,
+                    'gateway': 'stripe'
+                })
+            except Exception as stripe_err:
+                print(f"[ERROR] Stripe fallback also failed: {stripe_err}")
+                return jsonify({'error': 'Payment gateway unavailable'}), 503
+
+    except Exception as e:
+        print(f"Iyzico checkout error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/billing/iyzico/callback', methods=['POST'])
+def iyzico_callback():
+    """Iyzico ödeme tamamlanma olayını dinler ve token bakiyesini günceller."""
+    token = request.form.get('token')
+    if not token:
+        return "Internal Error: Token missing", 400
+
+    # Token ile ödeme sonucunu sorgula
+    iyzi_request = {'locale': 'tr', 'token': token}
+    result = iyzipay.CheckoutForm().retrieve(iyzi_request, iyzi_options)
+    result_data = json.loads(result.read().decode('utf-8'))
+
+    if result_data.get('status') == 'success' and result_data.get('paymentStatus') == 'SUCCESS':
+        # Başarılı ödeme
+        purchase = TokenPurchase.query.filter_by(stripe_checkout_session_id='iyz_' + token).first()
+        if purchase and purchase.status != 'completed':
+            purchase.status = 'completed'
+            purchase.completed_at = _utcnow()
+
+            frontend_base_url = _get_iyzico_frontend_base_url()
+            if purchase.metadata_json:
+                try:
+                    metadata = json.loads(purchase.metadata_json)
+                    if isinstance(metadata, dict) and metadata.get('frontend_base_url'):
+                        frontend_base_url = str(metadata['frontend_base_url']).rstrip('/')
+                except Exception:
+                    pass
+            
+            # Token yüklemesi
+            balance = TokenBalance.query.filter_by(user_id=purchase.user_id).first()
+            if not balance:
+                balance = TokenBalance(user_id=purchase.user_id, balance=0)
+                db.session.add(balance)
+            
+            balance.balance += purchase.tokens_granted
+            
+            # Log
+            log = TokenTransaction(
+                user_id=purchase.user_id,
+                amount=purchase.tokens_granted,
+                type='purchase',
+                description=f"Tokens purchased via Iyzico (Package: {purchase.package_name})",
+                reference_id='iyz_' + token
+            )
+            db.session.add(log)
+            db.session.commit()
+
+            return redirect(f'{frontend_base_url}/?billing=success&gateway=iyzico')
+    
+    return redirect(f'{_get_iyzico_frontend_base_url()}/?billing=error&gateway=iyzico')
+
 
 @app.route('/api/billing/config', methods=['GET'])
 def billing_config():
@@ -8158,10 +8641,16 @@ def billing_packages():
 
 
 @app.route('/api/tokens/usage', methods=['GET'])
-@jwt_required()
 def token_usage():
     """Kullanıcının token bakiyesi ve son işlem geçmişini döndürür."""
-    user_id = get_jwt_identity()
+    user, _auth_mode, _key_record, err_payload, status_code = _resolve_authenticated_user(
+        preferred_api_key_client='vscode',
+        allow_jwt=True,
+    )
+    if err_payload:
+        return jsonify(err_payload), status_code
+
+    user_id = user.id
     limit = max(1, min(int(request.args.get('limit', 10)), 50))
     try:
         balance_record = TokenBalance.query.filter_by(user_id=user_id).first()
@@ -8198,13 +8687,19 @@ def token_usage():
 
 
 @app.route('/api/billing/checkout-session', methods=['POST'])
-@jwt_required()
 def create_checkout_session():
     """Stripe Checkout oturumu oluşturur ve checkout URL'sini döndürür."""
     if not _STRIPE_SECRET_KEY:
         return jsonify({'error': 'Billing is not configured on the server. Contact admin.'}), 503
 
-    user_id = get_jwt_identity()
+    user, _auth_mode, _key_record, err_payload, status_code = _resolve_authenticated_user(
+        preferred_api_key_client='vscode',
+        allow_jwt=True,
+    )
+    if err_payload:
+        return jsonify(err_payload), status_code
+
+    user_id = user.id
     data = request.get_json(silent=True) or {}
     package_id = data.get('package_id')
 
@@ -8245,10 +8740,6 @@ def create_checkout_session():
 
     if not pkg:
         return jsonify({'error': f'Package not found: {package_id}'}), 404
-
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({'error': 'User not found.'}), 404
 
     # Bonus token hesabı
     bonus_tokens = int(pkg.tokens * pkg.bonus_pct / 100) if pkg.bonus_pct else 0
@@ -8409,7 +8900,7 @@ def stripe_webhook():
                 purchase.status = 'completed'
                 purchase.stripe_payment_intent_id = stripe_payment_intent
                 if not purchase.completed_at:
-                    purchase.completed_at = datetime.datetime.utcnow()
+                    purchase.completed_at = _utcnow()
                 db.session.commit()
                 print(f"Webhook: Duplicate purchase event ignored for session {stripe_session_id}.")
                 return jsonify({'received': True}), 200
@@ -8436,7 +8927,7 @@ def stripe_webhook():
             # Satın alma kaydını tamamlandı olarak işaretle
             purchase.status = 'completed'
             purchase.stripe_payment_intent_id = stripe_payment_intent
-            purchase.completed_at = datetime.datetime.utcnow()
+            purchase.completed_at = _utcnow()
 
             db.session.commit()
             print(f"Webhook: Granted {tokens_to_add} tokens to user {user_id}.")
@@ -8454,6 +8945,190 @@ def stripe_webhook():
 import secrets
 from models import ApiKey
 
+
+def _extract_api_key_from_request() -> str:
+    """Extract API key from X-API-Key or Authorization header."""
+    x_api_key = (request.headers.get('X-API-Key') or '').strip()
+    if x_api_key:
+        return x_api_key
+
+    auth = (request.headers.get('Authorization') or '').strip()
+    if not auth:
+        return ''
+
+    if auth.startswith('ca-'):
+        return auth
+
+    if auth.lower().startswith('bearer '):
+        parts = auth.split(None, 1)
+        if len(parts) == 2:
+            token = parts[1].strip()
+            if token.startswith('ca-'):
+                return token
+
+    return ''
+
+
+def _detect_api_key_client(key_value: str) -> str:
+    token = (key_value or '').lower()
+    if token.startswith('ca-web-'):
+        return 'web'
+    if token.startswith('ca-vsc-'):
+        return 'vscode'
+    if token.startswith('ca-'):
+        return 'legacy'
+    return 'unknown'
+
+
+def _hash_api_key_value(raw_key: str) -> str:
+    return hashlib.sha256((raw_key or '').encode('utf-8')).hexdigest()
+
+
+def _build_stored_api_key(raw_key: str) -> str:
+    token = (raw_key or '').strip()
+    if not token.startswith('ca-'):
+        return ''
+
+    client = _detect_api_key_client(token)
+    if client == 'vscode':
+        prefix = 'ca-vsc'
+    elif client == 'web':
+        prefix = 'ca-web'
+    else:
+        prefix = 'ca'
+
+    return f"{prefix}-h-{_hash_api_key_value(token)}"
+
+
+def _preview_api_key(stored_key: str) -> str:
+    token = (stored_key or '').strip().lower()
+    if '-h-' in token:
+        if token.startswith('ca-vsc-'):
+            return f"ca-vsc-***{token[-6:]}"
+        if token.startswith('ca-web-'):
+            return f"ca-web-***{token[-6:]}"
+        if token.startswith('ca-'):
+            return f"ca-***{token[-6:]}"
+    return f"{stored_key[:7]}***{stored_key[-4:]}" if len(stored_key) > 11 else "***"
+
+
+def _find_api_key_record(raw_key: str):
+    token = (raw_key or '').strip()
+    if not token:
+        return None
+
+    stored_candidate = _build_stored_api_key(token)
+    if stored_candidate:
+        record = ApiKey.query.filter_by(key=stored_candidate, is_active=True).first()
+        if record:
+            return record
+
+    # Backward compatibility for legacy plaintext records.
+    record = ApiKey.query.filter_by(key=token, is_active=True).first()
+    if record and stored_candidate:
+        try:
+            record.key = stored_candidate
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return record
+
+
+def _migrate_plaintext_api_keys_to_hash() -> int:
+    migrated = 0
+    try:
+        records = ApiKey.query.all()
+        for record in records:
+            current = (record.key or '').strip()
+            if not current.startswith('ca-'):
+                continue
+            if '-h-' in current:
+                continue
+
+            stored = _build_stored_api_key(current)
+            if not stored:
+                continue
+
+            record.key = stored
+            migrated += 1
+
+        if migrated > 0:
+            db.session.commit()
+        return migrated
+    except Exception:
+        db.session.rollback()
+        return 0
+
+from functools import wraps
+def requires_api_key(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        api_key_header = _extract_api_key_from_request()
+        if not api_key_header:
+            return jsonify({'error': 'X-API-Key header is missing'}), 401
+        
+        key_record = _find_api_key_record(api_key_header)
+        if not key_record or not key_record.is_active:
+            return jsonify({'error': 'Invalid or revoked API Key'}), 401
+        
+        # Security: ensure last_used_at is updated
+        key_record.last_used_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        db.session.commit()
+            
+        user = User.query.get(key_record.user_id)
+        if not user:
+             return jsonify({'error': 'User not found associated with this API key'}), 401
+             
+        return f(user, *args, **kwargs)
+    return decorated
+    return decorated
+
+
+with app.app_context():
+    migrated_count = _migrate_plaintext_api_keys_to_hash()
+    if migrated_count > 0:
+        print(f"Migrated {migrated_count} plaintext API keys to hashed storage.")
+
+
+def _resolve_authenticated_user(preferred_api_key_client: str | None = None, allow_jwt: bool = True):
+    """Resolve user via JWT first (optional), then API key headers.
+
+    Returns: (user, auth_mode, key_record, error_payload, status_code)
+    """
+    if allow_jwt:
+        identity = _get_safe_jwt_identity()
+        if identity:
+            try:
+                user = db.session.get(User, int(identity))
+            except Exception:
+                user = None
+            if user:
+                return user, 'jwt', None, None, None
+
+    api_key_value = _extract_api_key_from_request()
+    if not api_key_value:
+        return None, None, None, {'error': 'Missing credentials. Provide Authorization Bearer token or X-API-Key.'}, 401
+
+    key_record = _find_api_key_record(api_key_value)
+    if not key_record:
+        return None, None, None, {'error': 'Invalid or revoked API Key'}, 401
+
+    client_type = _detect_api_key_client(key_record.key)
+    if preferred_api_key_client and client_type not in (preferred_api_key_client, 'legacy'):
+        return None, None, None, {
+            'error': f'This endpoint requires a {preferred_api_key_client} API key.',
+            'expected_client': preferred_api_key_client,
+            'provided_client': client_type,
+        }, 403
+
+    user = db.session.get(User, key_record.user_id)
+    if not user:
+        return None, None, None, {'error': 'User not found for API key'}, 404
+
+    key_record.last_used_at = _utcnow()
+    db.session.commit()
+    return user, 'api_key', key_record, None, None
+
 @app.route('/api/keys', methods=['GET'])
 @jwt_required()
 def get_api_keys():
@@ -8465,7 +9140,8 @@ def get_api_keys():
             {
                 'id': k.id,
                 'name': k.name,
-                'key_preview': f"ca-***-{k.key[-4:]}" if len(k.key) > 4 else "***",
+                'client': _detect_api_key_client(k.key),
+                'key_preview': _preview_api_key(k.key),
                 'created_at': k.created_at.isoformat(),
                 'last_used_at': k.last_used_at.isoformat() if k.last_used_at else None
             } for k in keys
@@ -8478,13 +9154,20 @@ def create_api_key():
     user_id = get_jwt_identity()
     data = request.get_json() or {}
     name = data.get('name', 'My API Key').strip()
+    client = str(data.get('client', 'vscode') or 'vscode').strip().lower()
+
+    if client not in {'vscode', 'web'}:
+        return jsonify({'error': 'client must be one of: vscode, web'}), 400
+
     if not name:
         return jsonify({'error': 'Name is required'}), 400
-        
-    # Benzersiz token üret (ca- öneki ile CodeAlchemist olduğu belli olsun)
-    token = f"ca-{secrets.token_hex(16)}"
+
+    # Web ve VS Code için ayrı API key namespace'leri kullan.
+    prefix = 'ca-vsc' if client == 'vscode' else 'ca-web'
+    token = f"{prefix}-{secrets.token_hex(16)}"
+    stored_token = _build_stored_api_key(token)
     
-    new_key = ApiKey(user_id=user_id, name=name, key=token)
+    new_key = ApiKey(user_id=user_id, name=name, key=stored_token)
     db.session.add(new_key)
     db.session.commit()
     
@@ -8494,8 +9177,267 @@ def create_api_key():
         'key': {
             'id': new_key.id,
             'name': new_key.name,
+            'client': client,
             'token': token,
             'created_at': new_key.created_at.isoformat()
+        }
+    })
+
+
+@app.route('/v1/auth/login', methods=['POST'])
+def vscode_login_and_issue_api_key():
+    """Login endpoint for VS Code clients; returns a vscode-scoped API key."""
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    key_name = (data.get('key_name') or 'VS Code Extension').strip()
+
+    if not email or not password:
+        return jsonify({'error': 'email and password are required'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user or not verify_password(password, user.password_hash):
+        return jsonify({'error': 'Incorrect email or password.'}), 401
+
+    token = f"ca-vsc-{secrets.token_hex(16)}"
+    stored_token = _build_stored_api_key(token)
+    new_key = ApiKey(user_id=user.id, name=key_name or 'VS Code Extension', key=stored_token)
+    db.session.add(new_key)
+    db.session.commit()
+
+    return jsonify({
+        'message': 'VS Code API key issued successfully.',
+        'token_type': 'vscode_api_key',
+        'api_key': token,
+        'key': {
+            'id': new_key.id,
+            'name': new_key.name,
+            'client': 'vscode',
+            'created_at': new_key.created_at.isoformat(),
+        },
+        'user': {
+            'id': user.id,
+            'email': user.email,
+            'display_name': user.display_name,
+        }
+    })
+
+
+@app.route('/v1/auth/vscode/login', methods=['GET', 'POST'])
+@app.route('/api/v1/auth/vscode/login', methods=['GET', 'POST'])
+@app.route('/api/auth/vscode/login', methods=['GET', 'POST'])
+def vscode_login_page():
+    """Browser login page for VS Code flow.
+
+    User logs in on web page, then extension polls `/v1/auth/vscode/poll` with state.
+    """
+    _cleanup_vscode_login_state()
+
+    if request.method == 'GET':
+        state = (request.args.get('state') or '').strip()
+        if not _is_valid_vscode_state(state):
+            return jsonify({'error': 'Invalid state'}), 400
+
+        html = f"""<!doctype html>
+<html lang='tr'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width,initial-scale=1'>
+  <title>CodeAlchemist VS Code Login</title>
+  <style>
+    body {{ font-family: Segoe UI, Arial, sans-serif; margin: 0; background: #0b1220; color: #e5e7eb; }}
+    .wrap {{ max-width: 520px; margin: 48px auto; padding: 24px; background: #111827; border: 1px solid #1f2937; border-radius: 12px; }}
+    h1 {{ font-size: 22px; margin: 0 0 8px; }}
+    p {{ color: #9ca3af; margin: 0 0 18px; }}
+    label {{ display: block; margin: 10px 0 6px; font-size: 13px; color: #cbd5e1; }}
+    input {{ width: 100%; box-sizing: border-box; padding: 11px; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: #e5e7eb; }}
+    button {{ margin-top: 14px; width: 100%; padding: 12px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-weight: 600; cursor: pointer; }}
+    .hint {{ font-size: 12px; color: #94a3b8; margin-top: 12px; }}
+  </style>
+</head>
+<body>
+  <div class='wrap'>
+    <h1>VS Code için giriş yap</h1>
+    <p>Bu giriş, VS Code extension için özel bir API anahtarı oluşturur ve otomatik olarak kaydedilir.</p>
+    <form method='post' action='/v1/auth/vscode/login'>
+      <input type='hidden' name='state' value='{state}'>
+      <label>Email</label>
+      <input type='email' name='email' required autocomplete='username'>
+      <label>Şifre</label>
+      <input type='password' name='password' required autocomplete='current-password'>
+      <button type='submit'>Giriş Yap</button>
+    </form>
+    <div class='hint'>Girişten sonra bu pencereyi kapatabilirsiniz.</div>
+  </div>
+</body>
+</html>"""
+        return Response(html, mimetype='text/html')
+
+    state = (request.form.get('state') or '').strip()
+    email = (request.form.get('email') or '').strip().lower()
+    password = request.form.get('password') or ''
+
+    if not _is_valid_vscode_state(state):
+        return jsonify({'error': 'Invalid state'}), 400
+    if not email or not password:
+        return jsonify({'error': 'email and password are required'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user or not verify_password(password, user.password_hash):
+        html = """<!doctype html><html><head><meta charset='utf-8'><title>Login failed</title></head><body style='font-family:Segoe UI,Arial,sans-serif;background:#0b1220;color:#e5e7eb;padding:24px;'><h2>Giriş başarısız</h2><p>Email veya şifre hatalı. VS Code'dan tekrar deneyin.</p></body></html>"""
+        return Response(html, mimetype='text/html'), 401
+
+    token = f"ca-vsc-{secrets.token_hex(16)}"
+    stored_token = _build_stored_api_key(token)
+    new_key = ApiKey(user_id=user.id, name='VS Code Extension', key=stored_token)
+    db.session.add(new_key)
+    db.session.commit()
+
+    # Database-backed shared state (instead of in-memory _vscode_login_state)
+    try:
+        # Check if state exists, update if it does, otherwise create
+        existing_state = VSCodeLoginState.query.filter_by(state=state).first()
+        if existing_state:
+            existing_state.api_key = token
+            existing_state.user_id = user.id
+            existing_state.expires_at = time.time() + VSCODE_LOGIN_STATE_TTL_SECONDS
+        else:
+            new_state = VSCodeLoginState(
+                state=state,
+                api_key=token,
+                user_id=user.id,
+                expires_at=time.time() + VSCODE_LOGIN_STATE_TTL_SECONDS
+            )
+            db.session.add(new_state)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[VSCODE-AUTH] Login state save error: {e}")
+        html = """<body style='background:#0b1220;color:#e5e7eb;'><h2>Hata</h2><p>Giriş kaydedilemedi. Lütfen tekrar deneyin.</p></body>"""
+        return Response(html, mimetype='text/html'), 500
+
+    html = """<!doctype html>
+<html lang='tr'>
+<head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>CodeAlchemist Login</title>
+<style>body{font-family:Segoe UI,Arial,sans-serif;background:#0b1220;color:#e5e7eb;margin:0}.wrap{max-width:560px;margin:48px auto;padding:24px;background:#111827;border:1px solid #1f2937;border-radius:12px}h1{margin:0 0 10px;font-size:24px}.ok{color:#22c55e;font-weight:700}</style></head>
+<body><div class='wrap'><h1 class='ok'>Giriş başarılı</h1><p>Giriş başarılı, bu pencereyi kapatabilirsiniz.</p></div></body>
+</html>"""
+    return Response(html, mimetype='text/html')
+
+
+@app.route('/v1/auth/vscode/poll', methods=['GET'])
+@app.route('/api/v1/auth/vscode/poll', methods=['GET'])
+@app.route('/api/auth/vscode/poll', methods=['GET'])
+def vscode_login_poll():
+    """Extension polling endpoint for browser-based login completion."""
+    _cleanup_vscode_login_state()
+    state = (request.args.get('state') or '').strip()
+    if not _is_valid_vscode_state(state):
+        return jsonify({'status': 'invalid_state'}), 400
+
+    payload = VSCodeLoginState.query.filter_by(state=state).first()
+    if not payload:
+        return jsonify({'status': 'pending'})
+
+    if time.time() > float(payload.expires_at or 0):
+        try:
+            db.session.delete(payload)
+            db.session.commit()
+        except:
+            db.session.rollback()
+        return jsonify({'status': 'expired'})
+
+    api_key = str(payload.api_key or '').strip()
+    if not api_key:
+        return jsonify({'status': 'pending'})
+
+    return jsonify({
+        'status': 'ready',
+        'api_key': api_key,
+    })
+
+
+@app.route('/v1/auth/vscode/consume', methods=['POST'])
+@app.route('/api/v1/auth/vscode/consume', methods=['POST'])
+@app.route('/api/auth/vscode/consume', methods=['POST'])
+def vscode_login_consume():
+    """Mark login state as consumed by extension and remove it from database."""
+    _cleanup_vscode_login_state()
+    data = request.get_json(silent=True) or {}
+    state = str(data.get('state') or '').strip()
+    if not _is_valid_vscode_state(state):
+        return jsonify({'status': 'invalid_state'}), 400
+
+    record = VSCodeLoginState.query.filter_by(state=state).first()
+    if record:
+        try:
+            db.session.delete(record)
+            db.session.commit()
+            return jsonify({'status': 'consumed'})
+        except:
+            db.session.rollback()
+            return jsonify({'status': 'error'})
+    
+    return jsonify({'status': 'missing'})
+
+@app.route('/v1/auth/vscode/generate-otp', methods=['POST'])
+@requires_api_key
+def vscode_generate_otp(user):
+    """Generates a secure, 2-minute OTP for VS Code to Browser auth sync."""
+    otp = secrets.token_urlsafe(32)
+    # 2 minute expiry
+    expires_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + timedelta(minutes=2)
+    
+    new_otp = VSCodeOTP(
+        otp_code=otp,
+        user_id=user.id,
+        expires_at=expires_at
+    )
+    db.session.add(new_otp)
+    db.session.commit()
+    
+    return jsonify({
+        'status': 'ok',
+        'otp': otp,
+        'expires_at': expires_at.isoformat()
+    })
+
+@app.route('/api/auth/consume-otp', methods=['POST'])
+def vscode_consume_otp():
+    """Consumes an OTP and returns a fresh JWT token for the browser session."""
+    data = request.get_json(silent=True) or {}
+    otp_code = data.get('otp')
+    
+    if not otp_code:
+        return jsonify({'error': 'OTP is required'}), 400
+        
+    otp_record = VSCodeOTP.query.filter_by(otp_code=otp_code).first()
+    
+    if not otp_record:
+        return jsonify({'error': 'Invalid or already used OTP'}), 404
+        
+    if otp_record.expires_at < datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
+        db.session.delete(otp_record)
+        db.session.commit()
+        return jsonify({'error': 'OTP has expired'}), 403
+        
+    user = otp_record.user
+    
+    # Generate JWT for browser (Web Auth)
+    access_token = create_access_token(identity=str(user.id))
+    
+    # Clean up IMMEDIATELY (one-time use)
+    db.session.delete(otp_record)
+    db.session.commit()
+    
+    return jsonify({
+        'status': 'ok',
+        'token': access_token,
+        'user': {
+            'id': user.id,
+            'email': user.email,
+            'display_name': user.display_name,
+            'tokens': user.token_balance.balance if user.token_balance else 0
         }
     })
 
@@ -8520,18 +9462,34 @@ def external_ask():
     Expects header: X-API-Key
     Expects JSON body: { "question": "...", "code": "..." }
     """
-    api_key_header = request.headers.get('X-API-Key')
+    api_key_header = _extract_api_key_from_request()
     if not api_key_header:
         return jsonify({'error': 'X-API-Key header is missing'}), 401
         
-    key_record = ApiKey.query.filter_by(key=api_key_header, is_active=True).first()
+    key_record = _find_api_key_record(api_key_header)
     if not key_record:
         return jsonify({'error': 'Invalid or revoked API Key'}), 401
+
+    key_client = _detect_api_key_client(key_record.key)
+    if key_client == 'web':
+        return jsonify({'error': 'Web API keys cannot be used for /v1 endpoints. Use a vscode API key.'}), 403
     
     # Son kullanım tarihini güncelle
-    key_record.last_used_at = datetime.datetime.utcnow()
+    key_record.last_used_at = _utcnow()
     db.session.commit()
-    
+
+    # ── 💰 Token Balance Check ───────────────────────────────────
+    _vsc_user = User.query.get(key_record.user_id)
+    if _vsc_user:
+        _has_tokens, _vsc_balance, _vsc_cost = check_tokens(_vsc_user, 'default')
+        if not _has_tokens:
+            return jsonify({
+                'error': f'Yetersiz token bakiyesi. Mevcut: {_vsc_balance}, Gerekli: {_vsc_cost}.',
+                'error_code': 'insufficient_balance',
+                'balance': _vsc_balance,
+                'required': _vsc_cost,
+            }), 402
+
     # Tolerate invalid/missing JSON to avoid generic 400 from Werkzeug
     data = request.get_json(silent=True)
     if data is None:
@@ -8649,8 +9607,53 @@ def external_ask():
     if active_file and not state.get('active_file'):
         state['active_file'] = active_file
 
-    state['updated_at'] = datetime.datetime.utcnow().isoformat()
+    state['updated_at'] = _utcnow().isoformat()
     _external_conversation_state[state_key] = state
+
+    # 💰 TOKEN EKONOMİSİ — Harcamayı düş
+    new_balance = _vsc_balance
+    if _vsc_user:
+        # Re-fetch user to ensure we have a fresh DB session state after potentially long agent run
+        charge_user = db.session.get(User, _vsc_user.id)
+        if charge_user:
+            _, new_balance = deduct_tokens(
+                charge_user,
+                provider_model,
+                description=f"VSC Agent: {question[:30]}...",
+                reference_id=None
+            )
+        else:
+            print(f"[TOKEN] CRITICAL: Could not re-fetch user {_vsc_user.id} for token deduction.")
+
+    # 📜 HISTORY PERSISTENCE — Dahili veritabanına kaydet (Cross-device sync ve ayrıştırma için)
+    try:
+        # Mevcut konuşmayı bul veya yeni oluştur
+        # Not: Eklenti tarafı rastgele string ID ("sess-xyz") gönderir, bunu title olarak kullanıyoruz.
+        _conv = None
+        if conversation_id:
+            _conv = Conversation.query.filter_by(user_id=user_id, title=str(conversation_id)).first()
+        
+        if not _conv:
+            _conv = Conversation(
+                user_id=user_id,
+                title=str(conversation_id) if conversation_id else f"Chat {_utcnow().strftime('%Y-%m-%d %H:%M')}",
+                project_id=project_for_agent.id if project_for_agent else None
+            )
+            db.session.add(_conv)
+            db.session.flush() # ID alabilmek için
+        
+        _hist = History(
+            conversation_id=_conv.id,
+            user_question=question,
+            ai_response=agent_result.text,
+            selected_model=provider_model,
+            timestamp=_utcnow()
+        )
+        db.session.add(_hist)
+        db.session.commit()
+    except Exception as _e:
+        db.session.rollback()
+        print(f"[HISTORY] Error saving turn for user {user_id}: {_e}")
     
     if has_stream_flag:
         wants_stream = bool(stream_flag)
@@ -8669,6 +9672,8 @@ def external_ask():
                 'agent_workspace_file_count': len(workspace_files or []),
                 'agent_tool_capable': bool(agent_result.tool_capable),
                 'active_file': state.get('active_file') if isinstance(state, dict) else None,
+                'balance': new_balance,
+                'conversation_id': _conv.id if _conv else None,
             }
             yield f"data: {json.dumps(meta)}\n\n"
             for chunk in stream_text_chunks(agent_result.text or ''):
@@ -8702,7 +9707,78 @@ def external_ask():
             'agent_changed_total': clipped_agent_meta['changed_total'],
             'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
             'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
+            'balance': new_balance,
+            'conversation_id': _conv.id if _conv else None,
         })
+
+@app.route('/v1/history', methods=['GET'])
+def get_vscode_history():
+    """
+    Get conversation list for the authenticated VS Code user.
+    Only returns sessions with titles starting with 'session-' (VS Code sessions).
+    """
+    api_key_header = _extract_api_key_from_request()
+    if not api_key_header:
+        return jsonify({'error': 'X-API-Key header is missing'}), 401
+        
+    key_record = _find_api_key_record(api_key_header)
+    if not key_record:
+        return jsonify({'status': 'unauthorized'}), 401
+    
+    user_id = key_record.user_id
+    # VS Code sessions typically start with 'session-'
+    convs = Conversation.query.filter(
+        Conversation.user_id == user_id,
+        Conversation.title.like('session-%'),
+        Conversation.is_deleted == False
+    ).order_by(Conversation.created_at.desc()).all()
+    
+    return jsonify({
+        'status': 'ok',
+        'sessions': [{
+            'id': c.id,
+            'title': c.title,
+            'updatedAt': c.created_at.isoformat(),
+            'pinned': c.is_pinned
+        } for c in convs]
+    })
+
+@app.route('/v1/history/<string:conv_title>', methods=['GET'])
+def get_conversation_details(conv_title):
+    """Get full history for a specific VS Code session title."""
+    api_key_header = _extract_api_key_from_request()
+    if not api_key_header:
+        return jsonify({'error': 'X-API-Key header is missing'}), 401
+        
+    key_record = _find_api_key_record(api_key_header)
+    if not key_record:
+        return jsonify({'status': 'unauthorized'}), 401
+        
+    user_id = key_record.user_id
+    conv = Conversation.query.filter_by(user_id=user_id, title=conv_title, is_deleted=False).first()
+    if not conv:
+        return jsonify({'error': 'Conversation not found'}), 404
+        
+    history_items = History.query.filter_by(conversation_id=conv.id, is_deleted=False).order_by(History.timestamp.asc()).all()
+    
+    messages = []
+    for h in history_items:
+        messages.append({
+            'role': 'user',
+            'text': h.user_question,
+            'createdAt': h.timestamp.isoformat()
+        })
+        if h.ai_response:
+            messages.append({
+                'role': 'ai',
+                'text': h.ai_response,
+                'createdAt': h.timestamp.isoformat()
+            })
+            
+    return jsonify({
+        'status': 'ok',
+        'messages': messages
+    })
 
 @app.route('/v1/status', methods=['GET'])
 def external_status():
@@ -8711,43 +9787,65 @@ def external_status():
     Requires X-API-Key for authentication.
     Returns detailed system status and user context.
     """
-    api_key_header = request.headers.get('X-API-Key')
+    api_key_header = _extract_api_key_from_request()
     if not api_key_header:
         return jsonify({'error': 'X-API-Key header is missing'}), 401
         
-    key_record = ApiKey.query.filter_by(key=api_key_header, is_active=True).first()
+    key_record = _find_api_key_record(api_key_header)
     if not key_record:
         return jsonify({'status': 'unauthorized', 'error': 'Invalid or revoked API Key'}), 401
+
+    key_client = _detect_api_key_client(key_record.key)
+    if key_client == 'web':
+        return jsonify({'status': 'unauthorized', 'error': 'Web API keys cannot be used for /v1 endpoints.'}), 403
     
     user = User.query.get(key_record.user_id)
     
+    # Ensure TokenBalance record exists (SaaS resilience)
+    if user and not user.token_balance:
+        from models import TokenBalance
+        new_balance = TokenBalance(user_id=user.id, balance=SIGNUP_GRANT_TOKENS)
+        db.session.add(new_balance)
+        db.session.commit()
+    
+    # Dynamically resolve purchase URL based on configuration or current host
+    base_url = _get_iyzico_frontend_base_url()
+    purchase_url = f"{base_url}/billing"
+
+    # Diagnostic logging for VS Code connection
+    reported_balance = user.token_balance.balance if user and user.token_balance else 0
+    print(f"[VSCODE] FINAL SYNC: {user.email if user else 'N/A'} | Balance: {reported_balance} | URL: {purchase_url}")
+
     return jsonify({
         'status': 'ok',
         'version': '1.0.0',
         'user': user.email if user else 'unknown',
         'auth_state': 'authenticated',
+        'balance': reported_balance,
+        'purchase_url': purchase_url,
         'model_config': {
             'gemini': GEMINI_MODEL,
             'openai': OPENAI_MODEL,
             'anthropic': ANTHROPIC_MODEL
         },
-        'server_time': datetime.datetime.utcnow().isoformat()
+        'server_time': _utcnow().isoformat()
     })
 
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve(path):
-    # Eğer API isteği gelirse onu routing'e bırak (404 verse bile)
-    if path.startswith('api/') or path.startswith('v1/'):
-        return jsonify({'error': 'API endpoint not found', 'path': path}), 404
+@app.route('/')
+def serve_index():
+    return send_from_directory(app.static_folder, 'index.html')
 
-    # Statik klasördeki dosyaya bak (assets/..., alchemy_wave.png vb.)
-    full_path = os.path.join(app.static_folder, path)
-    if path != "" and os.path.exists(full_path):
-        return send_from_directory(app.static_folder, path)
-    else:
-        # Eğer dosya yoksa veya '/' istendiyse index.html döndür (React Router handle eder)
-        return send_from_directory(app.static_folder, 'index.html')
+@app.errorhandler(404)
+def handle_404(e):
+    # Allow API 404s to remain as JSON
+    if request.path.startswith('/api/') or request.path.startswith('/v1/'):
+        return jsonify({
+            "error": "Not Found",
+            "details": "The requested API endpoint was not found on this server."
+        }), 404
+        
+    # All other paths (like /tokens) should fallback to index.html for React Router
+    return send_from_directory(app.static_folder, 'index.html')
 
 # ==========================================
 # SOCKET.IO EVENT HANDLERS — Live Collaboration
@@ -8803,9 +9901,10 @@ def handle_disconnect():
 # MAIN ENTRY POINT
 # ==========================================
 
+with app.app_context():
+    db.create_all()
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
 
     # Render uses the PORT environment variable
     port = int(os.environ.get("PORT", 5000))

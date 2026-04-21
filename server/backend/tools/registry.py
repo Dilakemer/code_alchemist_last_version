@@ -169,7 +169,7 @@ class ToolRegistry:
         summaries = {
             "list_files":       lambda r: f"Listed {r.get('count', 0)} files.",
             "read_file":        lambda r: f"Read {r.get('path', 'file')}.",
-            "write_file":       lambda r: ("Created" if r.get("created") else "Updated") + f" {r.get('path', 'file')}.",
+            "write_file":       lambda r: ("Patched" if r.get("patched") else ("Created" if r.get("created") else "Updated")) + f" {r.get('path', 'file')}.",
             "delete_file":      lambda r: f"Deleted {r.get('path', 'file')}.",
             "search_files":     lambda r: f"Found {len(r.get('hits') or [])} matching files.",
             "project_search":   lambda r: f"Found {len(r.get('hits') or [])} project hits.",

@@ -46,6 +46,9 @@ class AgentRequest(BaseModel):
     # ── Limits ────────────────────────────────────────────────────────
     max_tool_calls: int = Field(8, ge=0, le=20, description="Max tool invocations per run.")
     max_tokens: int = Field(8000, ge=256, le=32000, description="Estimated token budget for the run.")
+    max_files_touched: int = Field(3, ge=1, le=20, description="Max unique files that can be read or modified in one run.")
+    max_reads_per_file: int = Field(2, ge=1, le=10, description="Max read attempts per unique file path in one run.")
+    min_token_reserve: int = Field(512, ge=0, le=4096, description="Minimum token reserve kept before another model call is allowed.")
     temperature: float = Field(0.2, ge=0.0, le=2.0)
     allow_write_tools: bool = Field(
         False,
@@ -76,6 +79,9 @@ class AgentRequest(BaseModel):
             "include_history": self.include_history,
             "max_tool_calls": self.max_tool_calls,
             "max_tokens": self.max_tokens,
+            "max_files_touched": self.max_files_touched,
+            "max_reads_per_file": self.max_reads_per_file,
+            "min_token_reserve": self.min_token_reserve,
             "temperature": self.temperature,
             "allow_write_tools": self.allow_write_tools,
             "stream": self.stream,

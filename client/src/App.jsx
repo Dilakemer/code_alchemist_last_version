@@ -32,6 +32,7 @@ import { API_BASE } from './config';
 import { useCollabSocket } from './hooks/useCollabSocket';
 
 function App() {
+  const hasAttemptedOtp = React.useRef(false);
   const [model, setModel] = useState('auto');
   const [question, setQuestion] = useState('');
   const [code, setCode] = useState('');
@@ -59,6 +60,7 @@ function App() {
   const [weeklyReportData, setWeeklyReportData] = useState(null);
   const [showToolsDrawer, setShowToolsDrawer] = useState(false);
   const [showTokenDashboard, setShowTokenDashboard] = useState(false);
+  const [tokenDashboardTab, setTokenDashboardTab] = useState('overview');
   const [collabShareLink, setCollabShareLink] = useState('');
   const [showCollabShareOptions, setShowCollabShareOptions] = useState(false);
   const [usageInfo, setUsageInfo] = useState(null);
@@ -332,25 +334,76 @@ function App() {
     }
   }, [token, user, authHeaders]);
 
-  // Request notification permission when user logs in
+  // Request notification permission and handle URL actions (OTP, Collab, Billing)
   useEffect(() => {
-    if (user) {
-      requestNotificationPermission().then(() => {
-        // Notification permission handled
-      });
+    if (user && !hasAttemptedOtp.current) {
+      requestNotificationPermission().catch(err => console.error('Notification permission error:', err));
     }
 
     // Ensure DB tables exist
     fetch(`${API_BASE}/api/debug/init-db`, { method: 'POST' })
       .catch(err => console.error('DB Init Error:', err));
 
-    // Check for collaboration token in URL
+    if (hasAttemptedOtp.current) return;
+
     const urlParams = new URLSearchParams(window.location.search);
+    const pathname = window.location.pathname;
+
+    // 1. Check for Collaboration Link
     const tokenParam = urlParams.get('collab');
     if (tokenParam) {
       loadSharedSession(tokenParam);
     }
-  }, [user, loadSharedSession]);
+
+    // 2. Check for Secure VS Code OTP (Magic Login)
+    const otpParam = urlParams.get('auth_otp');
+
+    if (otpParam) {
+      hasAttemptedOtp.current = true;
+      const consumeOtp = async () => {
+        try {
+          const resp = await fetch(`${API_BASE}/api/auth/consume-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ otp: otpParam })
+          });
+          
+          if (resp.ok) {
+            const data = await resp.json();
+            // Perform Local Login
+            localStorage.setItem('codebrain_token', data.token);
+            localStorage.setItem('codebrain_user', JSON.stringify(data.user));
+            
+            // Sync state
+            setToken(data.token);
+            setUser(data.user);
+            setShowLandingPage(false);
+
+            // Handle /billing path after login
+            if (pathname === '/billing') {
+              setTokenDashboardTab('upgrade');
+              setShowTokenDashboard(true);
+            }
+            
+            // Clean URL (remove OTP) and redirect to root if on /billing
+            urlParams.delete('auth_otp');
+            const newUrl = (pathname === '/billing' ? '/' : pathname) + (urlParams.toString() ? '?' + urlParams.toString() : '');
+            window.history.replaceState({}, '', newUrl);
+            
+            handleShowAlert(`Giriş yapıldı: ${data.user.display_name}`);
+          }
+        } catch (err) {
+          console.error("OTP login failed:", err);
+        }
+      };
+      consumeOtp();
+    } else if (pathname === '/billing') {
+      setShowLandingPage(false); 
+      setTokenDashboardTab('upgrade');
+      setShowTokenDashboard(true);
+      window.history.replaceState({}, '', '/');
+    }
+  }, [loadSharedSession]);
 
   // ---- Live Sync Collaboration (Socket.io) ----
   const collabUserName = user?.display_name || 'Guest';
@@ -2862,6 +2915,7 @@ function App() {
           apiBase={API_BASE}
           authHeaders={authHeaders}
           user={user}
+          initialTab={tokenDashboardTab}
           onOpenPricing={() => {
             setShowTokenDashboard(false);
             setShowToolsDrawer(true);

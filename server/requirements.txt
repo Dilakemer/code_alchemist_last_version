@@ -17,6 +17,7 @@ gunicorn>=20.1.0
 psycopg2-binary>=2.9.0
 flask-socketio>=5.3.6
 stripe>=11.0.0
+iyzipay>=1.0.10
 
 # ── Agent Mode (new FastAPI layer) ──────────────────────────────────────────
 fastapi>=0.111.0

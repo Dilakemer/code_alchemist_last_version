@@ -99,6 +99,92 @@
 	{\normalsize\textbf{Kapsam:} VS Code extension MVP + Guvenlik ve dayaniklilik iyilestirmeleri\par}
 \end{titlepage}
 
+\section{VS Code Extension Mevcut Durum Ozeti}
+
+\begin{notebox}[Kod Tabanina Gore Simdiki Durum]
+Rapor yazim anindaki VS Code extension, tek bir is akisi icinde su bilesenleri birlestirmektedir: SecretStorage tabanli API key yonetimi, model ve agent mode secimi, workspace baglam toplama, SSE stream okuma, diff onizleme, action uygulama ve health izleme.
+\end{notebox}
+
+\subsection{Bugunku Calisma Haritasi}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+Katman & Durum & Kod Tabanindaki Karsiligi \\
+\midrule
+Manifest ve komut yuzeyi & Aktif & \texttt{package.json} icinde \texttt{codeAlchemist.setApiKey}, \texttt{codeAlchemist.ask}, \texttt{codeAlchemist.selectModel}, \texttt{codeAlchemist.toggleAgentMode}, \texttt{codeAlchemist.applyChanges}, \texttt{codeAlchemist.focusChat} komutlari tanimli. \\
+Kimlik ve ayar yonetimi & Aktif & API anahtari \texttt{SecretStorage} uzerinden saklaniyor; eski settings degerleri ilk kullanima migre ediliyor; endpoint ve model ayarlari merkezden okunuyor. \\
+Workspace baglam toplama & Aktif & Secili kod, acik dosyalar, aktif dosya, calisma alani snapshot'i ve dosya sinirlari tek payload icinde toplanip backend'e gonderiliyor. \\
+Istek orkestrasyonu & Aktif & \texttt{/v1/ask} icin zenginlestirilmis JSON govde hazirlaniyor; model, agent modu, dosya yolu ve istemci yetenekleri payload'a ekleniyor. \\
+Stream ve yanit akisi & Aktif & SSE parcaciklari Output paneline anlik akiyor; JSON fallback korunuyor; \texttt{[DONE]} sinyali ve hata durumlari guvenli sekilde ele aliniyor. \\
+Action uygulama ve guvenlik & Aktif & \texttt{edit\_file} ve \texttt{multi\_edit} aksiyonlari diff onizlemesi ile onaylanarak uygulanir; path safety ve trusted file kontrolleri devrede. \\
+Operasyonel izleme & Aktif & Status bar, health monitor, sidebar chat provider ve agent trace ciktilari ayni oturum icinde calisiyor. \\
+\bottomrule
+\end{tabularx}
+\caption{VS Code extension icin mevcut durum ozeti}
+\end{table}
+
+\subsection{Ilerleme Asamalari}
+
+Extension tarafindaki ilerleme, sadece tek bir ozellik eklenmesi olarak degil, birbirini tamamlayan katmanlar halinde ilerlemistir. Kod tabanindaki her asama, bir oncekinin uzerine eklenerek daha guvenli ve daha izlenebilir bir is akisi olusturmustur.
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Asama 1 -- Manifest ve komut yuzeyinin kurulmasi}
+\begin{itemize}[leftmargin=1.5em]
+\item \texttt{package.json} tarafinda extension'in yuze acilan komutlari, ayar anahtarlari ve activation event'leri tanimlandi.
+\item Chat sidebar, API key ayari, model secimi ve agent modu toggle gibi kullanici islemleri komut bazli hale getirildi.
+\item Bu asama, extension'in sadece kod calistiran bir parcadan cikip VS Code icinde dogrudan kullanilabilen bir yuzeye donusmesini sagladi.
+\end{itemize}
+
+\item \textbf{Asama 2 -- Guvenli durum ve kimlik yonetimi}
+\begin{itemize}[leftmargin=1.5em]
+\item API key saklama noktasi SecretStorage'a tasindi ve legacy settings kayitlari ilk kullanicida otomatik migrate edilecek sekilde korunur hale getirildi.
+\item Endpoint, model ve agentMode gibi runtime ayarlari tek kaynakli hale getirildi; user state ile config state birbirinden ayrildi.
+\item Bu asama, anahtar sizintisi riskini azalttigi gibi, extension'i yeniden baslatmadan calisan bir ayar modeline yaklastirdi.
+\end{itemize}
+
+\item \textbf{Asama 3 -- Workspace baglaminin zenginlestirilmesi}
+\begin{itemize}[leftmargin=1.5em]
+\item Aktif editor, secili kod, acik sekmeler ve filtrelenmis workspace snapshot'i birlikte toplanarak backend'e gonderilecek hale getirildi.
+\item Dosya turu, yol guvenligi ve trust id uretimi gibi alanlar sayesinde backend tarafinda hangi verinin nereden geldigi izlenebilir oldu.
+\item Bu katman, modelin sadece soru degil, proje baglami ile birlikte cevap vermesini saglayan temel altyapiyi olusturdu.
+\end{itemize}
+
+\item \textbf{Asama 4 -- Ask akisinin orkestrasyonu}
+\begin{itemize}[leftmargin=1.5em]
+\item Kullanici sorusu, secili kod ve workspace metadata tek bir zenginlestirilmis \texttt{AskRequestPayload} icinde birlestirildi.
+\item \texttt{codeAlchemist.ask} akisi, backend baglantisini dogrulama, payload hazirlama, response okuma ve Output paneline yazma sorumluluklarini net sekilde ayirdi.
+\item Bu asama, extension'i bir chat kutusu olmaktan cikartip baglam farkindaligi olan bir islem orkestratorune donusturdu.
+\end{itemize}
+
+\item \textbf{Asama 5 -- SSE stream, action parse ve diff onizleme}
+\begin{itemize}[leftmargin=1.5em]
+\item SSE parcaciklari anlik olarak Output kanalina yazdirilacak sekilde akitildi; bu sayede kullanici cevabi son satira kadar beklemek zorunda kalmadi.
+\item Modelin urettigi \texttt{edit\_file} ve \texttt{multi\_edit} aksiyonlari parse edilerek diff onizleme akisi ile birlikte ele alindi.
+\item Path safety, trusted path kontrolu ve kullanici onayi, otomatik yazma islerini guvenli sinirlarda tuttu.
+\end{itemize}
+
+\item \textbf{Asama 6 -- Sidebar, health monitor ve operasyonal gozlem}
+\begin{itemize}[leftmargin=1.5em]
+\item Chat sidebar, model secimi, ask gonderimi ve trace goruntuleme icin merkezi kontrol noktasi haline getirildi.
+\item Health monitor, backend durumunu izleyerek kullaniciya anlik baglanti sinyali verir hale geldi.
+\item Bu son katman, extension'in artik sadece istek atan degil, kendi sagligini ve calisma fazini takip eden bir araca donustugunu gosteriyor.
+\end{itemize}
+\end{enumerate}
+
+\subsection{Simdiki Urun Pozisyonu}
+
+Kod tabani bugun su noktada duruyor:
+\begin{itemize}[leftmargin=1.5em]
+\item Kullanici API key, model ve agent modu ayarlarini tek yerden yonetebiliyor.
+\item Secili kod ve workspace snapshot'i ile baglamli soru-cevap akisi calisiyor.
+\item SSE destekli yanit akisi ve action uygulama onizlemesi aktif.
+\item Agent trace, health monitor ve sidebar kontrol yuzeyi birbiriyle entegre halde.
+\end{itemize}
+
+Bu nedenle extension, rapor yazim aninda ilk taslak seviyesinde degil; dogrudan kullanilabilen, akisi ayrik ama birbirine bagli modullerden olusan calisir bir MVP durumundadir.
+
 \section*{Yonetici Ozeti}
 \addcontentsline{toc}{section}{Yonetici Ozeti}
 
@@ -748,6 +834,75 @@ Bu karar, buyuk AI platformlarinin (ChatGPT, Claude, Gemini) proje yonetim model
     \item Kullanici isterse sohbeti sonradan projeye ekleyebilir; bu dogal ve anlasilir bir akistir.
 \end{itemize}
 
+\section{Hafta 9.5 Extension-Docker Full Entegrasyon ve UTF-8 Hata Giderimi}
+
+Bu bolumde, VS Code extension ile Docker uzerinde calisan backend arasindaki uctan uca entegrasyon testi ve ayni surecte giderilen JWT/encoding kaynakli hata sinifi ozetlenmektedir.
+
+\subsection{Problem Ozeti}
+
+Sahada gozlenen iki kritik problem su sekildeydi:
+\begin{itemize}[leftmargin=1.5em]
+	\item \textbf{JWT decode kaynakli UTF-8 hatasi}: Gecersiz veya bozuk \texttt{Authorization} header degerleri JWT kutuphanesine ulastiginda \texttt{Invalid header string} ve \texttt{utf-8 codec} hatalari uretebiliyordu.
+	\item \textbf{Auth akisi karisimi riski}: API key ve JWT token akislari farkli endpoint kontratlarina sahip oldugu halde ayni header kanalina dusen gecersiz degerler 500 sinifi davranisa yaklasabiliyordu.
+\end{itemize}
+
+\subsection{Uygulanan Cozum}
+
+\textbf{1) Erken asama header sanitization (before\_request):}
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{server/app.py} icine \texttt{sanitize\_auth\_headers()} hook'u eklendi.
+	\item \texttt{Bearer} tipinde gelen degerler icin JWT segment yapisi (3 parcali token) dogrulanir hale getirildi.
+	\item Beklenmeyen formatlar veya encoding supheleri tespit edildiginde \texttt{HTTP\_AUTHORIZATION} temizlenerek JWT katmanina bozuk veri gecisi engellendi.
+\end{itemize}
+
+\textbf{2) JWT ve API key akisinin ayrik tutulmasi:}
+\begin{itemize}[leftmargin=1.5em]
+	\item Extension entegrasyonunda \texttt{/v1/ask} icin \texttt{X-API-Key} zorunlu kaldi.
+	\item Kullaniciya bagli endpoint'lerde \texttt{Authorization: Bearer <jwt>} akisi korunarak iki kimlikleme tipi net sekilde ayrildi.
+\end{itemize}
+
+\textbf{3) Locale-guvenli sayisal serilestirme:}
+\begin{itemize}[leftmargin=1.5em]
+	\item \texttt{progress\_percent} alani icin acik \texttt{float()} donusumu uygulanarak JSON ciktilarinda ondalik ayiraci tutarlilastirildi.
+	\item Boylece TR locale ortamlarinda \texttt{1,1} yerine RFC uyumlu \texttt{1.1} cikisi garanti altina alindi.
+\end{itemize}
+
+\subsection{Canli Entegrasyon Testi (Extension -> Docker Backend)}
+
+9 Nisan 2026 sonrasindaki dogrulama turunda asagidaki adimlar canli olarak calistirildi:
+
+\begin{enumerate}[leftmargin=1.5em]
+	\item \texttt{vscode-extension} icinde TypeScript derleme: \texttt{npm run build}.
+	\item Docker backend saglik kontrolu: \texttt{GET /health} \texttt{200 OK}.
+	\item JWT login: \texttt{POST /api/auth/login} ile token alma.
+	\item Extension key yasam dongusu simulasyonu: \texttt{POST /api/keys} ile \texttt{ca-...} anahtar uretimi.
+	\item Extension cagrisi simulasyonu: \texttt{POST /v1/ask} + \texttt{X-API-Key} ile yanit alma.
+	\item JWT korumali endpoint kontrolu: \texttt{GET /api/gamification/profile} + \texttt{Authorization: Bearer}.
+\end{enumerate}
+
+\subsection{Test Sonuclari}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}lccX@{}}
+\toprule
+Kontrol & Beklenen & Sonuc & Not \\
+\midrule
+\texttt{/health} & 200 & \checkmark PASS & Backend ayakta \\
+\texttt{/api/auth/login} & 200 + JWT & \checkmark PASS & Bearer token uretildi \\
+\texttt{/api/keys} (create) & 201/200 + \texttt{ca-...} & \checkmark PASS & Extension key olustu \\
+\texttt{/v1/ask} + \texttt{X-API-Key} & 200 & \checkmark PASS & Extension kontrati calisti \\
+\texttt{/api/gamification/profile} & 200 + numeric JSON & \checkmark PASS & \texttt{progress\_percent=1.1} \\
+UTF-8/JWT decode stabilitesi & 500 yok & \checkmark PASS & Encoding kaynakli crash gozlenmedi \\
+\bottomrule
+\end{tabularx}
+\caption{Hafta 9.5 full entegrasyon test ozeti}
+\end{table}
+
+\subsection{Operasyonel Not}
+
+PowerShell tarafinda \texttt{docker logs} ciktisinin \texttt{stderr} siniflandirmasi nedeniyle sahte \texttt{NativeCommandError} goruntulense de uygulama loglari incelendiginde bu durumun runtime hatasi degil, stream yonlendirme davranisi oldugu dogrulanmistir. Uygulama davranisi ve endpoint cevaplari test boyunca stabil kalmistir.
+
 \section{Sonuc}
 
 Hafta 9 ciktilariyla birlikte:
@@ -756,6 +911,7 @@ Hafta 9 ciktilariyla birlikte:
     \item Token satin alma mekanizmasi idempotency sertlestirmesi ile daha guvenli hale getirildi.
     \item Checkout sonrasi otomatik bakiye yenileme ile kullanici deneyimi hizlandi.
     \item Hafta 9.4 kapsaminda Agent Modu akilli yonlendirme (routing prompt + heuristik guardrail), kayip sohbet sorunu cozumu ve veritabani migrasyonu ile kullanici kontrolune dayali temiz bir mimari benimsendi.
+	\item Hafta 9.5 kapsaminda extension ile Docker backend arasinda full entegrasyon testi basariyla tamamlandi; JWT/API key ayrimi, UTF-8 sanitization ve locale-safe sayisal cikti davranisi canli ortamda dogrulandi.
     \item Sistem hem urunlestirme (extension) hem gelir modeli (token ekonomisi) hem de AI kalitesi (agent routing) acisindan daha olgun ve dayanikli bir seviyeye tasindi.
 \end{itemize}
 

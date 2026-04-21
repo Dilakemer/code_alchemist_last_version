@@ -1,5 +1,5 @@
 # Stage 1: Build the React Frontend
-FROM node:18-slim AS frontend-builder
+FROM node:20-slim AS frontend-builder
 WORKDIR /client
 COPY client/package*.json ./
 RUN npm install
@@ -7,7 +7,7 @@ COPY client/ ./
 RUN npm run build
 
 # Stage 2: Final Python Image
-FROM python:3.9-slim
+FROM python:3.11-slim
 WORKDIR /app
 
 # Sistem bağımlılıklarını kur
@@ -19,7 +19,8 @@ RUN apt-get update && apt-get install -y \
 # Bağımlılık dosyasını kopyala ve kur
 COPY server/requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    python -c "import iyzipay"
 
 # Proje dosyalarını kopyala
 COPY server/ .

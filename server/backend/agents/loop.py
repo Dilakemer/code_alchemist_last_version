@@ -88,6 +88,11 @@ class AgentLoop:
 
     async def _loop(self, ctx: Any, queue: asyncio.Queue) -> None:
         budget = TokenBudget(max_tokens=ctx.max_tokens)
+        max_files_touched = max(1, int(getattr(ctx, "max_files_touched", 3) or 3))
+        max_reads_per_file = max(1, int(getattr(ctx, "max_reads_per_file", 2) or 2))
+        min_token_reserve = max(0, int(getattr(ctx, "min_token_reserve", 512) or 0))
+        touched_files: set[str] = set()
+        file_read_counts: Dict[str, int] = {}
 
         # Emit initial status
         await queue.put(AgentEvent(
@@ -112,6 +117,21 @@ class AgentLoop:
         messages = self._compressor.compress(messages)
         budget.add_messages(messages)
 
+        trace: List[ToolTrace] = []
+        web_search_count = 0  # Track web_search tool invocations
+        last_tool_result_weak = False  # Track if last search was weak
+
+        if not budget.can_spend(1, reserve=min_token_reserve):
+            await queue.put(AgentEvent(
+                type=AgentEventType.MESSAGE,
+                payload={"text": "Agent stopped because the token budget was exhausted before the first model call."},
+            ))
+            await self._emit_done(
+                ctx, queue, trace, finish_reason="token_budget_exhausted",
+                total_steps=0, budget=budget,
+            )
+            return
+
         # Build tool specs once
         tool_specs = self._registry.get_specs()
         formatted_tools = self._adapter.format_tools(tool_specs) if tool_specs else None
@@ -123,11 +143,18 @@ class AgentLoop:
             stream=False,
         )
 
-        trace: List[ToolTrace] = []
-        web_search_count = 0  # Track web_search tool invocations
-        last_tool_result_weak = False  # Track if last search was weak
-
         for step in range(ctx.max_tool_calls + 1):
+            if not budget.can_spend(1, reserve=min_token_reserve):
+                await queue.put(AgentEvent(
+                    type=AgentEventType.MESSAGE,
+                    payload={"text": "Agent stopped because the token budget was exhausted."},
+                ))
+                await self._emit_done(
+                    ctx, queue, trace, finish_reason="token_budget_exhausted",
+                    total_steps=step, budget=budget,
+                )
+                return
+
             # Emit thinking status
             await queue.put(AgentEvent(
                 type=AgentEventType.STATUS,
@@ -190,6 +217,20 @@ class AgentLoop:
             last_tool_result_weak = False
             
             for tc in response.tool_calls:
+                if not await self._can_dispatch_tool(
+                    tc=tc,
+                    touched_files=touched_files,
+                    file_read_counts=file_read_counts,
+                    max_files_touched=max_files_touched,
+                    max_reads_per_file=max_reads_per_file,
+                    queue=queue,
+                    ctx=ctx,
+                    trace=trace,
+                    budget=budget,
+                    step=step,
+                ):
+                    return
+
                 if tc.name == "web_search":
                     web_search_count += 1
                 
@@ -197,6 +238,8 @@ class AgentLoop:
                     tc=tc, step=step, ctx=ctx, messages=messages,
                     trace=trace, queue=queue, budget=budget,
                 )
+
+                self._record_tool_usage(tc, tool_result, touched_files, file_read_counts)
                 
                 # Check if web_search returned weak results
                 if tc.name == "web_search" and tool_result and tool_result.get("ok"):
@@ -298,6 +341,73 @@ class AgentLoop:
         
         # Return result for loop inspection
         return result
+
+    def _extract_tool_path(self, tc: ToolCallRequest, result: Dict[str, Any]) -> str:
+        if isinstance(result, dict) and result.get("path"):
+            return str(result.get("path") or "").strip()
+        return str((tc.args or {}).get("path") or "").strip()
+
+    def _record_tool_usage(
+        self,
+        tc: ToolCallRequest,
+        result: Dict[str, Any],
+        touched_files: set[str],
+        file_read_counts: Dict[str, int],
+    ) -> None:
+        path = self._extract_tool_path(tc, result)
+        if not path:
+            return
+        normalized = path.lower()
+        if tc.name == "read_file":
+            file_read_counts[normalized] = file_read_counts.get(normalized, 0) + 1
+        if tc.name in {"read_file", "write_file", "delete_file"} and result.get("ok", True):
+            touched_files.add(normalized)
+
+    async def _can_dispatch_tool(
+        self,
+        *,
+        tc: ToolCallRequest,
+        touched_files: set[str],
+        file_read_counts: Dict[str, int],
+        max_files_touched: int,
+        max_reads_per_file: int,
+        queue: asyncio.Queue,
+        ctx: Any,
+        trace: List[ToolTrace],
+        budget: TokenBudget,
+        step: int,
+    ) -> bool:
+        if tc.name not in {"read_file", "write_file", "delete_file"}:
+            return True
+
+        path = str((tc.args or {}).get("path") or "").strip()
+        normalized = path.lower()
+        if not normalized:
+            return True
+
+        if tc.name == "read_file" and file_read_counts.get(normalized, 0) >= max_reads_per_file:
+            await queue.put(AgentEvent(
+                type=AgentEventType.MESSAGE,
+                payload={"text": f"Agent stopped because read_file for {path} exceeded the per-file read limit."},
+            ))
+            await self._emit_done(
+                ctx, queue, trace, finish_reason="file_read_budget_exhausted",
+                total_steps=step, budget=budget,
+            )
+            return False
+
+        if normalized not in touched_files and len(touched_files) >= max_files_touched:
+            await queue.put(AgentEvent(
+                type=AgentEventType.MESSAGE,
+                payload={"text": f"Agent stopped because touching {path} would exceed the unique file budget."},
+            ))
+            await self._emit_done(
+                ctx, queue, trace, finish_reason="file_budget_exhausted",
+                total_steps=step, budget=budget,
+            )
+            return False
+
+        return True
 
     # ── Done event ────────────────────────────────────────────────────────
 

@@ -79,18 +79,31 @@ class AnthropicAdapter(BaseAdapter):
         config: AdapterConfig,
         system_prompt: str = "",
     ) -> AdapterResponse:
+        # Ensure messages are in block format for stability
+        formatted_messages = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            formatted_messages.append({
+                "role": msg["role"],
+                "content": content
+            })
+
         kwargs: Dict[str, Any] = {
             "model": config.model,
             "max_tokens": config.max_tokens,
-            "messages": messages,
+            "messages": formatted_messages,
             "temperature": config.temperature,
         }
         if system_prompt:
             kwargs["system"] = system_prompt
         if tools:
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = {"type": "auto"}
+            # Note: tool_choice removed as SDK handles default 'auto' better
 
+        print(f"DEBUG ANTHROPIC KWARGS: {json.dumps({k:v for k,v in kwargs.items() if k != 'messages'}, indent=2)}")
+        
         response = await self._client.messages.create(**kwargs)
         blocks = getattr(response, "content", []) or []
 
@@ -139,19 +152,33 @@ class AnthropicAdapter(BaseAdapter):
         config: AdapterConfig,
         system_prompt: str = "",
     ) -> AsyncIterator[str]:
+        # Ensure messages are in block format for stability
+        formatted_messages = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            formatted_messages.append({
+                "role": msg["role"],
+                "content": content
+            })
+
         kwargs: Dict[str, Any] = {
             "model": config.model,
             "max_tokens": config.max_tokens,
-            "messages": messages,
+            "messages": formatted_messages,
             "temperature": config.temperature,
+            "stream": True,
         }
         if system_prompt:
             kwargs["system"] = system_prompt
         if tools:
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = {"type": "auto"}
+            # Note: tool_choice removed as SDK handles default 'auto' better
 
-        async with self._client.messages.stream(**kwargs) as stream:
-            async for text_chunk in stream.text_stream:
-                if text_chunk:
-                    yield text_chunk
+        print(f"DEBUG ANTHROPIC STREAM KWARGS: {json.dumps({k:v for k,v in kwargs.items() if k != 'messages'}, indent=2)}")
+
+        async with await self._client.messages.create(**kwargs) as stream:
+             async for event in stream:
+                 if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                     yield event.delta.text

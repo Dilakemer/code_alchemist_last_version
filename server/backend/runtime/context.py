@@ -101,6 +101,11 @@ def _build_system_prompt(
         "- Basit genel bilgi soruları\n"
         "- Evet/hayır soruları\n"
         "- Kısa tanım soruları\n\n"
+        "**COMMAND EXECUTION RULES:**\n"
+        "- **NEVER** state that you cannot execute code or lack a terminal/runtime environment. You HAVE full execution capabilities through the `run_command` tool. When you output a `run_command` action, the user's VS Code extension will automatically execute it and display the terminal output inside their chat window.\n"
+        "- To run a command, use `{\"action\": \"run_command\", \"command\": \"<cmd>\", \"background\": true/false}`. By default, background is `true`.\n"
+        "- If the user includes \"Terminal Komutu\" or \"Kodu arka planda değil, VS Code'un entegre terminalini açarak...\", set `background: false` so it shows live in their integrated terminal.\n"
+        "- If the user includes \"İnteraktif\" or \"İşlemi başlatmadan önce... benim 'onay veriyorum' dememi bekle\", DO NOT execute the command immediately. Instead, present the command to the user as a normal message and ask for their approval. Only call the tool after they say 'onay veriyorum'.\n\n"
         "Eğer kullanıcı mesajı yukarıdaki \"NORMAL YANIT\" kategorisine giriyorsa,\n"
         "hiçbir tool çağırma, hiçbir adım atmadan DOĞRUDAN yanıt ver."
     ).strip()
@@ -150,10 +155,12 @@ class AgentContextWithState:
         "workspace_files", "project", "search_project_callback",
         "db_read_callback",
         "max_tool_calls", "max_tokens", "temperature",
+        "max_files_touched", "max_reads_per_file", "min_token_reserve",
         "allow_write_tools",
         "user_prefs", "stream",
         # Mutable run-state
         "changed_files", "pending_confirmations", "invalidate_project_cache",
+        "read_cache",
     )
 
     def __init__(
@@ -178,6 +185,9 @@ class AgentContextWithState:
         max_tool_calls: int,
         max_tokens: int,
         temperature: float,
+        max_files_touched: int,
+        max_reads_per_file: int,
+        min_token_reserve: int,
         allow_write_tools: bool,
         user_prefs: Dict[str, Any],
         stream: bool,
@@ -202,6 +212,9 @@ class AgentContextWithState:
         self.max_tool_calls      = max_tool_calls
         self.max_tokens          = max_tokens
         self.temperature         = temperature
+        self.max_files_touched   = max_files_touched
+        self.max_reads_per_file  = max_reads_per_file
+        self.min_token_reserve   = min_token_reserve
         self.allow_write_tools   = bool(allow_write_tools)
         self.user_prefs          = dict(user_prefs)
         self.stream              = stream
@@ -209,6 +222,7 @@ class AgentContextWithState:
         self.changed_files: List[Dict[str, Any]] = []
         self.pending_confirmations: List[Dict[str, Any]] = []
         self.invalidate_project_cache = invalidate_project_cache
+        self.read_cache: Dict[str, Dict[str, Any]] = {}
 
 
 # ── ContextAssembler ──────────────────────────────────────────────────────────
@@ -251,6 +265,9 @@ class ContextAssembler:
         max_tool_calls: int,
         max_tokens: int,
         temperature: float,
+        max_files_touched: int,
+        max_reads_per_file: int,
+        min_token_reserve: int,
         allow_write_tools: bool,
         user_prefs: Dict[str, Any],
         stream: bool,
@@ -347,6 +364,9 @@ class ContextAssembler:
             max_tool_calls=max_tool_calls,
             max_tokens=max_tokens,
             temperature=temperature,
+            max_files_touched=max_files_touched,
+            max_reads_per_file=max_reads_per_file,
+            min_token_reserve=min_token_reserve,
             allow_write_tools=allow_write_tools,
             user_prefs=user_prefs,
             stream=stream,

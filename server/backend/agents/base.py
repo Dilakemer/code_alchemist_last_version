@@ -69,6 +69,9 @@ class AgentContext:
     # ── Limits ───────────────────────────────────────────────────────────
     max_tool_calls: int = 8
     max_tokens: int = 8000
+    max_files_touched: int = 3
+    max_reads_per_file: int = 2
+    min_token_reserve: int = 512
     temperature: float = 0.2
 
     # ── Runtime preferences ───────────────────────────────────────────────

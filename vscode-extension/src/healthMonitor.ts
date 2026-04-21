@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { BackendHealthStatus } from './types.js';
-import { pingBackend } from './apiClient.js';
+import { deriveHealthUrl, pingBackend } from './apiClient.js';
 
 /**
  * Singleton Health Monitor for CodeAlchemist Backend.
@@ -52,13 +52,14 @@ export class HealthMonitor {
       return;
     }
 
-    this._output?.appendLine(`[Health] Checking: ${endpoint}...`);
+    const healthUrl = deriveHealthUrl(endpoint);
+    this._output?.appendLine(`[Health] Checking: ${healthUrl || endpoint}...`);
     const isAlive = await pingBackend(endpoint);
     
     if (isAlive) {
       this._output?.appendLine('[Health] Online');
     } else {
-      this._output?.appendLine(`[Health] Offline (ping failed for ${endpoint})`);
+      this._output?.appendLine(`[Health] Offline (ping failed for ${healthUrl || endpoint})`);
     }
     
     this.setStatus(isAlive ? 'online' : 'offline');

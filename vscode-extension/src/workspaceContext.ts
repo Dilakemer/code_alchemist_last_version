@@ -13,6 +13,24 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { WorkspaceFilePayload } from './types.js';
 
+// ── Snapshot Cache ───────────────────────────────────────────────
+
+/** In-memory snapshot cache — geçerlilik süresi 30 saniye. */
+interface SnapshotCache {
+  files: WorkspaceFilePayload[];
+  ts: number;
+  limit: number;
+  workspaceRoot: string;
+}
+
+let _snapshotCache: SnapshotCache | null = null;
+const SNAPSHOT_CACHE_TTL_MS = 30_000; // 30 saniye
+
+/** Cache'i geçersiz kılar (dosya değiştirildiğinde çağrılır). */
+export function invalidateWorkspaceSnapshotCache(): void {
+  _snapshotCache = null;
+}
+
 // ── Language Detection ──────────────────────────────────────────────
 
 const EXTENSION_MAP: Record<string, string> = {
@@ -207,6 +225,19 @@ export async function collectWorkspaceSnapshot(
     return [];
   }
 
+  const workspaceRoot = folders[0].uri.fsPath;
+  const now = Date.now();
+
+  // Cache hit: aynı limit, aynı workspace, TTL süresi içinde
+  if (
+    _snapshotCache &&
+    _snapshotCache.limit === maxFiles &&
+    _snapshotCache.workspaceRoot === workspaceRoot &&
+    now - _snapshotCache.ts < SNAPSHOT_CACHE_TTL_MS
+  ) {
+    return _snapshotCache.files;
+  }
+
   const limit = Math.max(5, Math.min(120, maxFiles));
   const charLimit = Math.max(500, Math.min(30000, maxCharsPerFile));
 
@@ -255,11 +286,16 @@ export async function collectWorkspaceSnapshot(
     }
   }
 
+  // Cache'e yaz
+  _snapshotCache = { files, ts: now, limit: maxFiles, workspaceRoot };
+
   return files;
 }
 
 /**
  * Collects the full workspace context for sending to the backend.
+ * 
+ * Dosya kaydedildiğinde snapshot cache otomatik olarak temizlenir.
  */
 export async function getWorkspaceContext(
   workspaceFileLimit: number,
@@ -283,4 +319,15 @@ export async function getWorkspaceContext(
     openFiles: getOpenFiles(),
     workspaceFiles,
   };
+}
+
+/**
+ * Kaydedilen her dosyada snapshot cache'i invalidate eden listener'u bağlar.
+ * extension.ts'deki `activate()` içinden bir kez çağrılmalıdır.
+ */
+export function registerWorkspaceCacheListeners(context: vscode.ExtensionContext): void {
+  const sub = vscode.workspace.onDidSaveTextDocument(() => {
+    invalidateWorkspaceSnapshotCache();
+  });
+  context.subscriptions.push(sub);
 }

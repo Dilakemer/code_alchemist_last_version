@@ -42,8 +42,8 @@ function escapeHtmlText(value: string): string {
 }
 
 export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, options: ChatViewOptions): string {
-  const cspSource = webview.cspSource;
-  const nonce = getNonce();
+    const cspSource = webview.cspSource;
+    const nonce = getNonce();
     const inlineStateJson = escapeForInlineJson({
         selectedModel: options.selectedModel,
         modelOptions: options.modelOptions,
@@ -55,7 +55,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         })
         .join('');
 
-  return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -507,6 +507,50 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             gap: 6px;
             font-size: 12px;
         }
+
+        /* ── Sidebar Global Header ── */
+        .header-title {
+            font-size: 15px;
+            font-weight: 700;
+            margin-left: 10px;
+        }
+
+        .header-center {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+        }
+
+        .balance-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(217, 70, 239, 0.15));
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #d8b4fe;
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .balance-chip:hover {
+            border-color: rgba(139, 92, 246, 0.6);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
+        }
+
+        .balance-icon {
+            color: #fbbf24;
+            filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.4));
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 6px;
+        }
         .action-stats {
             display: inline-flex;
             align-items: center;
@@ -760,6 +804,74 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
             100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
+
+        /* ── Auth Gate ── */
+        .auth-gate {
+            position: absolute;
+            inset: 0;
+            top: 54px; /* Header height */
+            z-index: 100;
+            background: var(--vscode-sideBar-background);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            background-image: radial-gradient(circle at center, rgba(139, 92, 246, 0.1), transparent);
+            transition: opacity 0.4s ease, visibility 0.4s;
+        }
+
+        .auth-gate.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .auth-icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 24px;
+            padding: 16px;
+            border-radius: 50%;
+            background: rgba(139, 92, 246, 0.1);
+            color: var(--primary);
+            border: 1px solid var(--primary-glow);
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+
+        .auth-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            background: linear-gradient(to right, #8b5cf6, #d946ef);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .auth-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            line-height: 1.5;
+            max-width: 240px;
+        }
+
+        .auth-error {
+            margin-top: 12px;
+            font-size: 12px;
+            color: #f87171;
+            background: rgba(248, 113, 113, 0.1);
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(248, 113, 113, 0.2);
+            display: none;
+        }
+
+        .auth-error.visible {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -771,6 +883,12 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             </div>
             <div class="header-title">CodeAlchemist</div>
         </div>
+        <div class="header-center">
+            <div id="balance-chip" class="balance-chip">
+                <svg class="balance-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+                <span id="balance-amount">0</span>
+            </div>
+        </div>
         <div class="header-actions">
             <button class="icon-btn" id="history-btn" title="Sohbet Geçmişi">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
@@ -781,7 +899,23 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             <button class="reset-btn" id="reset-btn" title="Sohbeti Sıfırla">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
             </button>
+            <button class="icon-btn" id="logout-btn" title="Çıkış Yap">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            </button>
         </div>
+    </div>
+
+    <div id="auth-gate" class="auth-gate">
+        <div class="auth-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        </div>
+        <div class="auth-title">CodeAlchemist'e Hoş Geldiniz</div>
+        <div class="auth-desc">Chat ve Agent özelliklerini kullanmak için giriş yapmanız gerekmektedir.</div>
+        <button class="btn btn-primary" id="login-btn" style="padding: 12px 24px; font-size: 14px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-4"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            Giriş Yap
+        </button>
+        <div id="auth-error" class="auth-error"></div>
     </div>
 
     <div class="history-drawer" id="history-drawer">
@@ -865,6 +999,10 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             health: 'connecting', // 'online' | 'offline' | 'connecting'
             requestId: '',      // Current active requestId authority
             statusText: '',
+            isAuthenticated: false,
+            balance: 0,
+            purchaseUrl: '',
+            authError: '',
             
             // Boot Sequence Gating
             ready: {
@@ -926,6 +1064,13 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     appState.health = action.payload;
                     appState.ready.provider = true;
                     break;
+                case 'AUTH_UPDATE':
+                    appState.isAuthenticated = action.payload.isAuthenticated;
+                    appState.balance = action.payload.balance || 0;
+                    appState.purchaseUrl = action.payload.purchaseUrl || '';
+                    appState.authError = action.payload.error || '';
+                    appState.ready.provider = true;
+                    break;
             }
 
             syncUi();
@@ -947,8 +1092,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             const isBusy = !isIdle;
 
             // Gating interaction
-            sendBtn.disabled = !isFullyReady || !isIdle || !canAttemptRequest;
-            chatInput.disabled = !isFullyReady || !isIdle || !canAttemptRequest;
+            const canChat = isFullyReady && isIdle && canAttemptRequest && appState.isAuthenticated;
+            sendBtn.disabled = !canChat;
+            chatInput.disabled = !canChat;
             if (stopBtn) {
                 stopBtn.disabled = !isFullyReady || !isBusy;
                 stopBtn.classList.toggle('btn-hidden', !isBusy);
@@ -981,6 +1127,28 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 reconnectArea.classList.add('visible');
             } else {
                 reconnectArea.classList.remove('visible');
+            }
+
+            // Auth Gate Overlay
+            const authGate = document.getElementById('auth-gate');
+            const authError = document.getElementById('auth-error');
+            
+            if (appState.isAuthenticated) {
+                authGate.classList.add('hidden');
+            } else {
+                authGate.classList.remove('hidden');
+                if (appState.authError) {
+                    authError.textContent = appState.authError;
+                    authError.classList.add('visible');
+                } else {
+                    authError.classList.remove('visible');
+                }
+            }
+
+            // Balance UI
+            const balanceAmount = document.getElementById('balance-amount');
+            if (balanceAmount) {
+                balanceAmount.textContent = appState.balance.toLocaleString();
             }
         }
 
@@ -1042,6 +1210,18 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                         break;
                     case 'HEALTH_STATUS':
                         dispatch({ type: 'HEALTH_UPDATE', payload: message.status });
+                        break;
+                    case 'AUTH_STATUS':
+                        dispatch({ type: 'AUTH_UPDATE', payload: message });
+                        break;
+                    case 'HISTORY_LIST':
+                        handleHistoryList(message.sessions);
+                        break;
+                    case 'SESSION_DETAILS':
+                        handleSessionDetails(message.sessionId, message.messages);
+                        break;
+                    case 'PURGE_STATE':
+                        purgeState();
                         break;
                     case 'stream_chunk':
                         updateAiMessage(message.text);
@@ -1169,6 +1349,59 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             if (s) { s.pinned = !s.pinned; s.updatedAt = nowIso(); renderHistory(); persist(); }
         };
 
+        function handleHistoryList(sessions) {
+            // Merge with local sessions or replace
+            // For per-user isolation, we mainly rely on sync from server
+            const serverSessions = sessions.map(s => normalizeSession({
+                id: s.title, // Use title as ID because that's what we use in local sessions
+                title: s.title,
+                createdAt: s.updatedAt,
+                updatedAt: s.updatedAt,
+                pinned: s.pinned,
+                isServerSession: true
+            }));
+
+            // Smart merge: keep local sessions that aren't on server yet, but prefer server data
+            serverSessions.forEach(ss => {
+                const idx = appState.chatSessions.findIndex(ls => ls.id === ss.id);
+                if (idx !== -1) {
+                    appState.chatSessions[idx] = { ...appState.chatSessions[idx], ...ss };
+                } else {
+                    appState.chatSessions.push(ss);
+                }
+            });
+
+            renderHistory();
+            persist();
+        }
+
+        function handleSessionDetails(sessionId, messages) {
+            const s = appState.chatSessions.find(x => x.id === sessionId);
+            if (s) {
+                s.messages = messages.map(m => ({
+                    role: m.role,
+                    text: m.text,
+                    createdAt: m.createdAt
+                }));
+                if (appState.activeSessionId === sessionId) {
+                    renderActiveSession();
+                }
+                persist();
+            }
+        }
+
+        function purgeState() {
+            appState.chatSessions = [];
+            const s = createSession();
+            setDefaultGreetingIfNeeded(s);
+            appState.chatSessions.push(s);
+            appState.activeSessionId = s.id;
+            appState.balance = 0;
+            renderActiveSession();
+            renderHistory();
+            persist();
+        }
+
         window.requestDeleteSession = (sid, title) => {
             console.log(\`[CodeAlchemist] requestDeleteSession clicked: \${sid}\`);
             try {
@@ -1196,6 +1429,13 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         function switchSession(sid) {
             appState.activeSessionId = sid;
             historyDrawer.classList.remove('open');
+            
+            const session = getActiveSession();
+            if (session && session.isServerSession && session.messages.length === 0) {
+                // Fetch details if it's a server session we haven't loaded yet
+                vscode.postMessage({ command: 'loadSession', sessionId: sid });
+            }
+
             renderActiveSession();
             renderHistory();
             persist();
@@ -1430,6 +1670,12 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         if (chatInput) {
             chatInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } };
         }
+        const loginBtn = document.getElementById('login-btn');
+        if (loginBtn) {
+            loginBtn.onclick = () => {
+                vscode.postMessage({ command: 'login' });
+            };
+        }
         if (newChatBtn) {
             newChatBtn.onclick = () => {
             const s = createSession();
@@ -1459,6 +1705,20 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             reconnectBtn.onclick = () => {
                 dispatch({ type: 'HEALTH_UPDATE', payload: 'connecting' });
                 vscode.postMessage({ command: 'healthCheck' });
+            };
+        }
+
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            logoutBtn.onclick = () => {
+                vscode.postMessage({ command: 'logout' });
+            };
+        }
+
+        const balanceChip = document.getElementById('balance-chip');
+        if (balanceChip) {
+            balanceChip.onclick = () => {
+                vscode.postMessage({ command: 'openPurchase' });
             };
         }
 

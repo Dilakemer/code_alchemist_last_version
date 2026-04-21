@@ -3,7 +3,7 @@ import heapq
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable
 import concurrent.futures
 
@@ -38,6 +38,10 @@ RELATION_TYPE_ALIASES = {
 
 _EMBEDDING_CLIENT = None
 _EMBEDDING_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 TOPIC_RULES = [
     {
@@ -293,7 +297,7 @@ def _recency_score(item: Any) -> float:
     if item_datetime == datetime.min:
         return 0.25
 
-    age_seconds = max((datetime.utcnow() - item_datetime).total_seconds(), 0.0)
+    age_seconds = max((_utcnow() - item_datetime).total_seconds(), 0.0)
     age_days = age_seconds / 86400.0
     return 1.0 / (1.0 + age_days)
 

@@ -1,7 +1,11 @@
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timezone
 
 db = SQLAlchemy()
+
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class SoftDeleteMixin:
@@ -19,7 +23,7 @@ class User(db.Model):
     is_admin = db.Column(db.Boolean, default=False)
     profile_image = db.Column(db.String(255), nullable=True)  # Profil fotoğrafı yolu
     preferences = db.Column(db.Text, nullable=True)  # AI Taste Profile (JSON)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     # Gamification Fields 🎮
     xp = db.Column(db.Integer, default=0)  # Harcanan XP bu alanı etkileyebilir
@@ -37,10 +41,34 @@ class ApiKey(db.Model):
     name = db.Column(db.String(100), nullable=False) # e.g. "My VS Code Mac"
     key = db.Column(db.String(128), unique=True, nullable=False, index=True) # the token
     is_active = db.Column(db.Boolean, default=True) # Soft delete
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     last_used_at = db.Column(db.DateTime, nullable=True)
     
     user = db.relationship('User', backref=db.backref('api_keys', lazy='dynamic'))
+
+class VSCodeLoginState(db.Model):
+    """Temporary storage for VS Code login sessions, shared across workers."""
+    __tablename__ = 'v_s_code_login_state'
+    
+    state = db.Column(db.String(64), primary_key=True) # the state param from extension
+    api_key = db.Column(db.String(128), nullable=True) # generated token
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    expires_at = db.Column(db.Float, nullable=False) # unix timestamp
+    
+    user = db.relationship('User', backref=db.backref('vscode_login_states', lazy='dynamic'))
+
+class VSCodeOTP(db.Model):
+    """Secure, short-lived One-Time Passwords for VS Code to Browser auth sync."""
+    __tablename__ = 'v_s_code_otp'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    otp_code = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False) # absolute expiration time
+    
+    user = db.relationship('User', backref=db.backref('vscode_otps', lazy='dynamic'))
 
 class XPEvent(db.Model):
     """Per-event XP transaction log for analytics and auditing."""
@@ -50,7 +78,7 @@ class XPEvent(db.Model):
     source = db.Column(db.String(50), nullable=False, default='generic', index=True)
     reason = db.Column(db.String(255), nullable=True)
     metadata_json = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
 
     user = db.relationship('User', backref=db.backref('xp_events', lazy='dynamic'))
 
@@ -59,7 +87,7 @@ class UserBadge(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     badge_id = db.Column(db.String(50), nullable=False)  # 'first_question', '100_questions', vs.
-    earned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    earned_at = db.Column(db.DateTime, default=_utcnow)
     
     __table_args__ = (db.UniqueConstraint('user_id', 'badge_id', name='_user_badge_uc'),)
     user = db.relationship('User', backref=db.backref('badges', lazy='dynamic'))
@@ -81,7 +109,7 @@ class SharedSession(db.Model, SoftDeleteMixin):
     share_token = db.Column(db.String(64), unique=True, nullable=False)  # UUID token
     is_active = db.Column(db.Boolean, default=True)
     allow_chat = db.Column(db.Boolean, default=True)  # Katılımcılar mesaj gönderebilir mi
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     expires_at = db.Column(db.DateTime, nullable=True)  # Opsiyonel süre sonu
     
     conversation = db.relationship('Conversation', backref=db.backref('shares', lazy='dynamic'))
@@ -95,7 +123,7 @@ class CollaborationReview(db.Model):
     status = db.Column(db.String(32), nullable=False, default='open')  # open|revision_requested|approved
     updated_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     updated_by_name = db.Column(db.String(120), nullable=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
     session = db.relationship('SharedSession', backref=db.backref('review_state', uselist=False, lazy='joined'))
     updated_by_user = db.relationship('User', foreign_keys=[updated_by_user_id])
@@ -108,7 +136,7 @@ class CollaborationComment(db.Model):
     author_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     author_name = db.Column(db.String(120), nullable=False)
     comment = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
 
     session = db.relationship('SharedSession', backref=db.backref('review_comments', lazy='dynamic', cascade='all, delete'))
     author_user = db.relationship('User', foreign_keys=[author_user_id])
@@ -119,7 +147,7 @@ class Conversation(db.Model, SoftDeleteMixin):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=True)  # Linked project
     title = db.Column(db.String(255))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     is_pinned = db.Column(db.Boolean, default=False)
     is_archived = db.Column(db.Boolean, default=False)
     linked_repo = db.Column(db.String(255), nullable=True)
@@ -137,7 +165,7 @@ class ConversationSummary(db.Model, SoftDeleteMixin):
     summary_text = db.Column(db.Text, nullable=True)
     modules_json = db.Column(db.Text, nullable=True)
     last_history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=True, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow, index=True)
 
     user = db.relationship('User', backref=db.backref('conversation_summaries', lazy='dynamic'))
     conversation = db.relationship('Conversation', backref=db.backref('summary_row', uselist=False, lazy='joined'))
@@ -154,7 +182,7 @@ class MemoryItem(db.Model):
     content = db.Column(db.Text, nullable=False)
     importance = db.Column(db.Integer, default=1, index=True)
     last_used_at = db.Column(db.DateTime, nullable=True, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
 
     user = db.relationship('User', backref=db.backref('memory_items', lazy='dynamic'))
     source_conversation = db.relationship('Conversation', backref=db.backref('memory_items', lazy='dynamic', cascade='all, delete'))
@@ -182,8 +210,8 @@ class MemoryNode(db.Model, SoftDeleteMixin):
     usage_count = db.Column(db.Integer, default=0, index=True)
     # Inherits version, is_deleted from SoftDeleteMixin
     last_accessed_at = db.Column(db.DateTime, nullable=True, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow, index=True)
 
     user = db.relationship('User', backref=db.backref('memory_nodes', lazy='dynamic'))
     conversation = db.relationship('Conversation', backref=db.backref('memory_nodes', lazy='dynamic'))
@@ -199,7 +227,7 @@ class MemoryEdge(db.Model):
     weight = db.Column(db.Float, default=1.0, nullable=False)
     source_module_key = db.Column(db.String(80), nullable=True, index=True)
     target_module_key = db.Column(db.String(80), nullable=True, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
 
     user = db.relationship('User', backref=db.backref('memory_edges', lazy='dynamic'))
 
@@ -215,7 +243,7 @@ class History(db.Model, SoftDeleteMixin):
     code_snippet = db.Column(db.Text)
     ai_response = db.Column(db.Text)
     selected_model = db.Column(db.String(64))
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=_utcnow)
     summary = db.Column(db.Text)
     reasoning = db.Column(db.Text) # AI decision reasoning
     routing_reason = db.Column(db.Text) # Why this model was chosen
@@ -235,7 +263,7 @@ class Answer(db.Model, SoftDeleteMixin):
     code_snippet = db.Column(db.Text)
     image_path = db.Column(db.String(255), nullable=True)
     likes = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     history = db.relationship('History', backref=db.backref('answers', lazy='dynamic', cascade="all, delete"))
     user = db.relationship('User', backref=db.backref('answers', lazy='dynamic'))
@@ -245,7 +273,7 @@ class PostLike(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=_utcnow)
 
     user = db.relationship('User', backref=db.backref('post_likes', lazy='dynamic'))
     history = db.relationship('History', backref=db.backref('post_likes', lazy='dynamic'))
@@ -255,13 +283,13 @@ class AnswerLike(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     answer_id = db.Column(db.Integer, db.ForeignKey('answer.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=_utcnow)
 
 class NotificationRead(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     notification_id = db.Column(db.String(50), nullable=False) # e.g., "ans-123", "plike-456"
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=_utcnow)
     
     __table_args__ = (db.UniqueConstraint('user_id', 'notification_id', name='_user_notification_uc'),)
 
@@ -269,7 +297,7 @@ class NotificationHidden(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     notification_id = db.Column(db.String(50), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=_utcnow)
     
     __table_args__ = (db.UniqueConstraint('user_id', 'notification_id', name='_user_notification_hidden_uc'),)
 
@@ -283,7 +311,7 @@ class Snippet(db.Model, SoftDeleteMixin):
     title = db.Column(db.String(255), nullable=False)
     code = db.Column(db.Text, nullable=False)
     language = db.Column(db.String(50), default='plaintext')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     
     user = db.relationship('User', backref=db.backref('snippets', lazy='dynamic'))
 
@@ -292,7 +320,7 @@ class PasswordResetToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     token = db.Column(db.String(6), nullable=False)  # 6 haneli kod
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     expires_at = db.Column(db.DateTime, nullable=False)
     used = db.Column(db.Boolean, default=False)
     
@@ -304,7 +332,7 @@ class UserFollow(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     follower_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Takip eden
     following_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Takip edilen
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     
     # Aynı kullanıcıyı iki kere takip edemez
     __table_args__ = (db.UniqueConstraint('follower_id', 'following_id', name='_follower_following_uc'),)
@@ -324,7 +352,7 @@ class Notification(db.Model, SoftDeleteMixin):
     related_post_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=True)  # İlgili gönderi
     is_read = db.Column(db.Boolean, default=False)
     lifecycle_state = db.Column(db.String(32), default='active', index=True) # active, hidden, orphaned
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     
     # İlişkiler
     user = db.relationship('User', foreign_keys=[user_id], backref=db.backref('notifications', lazy='dynamic'))
@@ -337,7 +365,7 @@ class Favorite(db.Model, SoftDeleteMixin):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     
     # Aynı yanıtı birden fazla favoriye ekleyemez
     __table_args__ = (db.UniqueConstraint('user_id', 'history_id', name='_user_favorite_uc'),)
@@ -353,7 +381,7 @@ class Feedback(db.Model):
     history_id = db.Column(db.Integer, db.ForeignKey('history.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # Anonim de oy verebilir
     rating = db.Column(db.Integer, nullable=False)  # +1 = beğeni, -1 = beğenmeme
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     # Aynı kullanıcı/session aynı mesaja birden fazla oy veremez
     __table_args__ = (db.UniqueConstraint('history_id', 'user_id', name='_feedback_unique_uc'),)
@@ -369,7 +397,7 @@ class FeedbackDetail(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     category = db.Column(db.String(100), nullable=False)  # e.g., 'Wrong or incomplete'
     comment = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     history = db.relationship('History', backref=db.backref('feedback_details', lazy='dynamic'))
     user = db.relationship('User', backref=db.backref('feedback_details', lazy='dynamic'))
@@ -381,8 +409,8 @@ class Project(db.Model, SoftDeleteMixin):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
     # İlişkiler
     user = db.relationship('User', backref=db.backref('projects', lazy='dynamic'))
@@ -397,8 +425,8 @@ class ProjectFile(db.Model):
     name = db.Column(db.String(255), nullable=False)       # e.g. 'src/App.jsx'
     content = db.Column(db.Text, nullable=False, default='')
     language = db.Column(db.String(50), default='plaintext')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 # ============================================================
@@ -413,7 +441,7 @@ class TokenBalance(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
     balance = db.Column(db.Integer, default=100, nullable=False)     # Kalan token
     total_spent = db.Column(db.Integer, default=0, nullable=False)   # Toplam harcanan (azalmaz)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
     user = db.relationship('User', backref=db.backref('token_balance', uselist=False))
 
@@ -434,7 +462,7 @@ class TokenTransaction(db.Model):
     description = db.Column(db.String(255), nullable=True)
     # Stripe payment_intent_id veya history_id referansı
     reference_id = db.Column(db.String(64), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
 
     user = db.relationship('User', backref=db.backref('token_transactions', lazy='dynamic'))
 
@@ -454,7 +482,7 @@ class TokenPackage(db.Model):
     stripe_price_id = db.Column(db.String(100), nullable=True)  # Stripe ile entegrasyon (Hafta 3)
     is_active = db.Column(db.Boolean, default=True)
     bonus_pct = db.Column(db.Integer, default=0)             # Örn: 20 → %20 bonus token
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
     purchases = db.relationship('TokenPurchase', backref='token_package', lazy='dynamic')
 
@@ -478,11 +506,12 @@ class TokenPurchase(db.Model):
     stripe_customer_id = db.Column(db.String(128), nullable=True, index=True)
     status = db.Column(db.String(32), default='pending', index=True)
     metadata_json = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
     completed_at = db.Column(db.DateTime, nullable=True)
 
     user = db.relationship('User', backref=db.backref('token_purchases', lazy='dynamic'))
 
     def __repr__(self):
         return f'<TokenPurchase user_id={self.user_id} session={self.stripe_checkout_session_id} status={self.status}>'
+
 

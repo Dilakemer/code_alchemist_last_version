@@ -48,14 +48,22 @@ def metadata_event(
     provider: str,
     project_id: Optional[int],
     tools_available: List[str],
+    intent: Optional[str] = None,
+    optimizer_version: Optional[str] = None,
 ) -> str:
-    return build_sse_event(SSEEventType.METADATA, {
+    payload = {
         "run_id": run_id,
         "model": model,
         "provider": provider,
         "project_id": project_id,
         "tools_available": tools_available,
-    })
+    }
+    if intent:
+        payload["intent"] = intent
+        payload["optimized"] = True
+    if optimizer_version:
+        payload["optimizer_version"] = optimizer_version
+    return build_sse_event(SSEEventType.METADATA, payload)
 
 
 def status_event(message: str) -> str:

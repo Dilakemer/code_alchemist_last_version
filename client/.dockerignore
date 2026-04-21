@@ -1,0 +1,16 @@
+**/node_modules/
+**/.venv/
+**/.venv-win/
+**/.git/
+**/.claude/
+**/.gemini/
+server/instance/
+server/static/generated/
+server/uploads/
+client/dist/
+client/build/
+**/*.pyc
+**/__pycache__/
+.env
+.env*
+! .env.example

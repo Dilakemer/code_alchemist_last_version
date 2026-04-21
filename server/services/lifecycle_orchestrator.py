@@ -1,7 +1,7 @@
 import threading
 import queue
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import current_app
 from models import db, Conversation, History, Answer, SharedSession, ConversationSummary, MemoryNode, Notification, Favorite
 
@@ -10,14 +10,18 @@ logger = logging.getLogger(__name__)
 # Simple background task queue for lifecycle orchestration
 _task_queue = queue.Queue()
 
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 def _worker_loop(app):
     """Background worker loop to process lifecycle tasks."""
-    last_purge = datetime.utcnow()
+    last_purge = _utcnow()
     with app.app_context():
         while True:
             try:
                 # Periodic Purge Trigger (Check every hour, run if 24h passed)
-                now = datetime.utcnow()
+                now = _utcnow()
                 if (now - last_purge).total_seconds() > 86400: # 24 Hours
                     try:
                         PurgeService.run_purge()
@@ -59,7 +63,7 @@ class LifecycleOrchestrator:
 
         # 1. Immediate state change (Monolithic start)
         conv.is_deleted = True
-        conv.deleted_at = datetime.utcnow()
+        conv.deleted_at = _utcnow()
         conv.deleted_by_cascade = False
         conv.version += 1
         db.session.commit()
@@ -79,7 +83,7 @@ class LifecycleOrchestrator:
         # 2. Deactivate Shared Sessions
         SharedSession.query.filter_by(conversation_id=conv_id, is_deleted=False).update({
             'is_deleted': True,
-            'deleted_at': datetime.utcnow(),
+            'deleted_at': _utcnow(),
             'deleted_by_cascade': True,
             'version': SharedSession.version + 1
         }, synchronize_session=False)
@@ -87,7 +91,7 @@ class LifecycleOrchestrator:
         # 3. Deactivate Summaries
         ConversationSummary.query.filter_by(conversation_id=conv_id, is_deleted=False).update({
             'is_deleted': True,
-            'deleted_at': datetime.utcnow(),
+            'deleted_at': _utcnow(),
             'deleted_by_cascade': True,
             'version': ConversationSummary.version + 1
         }, synchronize_session=False)
@@ -109,14 +113,14 @@ class LifecycleOrchestrator:
             return
 
         history.is_deleted = True
-        history.deleted_at = datetime.utcnow()
+        history.deleted_at = _utcnow()
         history.deleted_by_cascade = is_cascade
         history.version += 1
 
         # Deactivate Answers
         Answer.query.filter_by(history_id=history_id, is_deleted=False).update({
             'is_deleted': True,
-            'deleted_at': datetime.utcnow(),
+            'deleted_at': _utcnow(),
             'deleted_by_cascade': True,
             'version': Answer.version + 1
         }, synchronize_session=False)
@@ -234,8 +238,8 @@ class PurgeService:
     @staticmethod
     def run_purge(days_ttl: int = 30):
         """Finds and permanently deletes records soft-deleted more than TTL days ago."""
-        from datetime import datetime, timedelta
-        cutoff = datetime.utcnow() - timedelta(days=days_ttl)
+        from datetime import timedelta
+        cutoff = _utcnow() - timedelta(days=days_ttl)
 
         logger.info(f"Starting Purge Cycle (TTL: {days_ttl} days, Cutoff: {cutoff})")
 

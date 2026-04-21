@@ -26,14 +26,18 @@ const TokenDashboardModal = ({
   authHeaders,
   user,
   onOpenPricing,
+  onRequireAuth,
+  initialTab = 'overview',
 }) => {
   const [loading, setLoading] = useState(false);
   const [usage, setUsage] = useState(null);
   const [packages, setPackages] = useState(DEFAULT_PACKAGES);
   const [checkoutLoadingId, setCheckoutLoadingId] = useState(null);
-  const [billingEnabled, setBillingEnabled] = useState(true);
+  const [billingEnabled, setBillingEnabled] = useState(false);
+  const [iyzicoEnabled, setIyzicoEnabled] = useState(false);
+  const [selectedGateway, setSelectedGateway] = useState('stripe');
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'upgrade', 'history'
+  const [activeTab, setActiveTab] = useState(initialTab); // 'overview', 'upgrade', 'history'
 
   const effectiveHeaders = useMemo(() => {
     if (authHeaders && Object.keys(authHeaders).length > 0) return authHeaders;
@@ -42,7 +46,7 @@ const TokenDashboardModal = ({
   }, [authHeaders]);
 
   useEffect(() => {
-    if (!isOpen || !user) return;
+    if (!isOpen) return;
 
     let cancelled = false;
 
@@ -50,42 +54,55 @@ const TokenDashboardModal = ({
       setLoading(true);
       setError('');
       try {
-        if (!effectiveHeaders.Authorization) {
-          throw new Error('Session is missing authorization. Please login again.');
-        }
-
-        const [usageResp, packagesResp, billingResp] = await Promise.all([
-          fetch(`${apiBase}/api/tokens/usage?limit=15`, {
-            headers: effectiveHeaders,
-          }),
+        const fetchPromises = [
           fetch(`${apiBase}/api/billing/packages`),
           fetch(`${apiBase}/api/billing/config`),
-        ]);
+          fetch(`${apiBase}/api/billing/iyzico/config`)
+        ];
 
-        const usageData = await usageResp.json().catch(() => ({}));
-        const packageData = await packagesResp.json().catch(() => ({}));
-        const billingData = await billingResp.json().catch(() => ({}));
+        // Usage history is optional; it should never block billing data.
+        if (effectiveHeaders.Authorization) {
+          fetchPromises.push(
+            fetch(`${apiBase}/api/tokens/usage?limit=15`, {
+              headers: effectiveHeaders,
+            })
+          );
+        }
 
-        if (!usageResp.ok) {
-          throw new Error(usageData?.error || `Status ${usageResp.status}`);
+        const responses = await Promise.allSettled(fetchPromises);
+        const packageResp = responses[0];
+        const billingResp = responses[1];
+        const iyzicoResp = responses[2];
+        const usageResp = effectiveHeaders.Authorization ? responses[3] : null;
+
+        if (packageResp.status !== 'fulfilled' || billingResp.status !== 'fulfilled' || iyzicoResp.status !== 'fulfilled') {
+          throw new Error('Config data could not be loaded.');
         }
-        if (!packagesResp.ok) {
-          throw new Error(packageData?.error || `Status ${packagesResp.status}`);
-        }
-        if (!billingResp.ok) {
-          throw new Error(billingData?.error || `Status ${billingResp.status}`);
-        }
+
+        const packageData = await packageResp.value.json().catch(() => ({}));
+        const billingData = await billingResp.value.json().catch(() => ({}));
+        const iyzicoData = await iyzicoResp.value.json().catch(() => ({}));
+        const usageData = usageResp && usageResp.status === 'fulfilled'
+          ? await usageResp.value.json().catch(() => ({}))
+          : null;
 
         if (!cancelled) {
-          setUsage(usageData);
-          setBillingEnabled(Boolean(billingData?.enabled));
+          if (usageData) setUsage(usageData);
+          const stripeEnabled = Boolean(billingData?.enabled);
+          const iyzEnabled = Boolean(iyzicoData?.enabled);
+
+          setBillingEnabled(stripeEnabled);
+          setIyzicoEnabled(iyzEnabled);
+          setSelectedGateway(iyzEnabled ? 'iyzico' : 'stripe');
+
           setPackages(Array.isArray(packageData?.packages) && packageData.packages.length > 0
             ? packageData.packages
             : DEFAULT_PACKAGES);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err.message || 'Usage data could not be loaded.');
+          console.error("Dashboard loading error:", err);
+          setError(err.message || 'Config data could not be loaded.');
         }
       } finally {
         if (!cancelled) {
@@ -100,16 +117,70 @@ const TokenDashboardModal = ({
     };
   }, [isOpen, user, apiBase, effectiveHeaders]);
 
+  useEffect(() => {
+    const resetCheckoutState = () => {
+      setCheckoutLoadingId(null);
+      setError('');
+    };
+
+    const handlePageShow = (event) => {
+      resetCheckoutState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        resetCheckoutState();
+      }
+    };
+
+    const handleFocus = () => {
+      resetCheckoutState();
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCheckoutLoadingId(null);
+      setError('');
+    }
+  }, [isOpen]);
+
   const handleCheckout = async (packageItem) => {
     if (!packageItem?.id) return;
-    if (!billingEnabled) {
-      setError('Payments are currently unavailable. Please contact the workspace admin to configure Stripe.');
+    
+    const isIyzico = selectedGateway === 'iyzico';
+    const activeBilling = isIyzico ? iyzicoEnabled : billingEnabled;
+    const hasAuth = Boolean(effectiveHeaders.Authorization);
+
+    if (!hasAuth) {
+      setError('Please sign in to continue with checkout.');
+      onRequireAuth?.();
       return;
     }
+
+    if (!activeBilling) {
+      setError(`Payments via ${isIyzico ? 'Iyzico' : 'Stripe'} are currently unavailable. Please contact the workspace admin.`);
+      return;
+    }
+
     setCheckoutLoadingId(packageItem.id);
     setError('');
     try {
-      const resp = await fetch(`${apiBase}/api/billing/checkout-session`, {
+      const endpoint = isIyzico 
+        ? `${apiBase}/api/billing/iyzico/checkout-session`
+        : `${apiBase}/api/billing/checkout-session`;
+
+      const resp = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,9 +193,9 @@ const TokenDashboardModal = ({
         throw new Error(data?.error || `Status ${resp.status}`);
       }
 
-      const checkoutUrl = data?.checkout_url;
+      const checkoutUrl = data?.checkout_url || data?.payment_url;
       if (!checkoutUrl) {
-        throw new Error('Checkout URL was not returned by the server.');
+        throw new Error('Payment gateway URL was not returned by the server.');
       }
 
       window.location.assign(checkoutUrl);
@@ -133,6 +204,8 @@ const TokenDashboardModal = ({
       setCheckoutLoadingId(null);
     }
   };
+
+  const activeBillingEnabled = selectedGateway === 'iyzico' ? iyzicoEnabled : billingEnabled;
 
   const balance = Number.isFinite(Number(usage?.balance))
     ? Number(usage.balance)
@@ -143,6 +216,26 @@ const TokenDashboardModal = ({
   const lowWarning = balance <= 10;
   const featuredPackage = packages.find((pkg) => pkg.highlight) || packages[1] || packages[0];
   const recentTransactions = useMemo(() => usage?.transactions || [], [usage]);
+  const bestValuePackageId = useMemo(() => {
+    if (!Array.isArray(packages) || packages.length === 0) return null;
+
+    const withScores = packages
+      .map((pkg) => {
+        const tokens = Number(pkg.tokens) || 0;
+        const bonusPct = Number(pkg.bonus_pct) || 0;
+        const priceUsd = Number(pkg.price_usd) || 0;
+        if (priceUsd <= 0 || tokens <= 0) return null;
+
+        const effectiveTokens = tokens * (1 + bonusPct / 100);
+        const valueScore = effectiveTokens / priceUsd;
+        return { id: pkg.id ?? pkg.name, valueScore };
+      })
+      .filter(Boolean);
+
+    if (withScores.length === 0) return null;
+    withScores.sort((a, b) => b.valueScore - a.valueScore);
+    return withScores[0].id;
+  }, [packages]);
 
   if (!isOpen) return null;
 
@@ -330,19 +423,53 @@ const TokenDashboardModal = ({
                 <p className="text-slate-400">Instant top-ups that never expire. Pay for what you need.</p>
               </div>
 
+              {(billingEnabled || iyzicoEnabled) && iyzicoEnabled && (
+                <div className="flex justify-center mb-10">
+                  <div className="relative p-1.5 rounded-3xl bg-slate-900/60 border border-white/10 flex gap-2 shadow-2xl">
+                    <button
+                      onClick={() => setSelectedGateway('stripe')}
+                      className={`px-8 py-3 rounded-2xl text-sm font-bold transition-all duration-300 ${
+                        selectedGateway === 'stripe' 
+                          ? 'bg-white text-slate-950 shadow-[0_0_20px_rgba(255,255,255,0.2)]' 
+                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                      }`}
+                    >
+                      Global (Stripe)
+                    </button>
+                    <button
+                      onClick={() => setSelectedGateway('iyzico')}
+                      className={`px-8 py-3 rounded-2xl text-sm font-bold transition-all duration-300 flex flex-col items-center justify-center gap-1 group/btn ${
+                        selectedGateway === 'iyzico' 
+                          ? 'bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-[0_0_25px_rgba(99,102,241,0.4)]' 
+                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                      }`}
+                    >
+                      Yerel (Iyzico / TRY)
+                      <span className={`inline-flex px-3 py-1 rounded-full bg-emerald-500 text-[10px] font-black text-white shadow-lg transition-transform ${selectedGateway === 'iyzico' ? 'scale-110' : 'scale-100 group-hover/btn:scale-110'}`}>
+                        Önerilen
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {packages.map((pkg) => (
+                {packages.map((pkg) => {
+                  const packageKey = pkg.id ?? pkg.name;
+                  const isBestValue = packageKey === bestValuePackageId;
+
+                  return (
                   <div
-                    key={pkg.id ?? pkg.name}
+                    key={packageKey}
                     className={`relative p-8 rounded-[2.5rem] border transition-all duration-300 flex flex-col group ${
-                      pkg.highlight
+                      isBestValue
                         ? 'border-indigo-500 bg-indigo-500/[0.03] shadow-[0_0_40px_rgba(79,70,229,0.1)] scale-[1.03] z-10'
                         : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/20'
                     }`}
                   >
-                    {pkg.highlight && (
-                      <div className="absolute top-0 right-1/2 translate-x-1/2 -translate-y-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-[10px] font-black uppercase tracking-widest text-white shadow-xl">
-                        Power User Choice
+                    {isBestValue && (
+                      <div className="absolute top-0 right-1/2 translate-x-1/2 -translate-y-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-xl border border-white/20">
+                        Fırsat
                       </div>
                     )}
                     
@@ -355,7 +482,10 @@ const TokenDashboardModal = ({
                         <span className="text-xs font-bold text-slate-500 uppercase">Tokens</span>
                       </div>
                       <div className="mt-2 text-2xl font-bold text-slate-400">
-                        ${Number.isFinite(Number(pkg.price_usd)) ? Number(pkg.price_usd).toFixed(0) : pkg.price}
+                        {selectedGateway === 'iyzico' ? '₺' : '$'}
+                        {selectedGateway === 'iyzico' 
+                          ? (Number(pkg.price_usd) * 32).toLocaleString() 
+                          : (Number.isFinite(Number(pkg.price_usd)) ? Number(pkg.price_usd).toFixed(0) : pkg.price)}
                       </div>
                     </div>
 
@@ -375,23 +505,23 @@ const TokenDashboardModal = ({
 
                     <button
                       onClick={() => handleCheckout(pkg)}
-                      disabled={!billingEnabled || checkoutLoadingId === (pkg.id ?? pkg.name)}
+                      disabled={!activeBillingEnabled || checkoutLoadingId === packageKey}
                       className={`w-full py-4 rounded-3xl text-sm font-black transition-all border ${
-                        pkg.highlight
+                        isBestValue
                           ? 'bg-white text-slate-950 border-white hover:bg-slate-100'
                           : 'bg-white/5 text-white border-white/10 hover:bg-white/10 hover:border-white/20'
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
-                      {checkoutLoadingId === (pkg.id ?? pkg.name) ? 'Initializing...' : 'Checkout Package'}
+                      {checkoutLoadingId === packageKey ? 'Ödeme hazırlanıyor...' : 'Satın al'}
                     </button>
                   </div>
-                ))}
+                )})}
               </div>
               
-              {!billingEnabled && (
+              {!billingEnabled && !iyzicoEnabled && (
                 <div className="mt-12 p-6 rounded-3xl border border-amber-500/20 bg-amber-500/5 text-center">
                   <p className="text-sm text-amber-200 font-medium">
-                    🛒 Stripe is not connected in this environment. Direct purchases are disabled.
+                    🛒 Payment gateways are not configured in this environment. Direct purchases are disabled.
                   </p>
                 </div>
               )}

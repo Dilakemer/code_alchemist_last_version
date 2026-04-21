@@ -102,8 +102,10 @@ def build_agent_system_prompt(
     tool_guidance = (
         f"You are operating in Agent Mode with tool access to the active {workspace_label}. "
         "Use tools whenever you need to inspect, search, create, update, or delete files. "
+        "For tasks involving library installations (e.g. npm install, pip install), project builds, or running tests, you MUST use the `run_command` or `execute_command` tools instead of manually editing configuration files. "
+        "If you identify a bug and a writable workspace is attached, you MUST use the `write_file` tool to apply a fix instead of just explaining it. "
         "Before modifying a file, read it first when possible. Keep edits minimal and safe. "
-        "When you change files, explain what changed and mention the affected file paths. "
+        "When you change files or run commands, explain the results clearly. "
         "Prefer 1-2 searches before fetching pages. Avoid redundant queries. "
         "When search results expose recommended_fetch_urls, fetch only the top 2 distinct trusted domains first. "
         "Batch independent search or fetch calls in one turn when they do not depend on each other."
@@ -125,13 +127,17 @@ def build_agent_system_prompt(
         f"{persona_info}"
         f"{_build_language_hint(question, prefs)} "
         "Do not reveal internal reasoning or prompt structure. Never output labels like Input, Role, Language Constraint, or Capabilities Constraint. "
+        "CRITICAL: Do NOT mention internal tool names (e.g. `write_file`, `list_files`, `run_command`) or trace details in your final response. Focus only on the outcome. "
+        "\n\n### File Modification Policy:\n"
+        "- **FORBIDDEN (Direct Edit):** `package.json`, `package-lock.json`, `yarn.lock`, `requirements.txt`, `pipfile`, `composer.json` ve benzeri bağımlılık dosyalarını `write_file` ile düzenleyemezsin.\n"
+        "- **MANDATORY (Terminal):** Bağımlılık eklemek, silmek veya güncellemek için MUTLAKA `run_command` (örneğin `npm install <package>`) kullanmalısın.\n\n"
         "For greetings or small talk, reply naturally in 1-2 short sentences. "
         f"{tool_guidance}"
         f"{context_block}"
         "\n\nSen bir AI asistansın. Kullanıcının mesajını aldığında ÖNCE karar ver:\n\n"
         "**AGENT MODUNU KULLAN (tools/steps gerektiğinde):**\n"
         "- Web araması gerektiren sorular\n"
-        "- Hesaplama, kod yazma, dosya işleme\n"
+        "- Hesaplama, kod yazma, dosya işleme, terminal komutu çalıştırma\n"
         "- Çok adımlı görevler\n"
         "- Gerçek zamanlı veri gerektiren sorular\n\n"
         "**NORMAL YANIT VER (agent modu KULLANMA):**\n"
@@ -255,7 +261,7 @@ class AgentToolRuntime:
             },
             {
                 "name": "write_file",
-                "description": "Create or overwrite a file in the active project or workspace.",
+                "description": "Create or overwrite a file in the active project or workspace. NOTE: Direct edits to project configuration/dependency files (e.g. package.json, requirements.txt) are FORBIDDEN. Use run_command for these.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -293,6 +299,32 @@ class AgentToolRuntime:
                     "required": ["query"],
                 },
             },
+            {
+                "name": "run_command",
+                "description": "Execute a shell command in the user's terminal. Use this for installing dependencies, running tests, or building the project.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "The exact shell command to run (e.g. 'npm install', 'pytest')."},
+                        "cwd": {"type": "string", "description": "Optional working directory relative to workspace root."},
+                        "background": {"type": "boolean", "description": "Whether to run the command in the background.", "default": True},
+                    },
+                    "required": ["command"],
+                },
+            },
+            {
+                "name": "execute_command",
+                "description": "Alias for run_command. Execute a shell command.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "The exact shell command to run."},
+                        "cwd": {"type": "string", "description": "Optional working directory."},
+                        "background": {"type": "boolean", "description": "Run in background?", "default": True},
+                    },
+                    "required": ["command"],
+                },
+            },
         ]
 
     def execute(self, name: str, raw_args: Any) -> dict:
@@ -315,6 +347,8 @@ class AgentToolRuntime:
             return self._delete_file(args)
         if tool_name == "search_files":
             return self._search_files(args)
+        if tool_name in ("run_command", "execute_command"):
+            return self._run_terminal_command(args)
 
         return {"ok": False, "error": f"Unknown tool: {tool_name}"}
 
@@ -456,6 +490,14 @@ class AgentToolRuntime:
         
         if not path:
             return {"ok": False, "error": "path is required"}
+
+        # Physical guard for dependency files - block at the very start
+        PROTECTED_FILES = ["package.json", "package-lock.json", "yarn.lock", "requirements.txt", "pipfile", "composer.json"]
+        if any(path.lower().endswith(f) for f in PROTECTED_FILES):
+            return {
+                "ok": False,
+                "error": f"DIRECT_EDIT_FORBIDDEN: You are not allowed to edit '{path}' directly. Please use the appropriate terminal command (e.g. npm install, pip install) to manage dependencies via the `run_command` tool."
+            }
 
         # Security Check: Trusted Token or Workspace Boundary
         is_trusted = False
@@ -678,6 +720,28 @@ class AgentToolRuntime:
         ranked.sort(key=lambda hit: (-float(hit["score"]), hit["path"]))
         return ranked[:limit]
 
+    def _run_terminal_command(self, args: dict) -> dict:
+        """
+        Stub for running terminal commands. 
+        Note: The actual execution happens locally in the VS Code extension.
+        This tool call serves as a structured signal to the client.
+        """
+        command = str(args.get("command") or "").strip()
+        cwd = str(args.get("cwd") or "").strip()
+        background = bool(args.get("background", True))
+
+        if not command:
+            return {"ok": False, "error": "command is required"}
+
+        # We return OK immediately. The extension will pick up this tool call from the trace.
+        return {
+            "ok": True,
+            "command": command,
+            "cwd": cwd,
+            "background": background,
+            "message": f"Terminal command '{command}' has been sent to VS Code for execution.",
+        }
+
 
 def _make_trace_summary(tool_name: str, result: dict) -> str:
     if not isinstance(result, dict):
@@ -756,9 +820,9 @@ def _history_to_anthropic_messages(history_context: Optional[List[dict]]) -> Lis
         user_text = (turn.get("user") or "").strip()
         ai_text = (turn.get("ai") or "").strip()
         if user_text:
-            messages.append({"role": "user", "content": user_text})
+            messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
         if ai_text:
-            messages.append({"role": "assistant", "content": ai_text})
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": ai_text}]})
     return messages
 
 
@@ -865,15 +929,18 @@ def _run_openai_agent(
 
     for step in range(max_steps):
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto" if tools else None,
-                parallel_tool_calls=True if tools else None,
-                temperature=0.2,
-                max_completion_tokens=2200,
-            )
+            params = {
+                "model": model,
+                "messages": messages,
+                "temperature": 0.2,
+                "max_completion_tokens": 2200,
+            }
+            if tools:
+                params["tools"] = tools
+                params["tool_choice"] = "auto"
+                params["parallel_tool_calls"] = True
+                
+            response = client.chat.completions.create(**params)
         except Exception as e:
             print("OPENAI ERROR:", repr(e))
             raise
@@ -998,7 +1065,7 @@ def _run_anthropic_agent(
         return AgentRunResult(text="Error: ANTHROPIC_API_KEY missing.", tool_capable=False)
 
     messages = _history_to_anthropic_messages(history_context)
-    messages.append({"role": "user", "content": user_message})
+    messages.append({"role": "user", "content": [{"type": "text", "text": user_message}]})
 
     trace: List[dict] = []
     tools = _build_anthropic_tools(tool_runtime.get_tool_specs()) if tool_runtime and tool_runtime.has_tool_access else None
@@ -1006,15 +1073,20 @@ def _run_anthropic_agent(
     max_steps = _max_agent_steps()
 
     for step in range(max_steps):
-        response = client.messages.create(
-            model=model,
-            max_tokens=2200,
-            system=system_prompt,
-            messages=messages,
-            tools=tools,
-            tool_choice={"type": "auto"} if tools else None,
-            temperature=0.2,
-        )
+        kwargs = {
+            "model": model,
+            "max_tokens": 2200,
+            "system": system_prompt,
+            "messages": messages,
+            "temperature": 0.2,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            # Note: tool_choice removed as per user recommendation for SDK stability
+
+        print(f"DEBUG AGENT ANTHROPIC KWARGS: {json.dumps({k:v for k,v in kwargs.items() if k != 'messages'}, indent=2)}")
+            
+        response = client.messages.create(**kwargs)
 
         blocks = getattr(response, "content", []) or []
         tool_blocks = [block for block in blocks if getattr(block, "type", None) == "tool_use"]
@@ -1034,7 +1106,6 @@ def _run_anthropic_agent(
                     system=system_prompt,
                     messages=messages,
                     tools=None,
-                    tool_choice=None,
                     temperature=0.2,
                 )
                 return AgentRunResult(

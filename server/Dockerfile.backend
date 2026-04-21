@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=5000
+
+# Build dependencies needed by psycopg2 and some Python wheels.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY server/requirements.txt ./requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    python -c "import iyzipay"
+
+COPY server/ ./
+
+# Runtime writable directories.
+RUN mkdir -p /app/instance /app/uploads /app/static/generated
+
+EXPOSE 5000
+
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} --worker-class gthread --threads 8 -w 1 --timeout 120 app:app"]

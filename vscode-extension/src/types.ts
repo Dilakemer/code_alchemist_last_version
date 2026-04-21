@@ -38,6 +38,9 @@ export interface AskRequestPayload {
       multi_edit: boolean;
     };
   };
+  intent?: string;
+  intent_confidence?: number;
+  conversation_id?: number;
 }
 
 /** Standard JSON response from the backend. */
@@ -57,6 +60,16 @@ export interface AskResponse {
   agent_changed_total?: number;
   agent_trace_truncated?: boolean;
   agent_changed_truncated?: boolean;
+  intent?: string;
+  optimized?: boolean;
+  optimizer_version?: string;
+  prompt_version?: string;
+  trace_id?: string;
+  optimization_score?: number;
+  optimization_status?: string;
+  balance?: number;
+  purchase_url?: string;
+  conversation_id?: number;
 }
 
 /** A single entry from the agent execution trace. */
@@ -97,10 +110,29 @@ export interface FileChange {
   render_url?: string;
 }
 
+export interface FileActionBase {
+  file: string;
+  trust_id?: string;
+  trust_scope?: string;
+  originalContent?: string;
+  originalExists?: boolean;
+  render_url?: string;
+}
+
+export interface RunCommandAction {
+  action: 'run_command';
+  command: string;
+  cwd?: string;
+  background?: boolean;
+}
+
 /** Discriminated union of AI-driven actions. */
 export type AiAction =
-  | { action: 'edit_file'; file: string; content: string; operation?: string; trust_id?: string; trust_scope?: string; originalContent?: string; originalExists?: boolean; render_url?: string }
+  | ({ action: 'edit_file'; content: string; operation?: string } & FileActionBase)
+  | ({ action: 'create_file'; content: string; operation?: string } & FileActionBase)
+  | ({ action: 'delete_file' } & FileActionBase)
   | { action: 'multi_edit'; changes: FileChange[] }
+  | RunCommandAction
   | { action: 'message'; text: string };
 
 // ── SSE Chunk Types ─────────────────────────────────────────────────
@@ -126,6 +158,16 @@ export interface SseChunk {
   agent_trace_truncated?: boolean;
   agent_changed_truncated?: boolean;
   render_url?: string;
+  intent?: string;
+  optimized?: boolean;
+  optimizer_version?: string;
+  prompt_version?: string;
+  trace_id?: string;
+  optimization_score?: number;
+  optimization_status?: string;
+  balance?: number;
+  purchase_url?: string;
+  conversation_id?: number;
 }
 
 
@@ -151,6 +193,8 @@ export interface BackendStatusResponse {
   version?: string;
   user?: string;
   auth_state?: 'authenticated' | 'unauthorized';
+  balance?: number;
+  purchase_url?: string;
   model_config?: Record<string, string>;
   server_time?: string;
   error?: string;

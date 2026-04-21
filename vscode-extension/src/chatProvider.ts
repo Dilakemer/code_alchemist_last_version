@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { getChatWebviewContent } from './chatView.js';
 import { getWorkspaceContext, getWorkspaceRoot } from './workspaceContext.js';
-import { sendAskRequest } from './apiClient.js';
+import { sendAskRequest, getBackendStatus, deriveEndpointRoot, getHistory, getConversationHistory, getVscodeOtp } from './apiClient.js';
 import { parseAiActions, validateFilePath, applyFileEdit, applyMultiEdit } from './actionHandler.js';
 import { showDiffAndConfirm, showMultiDiffAndConfirm } from './diffPreview.js';
 import type { AskRequestPayload, AiAction } from './types.js';
@@ -132,8 +132,8 @@ function buildLocalDateAppendFallbackAction(question: string, activeFilePath: st
 
   let trust_id: string | undefined;
   if (workspaceFiles) {
-      const match = workspaceFiles.find(f => f.path === filePath || (activeFilePath && f.path === activeFilePath.replace(/\\/g, '/')));
-      if (match) trust_id = match.trust_id;
+    const match = workspaceFiles.find(f => f.path === filePath || (activeFilePath && f.path === activeFilePath.replace(/\\/g, '/')));
+    if (match) trust_id = match.trust_id;
   }
 
   return {
@@ -163,39 +163,52 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private _currentPhase: 'IDLE' | 'REQUEST_INITIATED' | 'REQUEST_STREAMING' | 'REQUEST_COMPLETED' | 'REQUEST_FAILED' | 'REQUEST_CANCELLED' = 'IDLE';
   private _trustMap: Map<string, string> = new Map(); // path -> trust_id
   private _activeAbortController?: AbortController;
+  private _isAuthenticated: boolean = false;
+  private _authError: string = '';
+  private _balance: number = 0;
+  private _purchaseUrl: string = '';
+  private static _instances: Set<CodeAlchemistChatProvider> = new Set();
+
+  public static refreshAll() {
+    for (const inst of this._instances) {
+      void inst.refreshAuthStatus();
+    }
+  }
 
   private _generateRequestId(): string {
-      return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7);
+    return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7);
   }
 
   private _broadcastSnapshot() {
-      if (!this._view) return;
-      this._view.webview.postMessage({
-          command: 'STATE_SNAPSHOT',
-          requestId: this._activeRequestId,
-          phase: this._currentPhase,
-          timestamp: Date.now()
-      });
+    if (!this._view) return;
+    this._view.webview.postMessage({
+      command: 'STATE_SNAPSHOT',
+      requestId: this._activeRequestId,
+      phase: this._currentPhase,
+      timestamp: Date.now()
+    });
   }
 
   private _sendStateEvent(phase: typeof this._currentPhase, text?: string) {
-      if (!this._view) return;
-      this._currentPhase = phase;
-      this._view.webview.postMessage({
-          command: 'STATE_EVENT',
-          type: 'PHASE_TRANSITION',
-          requestId: this._activeRequestId,
-          phase: phase,
-          text: text,
-          timestamp: Date.now()
-      });
+    if (!this._view) return;
+    this._currentPhase = phase;
+    this._view.webview.postMessage({
+      command: 'STATE_EVENT',
+      type: 'PHASE_TRANSITION',
+      requestId: this._activeRequestId,
+      phase: phase,
+      text: text,
+      timestamp: Date.now()
+    });
   }
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _context: vscode.ExtensionContext,
     private readonly _output: vscode.OutputChannel,
-  ) {}
+  ) { 
+    CodeAlchemistChatProvider._instances.add(this);
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -219,24 +232,25 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
     // Broadcast initial state snapshot immediately
     this._broadcastSnapshot();
+    void this.refreshAuthStatus();
 
     // ── Health Monitor Integration ─────────────────────────────
     const healthMonitor = HealthMonitor.getInstance();
-    
+
     // Push initial health state
     webviewView.webview.postMessage({
-        command: 'HEALTH_STATUS',
-        status: healthMonitor.status,
-        timestamp: Date.now()
+      command: 'HEALTH_STATUS',
+      status: healthMonitor.status,
+      timestamp: Date.now()
     });
 
     // Listen for health changes
     const healthSub = healthMonitor.onStateChange((status) => {
-        webviewView.webview.postMessage({
-            command: 'HEALTH_STATUS',
-            status: status,
-            timestamp: Date.now()
-        });
+      webviewView.webview.postMessage({
+        command: 'HEALTH_STATUS',
+        status: status,
+        timestamp: Date.now()
+      });
     });
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
@@ -282,14 +296,174 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         case 'setModel':
           await this._handleSetModel(data.model);
           break;
+        case 'login':
+          await vscode.commands.executeCommand('codeAlchemist.login');
+          break;
+        case 'logout':
+          await this._handleLogout();
+          break;
+        case 'fetchHistory':
+          await this._syncHistory();
+          break;
+        case 'loadSession':
+          await this._loadSessionDetails(data.sessionId);
+          break;
+        case 'openPurchase':
+          await this._handleOpenPurchase();
+          break;
       }
     });
 
     // Cleanup
     webviewView.onDidDispose(() => {
       healthSub.dispose();
+      CodeAlchemistChatProvider._instances.delete(this);
       this._view = undefined;
     });
+  }
+  public async refreshAuthStatus() {
+    const apiKey = await this._readApiKey();
+    const hasKey = !!apiKey;
+    
+    // Step 1: Immediate unlock if key exists (Fast UI)
+    this._isAuthenticated = hasKey;
+    this._authError = hasKey ? '' : 'Please login to continue.';
+    this._broadcastAuthStatus();
+
+    if (hasKey) {
+        void this._syncHistory();
+    }
+
+    if (!hasKey) {
+      return;
+    }
+
+    // Step 2: Background Validation (Silent check)
+    const cfg = vscode.workspace.getConfiguration('codeAlchemist');
+    const endpoint = (cfg.get<string>('endpoint') || '').trim();
+    if (!endpoint) return;
+
+    try {
+      const root = deriveEndpointRoot(endpoint);
+      this._output.appendLine(`[Auth] Validating session at: ${root}/v1/status`);
+      const status = await getBackendStatus(endpoint, apiKey);
+      
+      if (status.status === 'unauthorized') {
+        this._isAuthenticated = false;
+        this._balance = 0;
+        this._purchaseUrl = '';
+        this._authError = 'Oturum süresi dolmuş veya geçersiz. Lütfen tekrar giriş yapın.';
+        this._broadcastAuthStatus();
+      } else if (status.status === 'ok') {
+        this._balance = (status as any).balance ?? 0;
+        this._purchaseUrl = (status as any).purchase_url ?? '';
+        
+        // Validation success - confirm auth state
+        if (!this._isAuthenticated) {
+          this._isAuthenticated = true;
+          this._authError = '';
+        }
+        this._output.appendLine(`[Auth] Updated local state: user=${status.user}, balance=${this._balance}`);
+        this._broadcastAuthStatus();
+      }
+    } catch (err) {
+      this._output.appendLine(`[Auth] Background validation failed: ${err}`);
+      console.warn('Background auth validation failed:', err);
+    }
+  }
+
+  private async _handleLogout() {
+    const API_KEY_SECRET_NAME = 'codeAlchemist.apiKey';
+    await this._context.secrets.delete(API_KEY_SECRET_NAME);
+    this._isAuthenticated = false;
+    this._balance = 0;
+    this._authError = 'Logged out.';
+    
+    // Purge UI state in webview
+    if (this._view) {
+        this._view.webview.postMessage({ command: 'PURGE_STATE' });
+    }
+    
+    CodeAlchemistChatProvider.refreshAll();
+  }
+
+  private async _syncHistory() {
+    if (!this._view) return;
+    const apiKey = await this._readApiKey();
+    if (!apiKey) return;
+
+    const cfg = vscode.workspace.getConfiguration('codeAlchemist');
+    const endpoint = (cfg.get<string>('endpoint') || '').trim();
+    if (!endpoint) return;
+
+    try {
+      const res = await getHistory(endpoint, apiKey);
+      if (res.status === 'ok' && res.sessions) {
+        this._view.webview.postMessage({
+          command: 'HISTORY_LIST',
+          sessions: res.sessions
+        });
+      }
+    } catch (err) {
+      console.error('Failed to sync history:', err);
+    }
+  }
+
+  private async _loadSessionDetails(sessionId: string) {
+    if (!this._view) return;
+    const apiKey = await this._readApiKey();
+    if (!apiKey) return;
+
+    const cfg = vscode.workspace.getConfiguration('codeAlchemist');
+    const endpoint = (cfg.get<string>('endpoint') || '').trim();
+    if (!endpoint) return;
+
+    try {
+      const res = await getConversationHistory(endpoint, apiKey, sessionId);
+      if (res.status === 'ok' && res.messages) {
+        this._view.webview.postMessage({
+          command: 'SESSION_DETAILS',
+          sessionId,
+          messages: res.messages
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load session details:', err);
+    }
+  }
+
+  private _broadcastAuthStatus() {
+    if (!this._view) return;
+    this._view.webview.postMessage({
+      command: 'AUTH_STATUS',
+      isAuthenticated: this._isAuthenticated,
+      balance: this._balance,
+      purchaseUrl: this._purchaseUrl,
+      error: this._authError,
+      timestamp: Date.now()
+    });
+  }
+
+  private async _handleOpenPurchase() {
+    if (this._purchaseUrl) {
+        const apiKey = await this._readApiKey();
+        const cfg = vscode.workspace.getConfiguration('codeAlchemist');
+        const endpoint = (cfg.get<string>('endpoint') || '').trim();
+
+        if (apiKey && endpoint) {
+            this._output.appendLine('[Auth] Generating OTP for secure session transfer...');
+            const otpRes = await getVscodeOtp(endpoint, apiKey);
+            if (otpRes.status === 'ok') {
+                const separator = this._purchaseUrl.includes('?') ? '&' : '?';
+                const secureUrl = `${this._purchaseUrl}${separator}auth_otp=${otpRes.otp}`;
+                await vscode.env.openExternal(vscode.Uri.parse(secureUrl));
+                return;
+            }
+            this._output.appendLine(`[Auth] OTP generation failed: ${otpRes.error}. Falling back to standard URL.`);
+        }
+
+        await vscode.env.openExternal(vscode.Uri.parse(this._purchaseUrl));
+    }
   }
 
   private async _handleAsk(text: string, modelOverride?: string) {
@@ -312,16 +486,16 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     // ── Immediate Health Check ─────────────────────────────────
     const healthMonitor = HealthMonitor.getInstance();
     await healthMonitor.checkNow();
-    
+
     if (healthMonitor.status === 'offline') {
-        this._isAskInFlight = false;
-        this._view.webview.postMessage({
-            command: 'stream_chunk',
-            requestId: this._activeRequestId,
-            text: '\n\n❌ **Bağlantı Hatası:** Backend sunucusuna ulaşılamıyor. Lütfen yerel sunucunuzun (localhost:5000) çalıştığından emin olun.',
-        });
-        this._sendStateEvent('REQUEST_FAILED', 'Sunucu çevrimdışı.');
-        return;
+      this._isAskInFlight = false;
+      this._view.webview.postMessage({
+        command: 'stream_chunk',
+        requestId: this._activeRequestId,
+        text: '\n\n❌ **Bağlantı Hatası:** Backend sunucusuna ulaşılamıyor. Lütfen yerel sunucunuzun (localhost:5000) çalıştığından emin olun.',
+      });
+      this._sendStateEvent('REQUEST_FAILED', 'Sunucu çevrimdışı.');
+      return;
     }
 
     this._sendStateEvent('REQUEST_INITIATED', 'Working...');
@@ -348,15 +522,15 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       }
 
       const wsContext = await getWorkspaceContext(workspaceFileLimit);
-      
+
       // Update Trust Map for recovery
       this._trustMap.clear();
       wsContext.workspaceFiles.forEach(f => {
-          this._trustMap.set(f.path, f.trust_id || '');
-          // Also store absolute path if available for recovery
-          const abs = path.resolve(wsContext.workspaceRoot, f.path);
-          this._trustMap.set(abs.replace(/\\/g, '/'), f.trust_id || '');
-          this._trustMap.set(abs, f.trust_id || '');
+        this._trustMap.set(f.path, f.trust_id || '');
+        // Also store absolute path if available for recovery
+        const abs = path.resolve(wsContext.workspaceRoot, f.path);
+        this._trustMap.set(abs.replace(/\\/g, '/'), f.trust_id || '');
+        this._trustMap.set(abs, f.trust_id || '');
       });
 
       const preparedQuestion = buildQuestionWithOutputConstraints(text, wsContext.filePath || undefined);
@@ -392,23 +566,23 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       const rid = this._activeRequestId;
       const mockOutput = {
         append: (chunk: string) => {
-            if (this._currentPhase !== 'REQUEST_STREAMING') {
-                this._sendStateEvent('REQUEST_STREAMING');
-            }
-            this._view?.webview.postMessage({ command: 'stream_chunk', requestId: rid, text: chunk });
+          if (this._currentPhase !== 'REQUEST_STREAMING') {
+            this._sendStateEvent('REQUEST_STREAMING');
+          }
+          this._view?.webview.postMessage({ command: 'stream_chunk', requestId: rid, text: chunk });
         },
         appendLine: (line: string) => {
-            if (this._currentPhase !== 'REQUEST_STREAMING') {
-                this._sendStateEvent('REQUEST_STREAMING');
-            }
-            this._view?.webview.postMessage({ command: 'stream_chunk', requestId: rid, text: line + '\n' });
+          if (this._currentPhase !== 'REQUEST_STREAMING') {
+            this._sendStateEvent('REQUEST_STREAMING');
+          }
+          this._view?.webview.postMessage({ command: 'stream_chunk', requestId: rid, text: line + '\n' });
         },
-        clear: () => {},
-        show: () => {},
-        hide: () => {},
-        dispose: () => {},
+        clear: () => { },
+        show: () => { },
+        hide: () => { },
+        dispose: () => { },
         name: 'mock',
-        replace: () => {}
+        replace: () => { }
       };
 
       const result = await sendAskRequest(
@@ -511,12 +685,12 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
   private async _handleDeleteSession(sessionId: string, title?: string) {
     if (!this._view || typeof sessionId !== 'string' || !sessionId.trim()) {
-        console.warn('CodeAlchemist: requestDeleteSession called with invalid sessionId or missing view.');
-        return;
+      console.warn('CodeAlchemist: requestDeleteSession called with invalid sessionId or missing view.');
+      return;
     }
 
     const resolvedTitle = typeof title === 'string' && title.trim() ? title.trim() : 'Yeni Sohbet';
-    
+
     console.log(`CodeAlchemist: Confirmation request for session delete: ${sessionId} (${resolvedTitle})`);
 
     const choice = await vscode.window.showWarningMessage(
@@ -560,10 +734,10 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
     // Trust Recovery: If trust_id is missing, try to restore from map
     if (!action.trust_id) {
-        const recoveredId = this._trustMap.get(action.file) || this._trustMap.get(action.file.replace(/\\/g, '/'));
-        if (recoveredId) {
-            action.trust_id = recoveredId;
-        }
+      const recoveredId = this._trustMap.get(action.file) || this._trustMap.get(action.file.replace(/\\/g, '/'));
+      if (recoveredId) {
+        action.trust_id = recoveredId;
+      }
     }
 
     const absPath = path.resolve(workspaceRoot, action.file);
@@ -624,19 +798,19 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       const isUndo = decision === 'undo';
       const revertChange = isUndo
         ? {
-            file: action.file,
-            content: typeof action.originalContent === 'string' ? action.originalContent : '',
-            operation: 'replace',
-            trust_id: action.trust_id,
-            trust_scope: action.trust_scope,
-          }
+          file: action.file,
+          content: typeof action.originalContent === 'string' ? action.originalContent : '',
+          operation: 'replace',
+          trust_id: action.trust_id,
+          trust_scope: action.trust_scope,
+        }
         : {
-            file: action.file,
-            content: action.content,
-            operation: action.operation,
-            trust_id: action.trust_id,
-            trust_scope: action.trust_scope,
-          };
+          file: action.file,
+          content: action.content,
+          operation: action.operation,
+          trust_id: action.trust_id,
+          trust_scope: action.trust_scope,
+        };
 
       if (isUndo && action.originalExists === false) {
         const absPath = path.resolve(workspaceRoot, action.file);

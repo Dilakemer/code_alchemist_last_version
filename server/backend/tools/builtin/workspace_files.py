@@ -10,6 +10,8 @@ The tools operate on two sources (priority order):
 """
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 from typing import Any, Dict, List
 
@@ -31,6 +33,91 @@ def _get_project(ctx: Any):
 
 def _get_ws(ctx: Any) -> Dict[str, Any]:
     return getattr(ctx, "workspace_files", {}) or {}
+
+
+def _get_read_cache(ctx: Any) -> Dict[str, Dict[str, Any]]:
+    cache = getattr(ctx, "read_cache", None)
+    if isinstance(cache, dict):
+        return cache
+    cache = {}
+    try:
+        setattr(ctx, "read_cache", cache)
+    except Exception:
+        pass
+    return cache
+
+
+def _invalidate_read_cache(ctx: Any, path: str | None = None) -> None:
+    cache = getattr(ctx, "read_cache", None)
+    if not isinstance(cache, dict):
+        return
+    if not path:
+        cache.clear()
+        return
+    normalized = _norm(path).lower()
+    for key in list(cache.keys()):
+        if isinstance(key, tuple) and len(key) >= 2 and key[1] == normalized:
+            cache.pop(key, None)
+
+
+def _content_hash(content: str) -> str:
+    return hashlib.sha1((content or "").encode("utf-8")).hexdigest()
+
+
+def _apply_unified_patch(base_content: str, patch_text: str) -> tuple[str | None, str | None]:
+    """Apply a small unified diff patch to a single file content blob."""
+    patch_lines = str(patch_text or "").splitlines(keepends=True)
+    if not any(line.startswith("@@") for line in patch_lines):
+        return None, "patch mode requires unified diff hunks starting with @@"
+
+    base_lines = str(base_content or "").splitlines(keepends=True)
+    output_lines: List[str] = []
+    base_index = 0
+    patch_index = 0
+
+    while patch_index < len(patch_lines):
+        line = patch_lines[patch_index]
+        if not line.startswith("@@"):
+            patch_index += 1
+            continue
+
+        header = line.strip()
+        match = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", header)
+        if not match:
+            return None, f"invalid unified diff hunk header: {header}"
+
+        old_start = max(1, int(match.group(1)))
+        target_index = old_start - 1
+        if target_index < base_index:
+            return None, "patch hunks must be ordered and non-overlapping"
+
+        output_lines.extend(base_lines[base_index:target_index])
+        base_index = target_index
+        patch_index += 1
+
+        while patch_index < len(patch_lines) and not patch_lines[patch_index].startswith("@@"):
+            hunk_line = patch_lines[patch_index]
+            if hunk_line.startswith(" "):
+                if base_index >= len(base_lines):
+                    return None, "patch context exceeds file length"
+                output_lines.append(base_lines[base_index])
+                base_index += 1
+            elif hunk_line.startswith("-"):
+                if base_index >= len(base_lines):
+                    return None, "patch deletion exceeds file length"
+                base_index += 1
+            elif hunk_line.startswith("+"):
+                output_lines.append(hunk_line[1:])
+            elif hunk_line.startswith("\\ No newline at end of file"):
+                pass
+            elif hunk_line.startswith("---") or hunk_line.startswith("+++"):
+                pass
+            else:
+                return None, f"unsupported patch line: {hunk_line.rstrip()}"
+            patch_index += 1
+
+    output_lines.extend(base_lines[base_index:])
+    return "".join(output_lines), None
 
 
 def _register_change(
@@ -151,19 +238,33 @@ async def _read_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
             "next_offset": end if end < total else None,
         }
 
+    def _cached_response(scope: str, normalized_path: str, display_path: str, language: str, content: str) -> Dict[str, Any]:
+        cache = _get_read_cache(ctx)
+        digest = _content_hash(content)
+        cache_key = (scope, normalized_path.lower(), digest, offset, read_chars)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return dict(cached)
+
+        window = _window(content)
+        result = {
+            "ok": True,
+            "scope": scope,
+            "path": display_path,
+            "language": language or "plaintext",
+            "content_hash": digest,
+            **window,
+        }
+        cache[cache_key] = dict(result)
+        return result
+
     project = _get_project(ctx)
     if project is not None:
         pf = _find_project_file(project, path)
         if not pf:
             return {"ok": False, "error": f"File not found: {path}"}
         content = pf.content or ""
-        window = _window(content)
-        return {
-            "ok": True, "scope": "project",
-            "path": _norm(pf.name),
-            "language": pf.language or "plaintext",
-            **window,
-        }
+        return _cached_response("project", _norm(pf.name), _norm(pf.name), pf.language or "plaintext", content)
 
     ws = _get_ws(ctx)
     norm_lower = path.lower()
@@ -173,18 +274,10 @@ async def _read_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     if not entry:
         return {"ok": False, "error": f"File not found: {path}"}
     content = entry.get("content") or ""
-    window = _window(content)
-    return {
-        "ok": True, "scope": "workspace",
-        "path": entry["path"],
-        "language": entry.get("language", "plaintext"),
-        **window,
-    }
+    return _cached_response("workspace", entry["path"], entry["path"], entry.get("language", "plaintext"), content)
 
 
 # ── write_file ────────────────────────────────────────────────────────────────
-
-import os
 
 def _generate_render_url(path: str) -> str | None:
     """
@@ -208,14 +301,16 @@ def _generate_render_url(path: str) -> str | None:
 async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     path = _norm(args.get("path") or "")
     content = str(args.get("content") or "").replace("\x00", "")
+    patch_text = str(args.get("patch") or "").replace("\x00", "")
     language = str(args.get("language") or "plaintext")
     mode = str(args.get("mode") or "replace").strip().lower()
-    if mode not in {"replace", "append", "prepend"}:
-        return {"ok": False, "error": "mode must be one of: replace, append, prepend"}
+    if mode not in {"replace", "append", "prepend", "patch"}:
+        return {"ok": False, "error": "mode must be one of: replace, append, prepend, patch"}
     if not path:
         return {"ok": False, "error": "path is required"}
 
     render_url = _generate_render_url(path)
+    patch_source = patch_text or content
 
     project = _get_project(ctx)
     if project is not None:
@@ -223,7 +318,23 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
             from models import ProjectFile, db
             pf = _find_project_file(project, path)
             created = pf is None
-            if created:
+            base_content = pf.content if pf is not None else ""
+            if mode == "patch":
+                next_content, patch_error = _apply_unified_patch(base_content or "", patch_source)
+                if patch_error:
+                    return {"ok": False, "error": patch_error}
+                if next_content is None:
+                    return {"ok": False, "error": "patch application failed"}
+                if created:
+                    pf = ProjectFile(project_id=project.id, name=path, content=next_content, language=language)
+                    db.session.add(pf)
+                else:
+                    pf.content = next_content
+                    pf.name = path
+                    if language:
+                        pf.language = language
+                content = next_content
+            elif created:
                 pf = ProjectFile(project_id=project.id, name=path, content=content, language=language)
                 db.session.add(pf)
             else:
@@ -235,13 +346,15 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
                 else:
                     pf.content = content
                 pf.name = path
-                if language: pf.language = language
+                if language:
+                    pf.language = language
 
             if created and mode in {"append", "prepend"}:
                 # For new files, append/prepend are equivalent to replace.
                 pf.content = content
 
             db.session.commit()
+            _invalidate_read_cache(ctx, path)
 
             # Invalidate embedding cache if callback present
             inv = getattr(ctx, "invalidate_project_cache", None)
@@ -262,6 +375,7 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
                 "ok": True, "scope": "project",
                 "path": _norm(pf.name), "language": pf.language,
                 "size": len(pf.content or ""), "created": created, "persisted": True, "mode": mode,
+                "patched": mode == "patch",
                 "render_url": render_url,
             }
         except Exception as exc:
@@ -273,7 +387,13 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     created = path not in ws and path.lower() not in {k.lower() for k in ws}
     existing = ws.get(path) or {}
     base_content = existing.get("content") or ""
-    if mode == "append":
+    if mode == "patch":
+        next_content, patch_error = _apply_unified_patch(base_content, patch_source)
+        if patch_error:
+            return {"ok": False, "error": patch_error}
+        if next_content is None:
+            return {"ok": False, "error": "patch application failed"}
+    elif mode == "append":
         next_content = base_content + content
     elif mode == "prepend":
         next_content = content + base_content
@@ -290,6 +410,7 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
         "trust_id": existing.get("trust_id"),
         "trust_scope": existing.get("trust_scope"),
     }
+    _invalidate_read_cache(ctx, path)
     _register_change(
         ctx,
         "create" if created else "update",
@@ -305,6 +426,7 @@ async def _write_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
         "ok": True, "scope": "workspace",
         "path": path, "language": language,
         "size": len(next_content), "created": created, "persisted": False, "mode": mode,
+        "patched": mode == "patch",
         "render_url": render_url,
         "message": "Updated workspace snapshot. Apply changes locally on the client.",
     }
@@ -326,6 +448,7 @@ async def _delete_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
                 return {"ok": False, "error": f"File not found: {path}"}
             db.session.delete(pf)
             db.session.commit()
+            _invalidate_read_cache(ctx, path)
             inv = getattr(ctx, "invalidate_project_cache", None)
             if callable(inv):
                 try: inv(project.id)
@@ -341,6 +464,7 @@ async def _delete_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
     if not key:
         return {"ok": False, "error": f"File not found: {path}"}
     ws.pop(key)
+    _invalidate_read_cache(ctx, path)
     _register_change(ctx, "delete", path, persisted=False)
     return {
         "ok": True, "scope": "workspace", "path": path, "persisted": False,
@@ -395,19 +519,21 @@ def make_workspace_file_tools() -> List[Tool]:
             name="write_file",
             description=(
                 "Create or update a file in the active project or workspace. "
-                "Supports replace (default), append, and prepend modes."
+                "Supports replace (default), append, prepend, and patch modes. "
+                "Prefer patch mode with a unified diff for minimal edits."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Relative file path."},
                     "content": {"type": "string", "description": "Complete file content."},
+                    "patch": {"type": "string", "description": "Unified diff text used when mode is patch."},
                     "language": {"type": "string", "description": "Language label (optional)."},
                     "mode": {
                         "type": "string",
-                        "enum": ["replace", "append", "prepend"],
+                        "enum": ["replace", "append", "prepend", "patch"],
                         "default": "replace",
-                        "description": "Write mode: replace existing content, append to end, or prepend to beginning.",
+                        "description": "Write mode: replace existing content, append to end, prepend to beginning, or apply a unified diff patch.",
                     },
                 },
                 "required": ["path", "content"],

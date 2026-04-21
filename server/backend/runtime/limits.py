@@ -62,6 +62,10 @@ class TokenBudget:
     def is_over_budget(self) -> bool:
         return self._used >= self.max_tokens
 
+    def can_spend(self, estimated_tokens: int, reserve: int = 0) -> bool:
+        """Return True when the requested spend fits within the remaining budget."""
+        return self.remaining - max(0, int(reserve)) >= max(0, int(estimated_tokens))
+
     def to_dict(self) -> Dict[str, int]:
         return {
             "estimated_tokens": self._used,
