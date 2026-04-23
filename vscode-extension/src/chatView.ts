@@ -492,6 +492,120 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             border-color: rgba(248, 113, 113, 0.45);
             background: rgba(248, 113, 113, 0.08);
         }
+        .command-card {
+            margin-top: 14px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            font-family: 'Fira Code', monospace;
+        }
+        .command-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .command-body {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .command-icon-bullet {
+            width: 6px;
+            height: 6px;
+            background: #444;
+            border-radius: 50%;
+            margin-top: 6px;
+            flex-shrink: 0;
+        }
+        .command-text {
+            flex-grow: 1;
+            font-size: 13px;
+            color: #ccc;
+            white-space: pre-wrap;
+            word-break: break-all;
+            line-height: 1.4;
+        }
+        .command-actions {
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .command-btn {
+            background: none;
+            border: none;
+            color: #777;
+            cursor: pointer;
+            padding: 4px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .command-btn:hover {
+            color: #fff;
+            transform: scale(1.1);
+        }
+        .command-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+        .command-output {
+            margin-top: 4px;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+            font-size: 12px;
+            color: #f1c40f;
+            display: none;
+            border-left: 2px solid #f1c40f;
+        }
+        .command-output.visible {
+            display: block;
+        }
+        .payment-card {
+            margin-top: 14px;
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            border-radius: var(--radius-md);
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            text-align: center;
+            animation: bounceIn 0.5s cubic-bezier(0.36, 0, 0.66, -0.56) 0.2s both;
+        }
+        @keyframes bounceIn {
+            0% { opacity: 0; transform: scale(0.3); }
+            50% { opacity: 1; transform: scale(1.05); }
+            70% { transform: scale(0.9); }
+            100% { transform: scale(1); }
+        }
+        .payment-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #fbbf24;
+        }
+        .payment-header svg {
+            filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.4));
+        }
+        .payment-desc {
+            font-size: 12.5px;
+            color: var(--text-main);
+            line-height: 1.5;
+        }
         .action-header {
             display: flex;
             align-items: center;
@@ -540,6 +654,31 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         .balance-chip:hover {
             border-color: rgba(139, 92, 246, 0.6);
             box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
+        }
+
+        .balance-chip.verifying {
+            opacity: 0.72;
+            border-color: rgba(148, 163, 184, 0.35);
+            box-shadow: none;
+        }
+
+        .auth-sync-indicator {
+            padding: 4px 9px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            background: rgba(148, 163, 184, 0.08);
+            color: #cbd5f5;
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            animation: pulseAuthSync 1.6s ease-in-out infinite;
+        }
+
+        @keyframes pulseAuthSync {
+            0% { opacity: 0.6; transform: translateY(0); }
+            50% { opacity: 1; transform: translateY(-1px); }
+            100% { opacity: 0.6; transform: translateY(0); }
         }
 
         .balance-icon {
@@ -799,6 +938,11 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             animation: none;
         }
 
+        .request-status.syncing .request-status-dot {
+            background: #a78bfa;
+            box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.55);
+        }
+
         @keyframes pulseStatus {
             0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55); }
             70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
@@ -884,6 +1028,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             <div class="header-title">CodeAlchemist</div>
         </div>
         <div class="header-center">
+            <div id="auth-sync-indicator" class="auth-sync-indicator hidden">Yenileniyor</div>
             <div id="balance-chip" class="balance-chip">
                 <svg class="balance-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
                 <span id="balance-amount">0</span>
@@ -991,6 +1136,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         const modelSelect = document.getElementById('model-select');
         const requestStatus = document.getElementById('request-status');
         const requestStatusText = document.getElementById('request-status-text');
+        const authSyncIndicator = document.getElementById('auth-sync-indicator');
+        let authRefreshTimeoutId = null;
+        let hasReceivedAuthStatus = false;
 
         // Application State (The Single Source of Truth)
         const appState = {
@@ -1003,6 +1151,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             balance: 0,
             purchaseUrl: '',
             authError: '',
+            isVerifying: false,
+            reconnecting: false,
             
             // Boot Sequence Gating
             ready: {
@@ -1028,6 +1178,42 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
 *Nasıl yardımcı olabilirim?*\`;
 
+        function clearAuthRefreshTimeout() {
+            if (authRefreshTimeoutId) {
+                clearTimeout(authRefreshTimeoutId);
+                authRefreshTimeoutId = null;
+            }
+        }
+
+        function requestAuthRefresh() {
+            vscode.postMessage({ command: 'refreshAuthStatus' });
+        }
+
+        function scheduleAuthRefreshTimeout() {
+            clearAuthRefreshTimeout();
+            if (!appState.isVerifying) {
+                return;
+            }
+
+            authRefreshTimeoutId = setTimeout(() => {
+                if (!appState.isVerifying) {
+                    return;
+                }
+
+                appState.reconnecting = true;
+                appState.authError = 'Oturum doğrulaması gecikti. Yeniden bağlanılıyor...';
+                syncUi();
+                persist();
+                requestAuthRefresh();
+            }, 3000);
+        }
+
+        function getAuthSyncStatusText() {
+            return appState.reconnecting
+                ? 'Oturum yeniden bağlanıyor...'
+                : 'Oturum doğrulanıyor...';
+        }
+
         // ── Deterministic FSM ──
         function dispatch(action) {
             logStateTransition(action);
@@ -1043,6 +1229,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     }
                     if (action.payload.phase) {
                         appState.phase = action.payload.phase;
+                        if (appState.phase === 'IDLE') {
+                            appState.requestId = '';
+                        }
                     }
                     if (action.payload.text) {
                         appState.statusText = action.payload.text;
@@ -1053,23 +1242,34 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     break;
                 case 'UX_ASK':
                     if (appState.phase !== 'IDLE') return; // Guard
+                    appState.requestId = ''; // Clear stale ID to allow new request events
                     appState.phase = 'REQUEST_INITIATED';
                     appState.statusText = 'Working...';
                     break;
                 case 'IDLE':
                     appState.phase = 'IDLE';
                     appState.statusText = '';
+                    appState.requestId = ''; // Clear authority
                     break;
                 case 'HEALTH_UPDATE':
                     appState.health = action.payload;
                     appState.ready.provider = true;
                     break;
                 case 'AUTH_UPDATE':
+                    hasReceivedAuthStatus = true;
                     appState.isAuthenticated = action.payload.isAuthenticated;
-                    appState.balance = action.payload.balance || 0;
-                    appState.purchaseUrl = action.payload.purchaseUrl || '';
-                    appState.authError = action.payload.error || '';
+                    appState.balance = typeof action.payload.balance === 'number' ? action.payload.balance : 0;
+                    appState.purchaseUrl = typeof action.payload.purchaseUrl === 'string' ? action.payload.purchaseUrl : '';
+                    appState.authError = typeof action.payload.error === 'string' ? action.payload.error : '';
+                    appState.isVerifying = Boolean(action.payload.isVerifying);
+                    appState.reconnecting = Boolean(action.payload.reconnecting);
                     appState.ready.provider = true;
+                    if (appState.isVerifying) {
+                        scheduleAuthRefreshTimeout();
+                    } else {
+                        clearAuthRefreshTimeout();
+                    }
+                    persist();
                     break;
             }
 
@@ -1090,9 +1290,10 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             const isOnline = appState.health === 'online';
             const canAttemptRequest = appState.health !== 'offline';
             const isBusy = !isIdle;
+            const isAuthSettling = appState.isVerifying || appState.reconnecting;
 
             // Gating interaction
-            const canChat = isFullyReady && isIdle && canAttemptRequest && appState.isAuthenticated;
+            const canChat = isFullyReady && isIdle && canAttemptRequest && appState.isAuthenticated && !isAuthSettling;
             sendBtn.disabled = !canChat;
             chatInput.disabled = !canChat;
             if (stopBtn) {
@@ -1100,19 +1301,24 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 stopBtn.classList.toggle('btn-hidden', !isBusy);
             }
             sendBtn.classList.toggle('btn-hidden', isBusy);
-            chatInput.placeholder = isOnline ? "Sorunuzu sorun veya '/' ile komutları görün..." : "Bakım modunda veya çevrimdışı...";
+            chatInput.placeholder = isAuthSettling
+                ? "Oturum yenileniyor..."
+                : (isOnline ? "Sorunuzu sorun veya '/' ile komutları görün..." : "Bakım modunda veya çevrimdışı...");
             resetBtn.disabled = !isFullyReady;
             historyBtn.disabled = !isFullyReady;
             newChatBtn.disabled = !isFullyReady;
 
             // Status Bar Visibility
-            if (isIdle || !isFullyReady) {
+            if (!isAuthSettling && (isIdle || !isFullyReady)) {
                 requestStatus.classList.add('hidden');
             } else {
                 requestStatus.classList.remove('hidden');
-                requestStatus.classList.toggle('generating', appState.phase === 'REQUEST_STREAMING');
-                requestStatus.classList.toggle('error', appState.phase === 'REQUEST_FAILED');
-                requestStatusText.textContent = appState.statusText || getDefaultStatusText(appState.phase);
+                requestStatus.classList.toggle('syncing', isAuthSettling);
+                requestStatus.classList.toggle('generating', !isAuthSettling && appState.phase === 'REQUEST_STREAMING');
+                requestStatus.classList.toggle('error', !isAuthSettling && appState.phase === 'REQUEST_FAILED');
+                requestStatusText.textContent = isAuthSettling
+                    ? getAuthSyncStatusText()
+                    : (appState.statusText || getDefaultStatusText(appState.phase));
             }
 
             // Health Indicator UI
@@ -1133,8 +1339,11 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             const authGate = document.getElementById('auth-gate');
             const authError = document.getElementById('auth-error');
             
-            if (appState.isAuthenticated) {
+            const shouldKeepAuthGateHidden = appState.isAuthenticated || appState.isVerifying || appState.reconnecting;
+
+            if (shouldKeepAuthGateHidden) {
                 authGate.classList.add('hidden');
+                authError.classList.remove('visible');
             } else {
                 authGate.classList.remove('hidden');
                 if (appState.authError) {
@@ -1149,6 +1358,16 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             const balanceAmount = document.getElementById('balance-amount');
             if (balanceAmount) {
                 balanceAmount.textContent = appState.balance.toLocaleString();
+            }
+
+            if (authSyncIndicator) {
+                authSyncIndicator.textContent = appState.reconnecting ? 'Yeniden bağlanıyor' : 'Yenileniyor';
+                authSyncIndicator.classList.toggle('hidden', !appState.isAuthenticated || !isAuthSettling);
+            }
+
+            const balanceChip = document.getElementById('balance-chip');
+            if (balanceChip) {
+                balanceChip.classList.toggle('verifying', appState.isAuthenticated && isAuthSettling);
             }
         }
 
@@ -1183,12 +1402,15 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             renderHistory();
             vscode.postMessage({ command: 'webviewReady' });
             setTimeout(() => {
-                if (!appState.ready.provider) {
-                    appState.ready.provider = true;
-                    syncUi();
-                    vscode.postMessage({ command: 'webviewReady' });
+                if (!hasReceivedAuthStatus || appState.isVerifying) {
+                    if (appState.isAuthenticated) {
+                        appState.reconnecting = true;
+                        syncUi();
+                        persist();
+                    }
+                    requestAuthRefresh();
                 }
-            }, 1500);
+            }, 3000);
         }
 
         function setupMessageListener() {
@@ -1268,7 +1490,13 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             vscode.setState({
                 chatSessions: appState.chatSessions,
                 activeSessionId: appState.activeSessionId,
-                selectedModel: appState.selectedModel
+                selectedModel: appState.selectedModel,
+                isAuthenticated: appState.isAuthenticated,
+                balance: appState.balance,
+                purchaseUrl: appState.purchaseUrl,
+                authError: appState.authError,
+                isVerifying: appState.isVerifying,
+                reconnecting: appState.reconnecting
             });
         }
 
@@ -1277,6 +1505,12 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             appState.chatSessions = Array.isArray(saved.chatSessions) ? saved.chatSessions.map(normalizeSession) : [];
             appState.activeSessionId = typeof saved.activeSessionId === 'string' ? saved.activeSessionId : '';
             appState.selectedModel = typeof saved.selectedModel === 'string' ? saved.selectedModel : appState.selectedModel;
+            appState.isAuthenticated = Boolean(saved.isAuthenticated);
+            appState.balance = typeof saved.balance === 'number' ? saved.balance : 0;
+            appState.purchaseUrl = typeof saved.purchaseUrl === 'string' ? saved.purchaseUrl : '';
+            appState.authError = typeof saved.authError === 'string' ? saved.authError : '';
+            appState.isVerifying = Boolean(saved.isVerifying);
+            appState.reconnecting = Boolean(saved.reconnecting);
 
             if (appState.chatSessions.length === 0) {
                 const s = createSession();
@@ -1287,6 +1521,16 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 const found = appState.chatSessions.some((s) => s.id === appState.activeSessionId);
                 if (!found) appState.activeSessionId = appState.chatSessions[0].id;
                 setDefaultGreetingIfNeeded(getActiveSession());
+            }
+
+            if (appState.isAuthenticated) {
+                appState.isVerifying = true;
+                appState.reconnecting = false;
+                appState.ready.provider = true;
+                scheduleAuthRefreshTimeout();
+            } else {
+                appState.isVerifying = false;
+                appState.reconnecting = false;
             }
         }
 
@@ -1391,12 +1635,18 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         }
 
         function purgeState() {
+            clearAuthRefreshTimeout();
             appState.chatSessions = [];
             const s = createSession();
             setDefaultGreetingIfNeeded(s);
             appState.chatSessions.push(s);
             appState.activeSessionId = s.id;
+            appState.isAuthenticated = false;
             appState.balance = 0;
+            appState.purchaseUrl = '';
+            appState.authError = 'Logged out.';
+            appState.isVerifying = false;
+            appState.reconnecting = false;
             renderActiveSession();
             renderHistory();
             persist();
@@ -1547,6 +1797,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         function handleActionFound(action) {
             if (action.action === 'edit_file') addActionCard(action);
             else if (action.action === 'multi_edit') action.changes.forEach(c => addActionCard({ ...c, action: 'edit_file' }));
+            else if (action.action === 'run_command') addCommandCard(action);
+            else if (action.action === 'payment') addPaymentCard(action);
         }
 
         function bindActionCardButtons(card, cardId) {
@@ -1589,6 +1841,100 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             bindActionCardButtons(card, cardId);
             appState.currentAiMessageElement.appendChild(card);
             chatContainer.scrollTop = chatContainer.scrollHeight;
+            if (appState.currentAiBubble) {
+                appState.currentAiBubble.appendChild(card);
+            } else {
+                appState.currentAiMessageElement.appendChild(card);
+            }
+        }
+
+        function addCommandCard(action) {
+            const cardId = 'cmd-' + Math.random().toString(36).slice(2, 9);
+            const card = document.createElement('div');
+            card.className = 'command-card';
+            card.dataset.actionId = cardId;
+            card.innerHTML = \`
+                <div class="command-header">
+                    <span>Terminal Komutu</span>
+                </div>
+                <div class="command-body">
+                    <div class="command-icon-bullet"></div>
+                    <div class="command-text">\${escapeHtml(action.command)}</div>
+                </div>
+                <div class="command-actions" style="justify-content: flex-end; margin-top: 8px;">
+                    <button class="btn btn-primary run-btn" style="padding: 4px 12px; font-size: 11px;">Onayla</button>
+                    <button class="btn btn-secondary discard-btn" style="padding: 4px 12px; font-size: 11px;">Reddet</button>
+                    <button class="command-btn popout-btn" title="Yeni Terminalde Aç" style="margin-left: 8px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    </button>
+                </div>
+                <div class="command-output"></div>
+            \`;
+            card._actionData = action;
+            
+            const runBtn = card.querySelector('.run-btn');
+            runBtn.addEventListener('click', () => {
+                const output = card.querySelector('.command-output');
+                output.textContent = '> Komut onaylandı, çalıştırılıyor...';
+                output.classList.add('visible');
+                runBtn.disabled = true;
+                const dBtn = card.querySelector('.discard-btn');
+                if (dBtn) dBtn.disabled = true;
+                window.resolveCard(cardId, 'accept');
+            });
+
+            const discardBtn = card.querySelector('.discard-btn');
+            discardBtn.addEventListener('click', () => {
+                card.remove();
+            });
+
+            const popoutBtn = card.querySelector('.popout-btn');
+            popoutBtn.addEventListener('click', () => {
+                vscode.postMessage({ command: 'runCommand', actionId: cardId, command: action.command, cwd: action.cwd, newTerminal: true });
+            });
+
+            if (appState.currentAiBubble) {
+                appState.currentAiBubble.appendChild(card);
+            } else {
+                appState.currentAiMessageElement.appendChild(card);
+            }
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function addPaymentCard(action) {
+            const cardId = 'pay-' + Math.random().toString(36).slice(2, 9);
+            const card = document.createElement('div');
+            card.className = 'payment-card';
+            card.dataset.actionId = cardId;
+            card.innerHTML = \`
+                <div class="payment-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+                    <span>Yetersiz Token</span>
+                </div>
+                <div class="payment-desc">\${escapeHtml(action.message || 'Maalesef işleminiz için yeterli token bulunmuyor. Devam etmek için bakiye yükleyebilirsiniz.')}</div>
+                <div class="action-footer" style="justify-content: center;">
+                    <button class="btn btn-primary action-pay-btn" style="background: #fbbf24; color: #000;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-4"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                        Bakiye Yükle
+                    </button>
+                    <button class="btn btn-secondary action-discard-btn">Kapat</button>
+                </div>
+            \`;
+            
+            card.querySelector('.action-pay-btn').addEventListener('click', () => {
+                vscode.postMessage({ command: 'openPurchase' });
+            });
+
+            card.querySelector('.action-discard-btn').addEventListener('click', () => {
+                card.remove();
+            });
+
+            if (appState.currentAiBubble) {
+                appState.currentAiBubble.appendChild(card);
+            } else {
+                appState.currentAiMessageElement.appendChild(card);
+            }
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
         window.resolveCard = (cid, decision) => {
@@ -1623,6 +1969,18 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             console.log('[CodeAlchemist] updateActionCard: ' + aid + ' -> ' + status);
             const card = document.querySelector('[data-action-id="' + aid + '"]');
             if (!card) return;
+
+            // Command Card özel durumu
+            if (card && card.classList.contains('command-card')) {
+                const output = card.querySelector('.command-output');
+                if (output) {
+                    output.textContent = msg;
+                    output.classList.add('visible');
+                    if (status === 'applied') output.style.color = '#2ecc71';
+                    else if (status === 'error') output.style.color = '#e74c3c';
+                }
+                return;
+            }
             card.querySelector('.action-status').textContent = msg || status;
             card.className = 'action-card ' + (status === 'applied' ? 'is-applied' : status === 'rejected' ? 'is-rejected' : status === 'reverted' ? '' : 'is-error');
             
@@ -1650,7 +2008,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
         function sendMsg() {
             const text = chatInput.value.trim();
-            if (!text || appState.phase !== 'IDLE') return;
+            if (!text || appState.phase !== 'IDLE' || appState.isVerifying || appState.reconnecting) return;
             addMessage(text, 'user');
             // Start a fresh AI container for this request before streaming begins.
             addMessage('', 'ai');

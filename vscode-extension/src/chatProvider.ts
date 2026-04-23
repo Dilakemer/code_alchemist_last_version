@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { getChatWebviewContent } from './chatView.js';
 import { getWorkspaceContext, getWorkspaceRoot } from './workspaceContext.js';
-import { sendAskRequest, getBackendStatus, deriveEndpointRoot, getHistory, getConversationHistory, getVscodeOtp } from './apiClient.js';
+import { sendAskRequest, getBackendStatus, deriveEndpointRoot, getHistory, getConversationHistory, getVscodeOtp, cancelAskRequest } from './apiClient.js';
 import { parseAiActions, validateFilePath, applyFileEdit, applyMultiEdit } from './actionHandler.js';
 import { showDiffAndConfirm, showMultiDiffAndConfirm } from './diffPreview.js';
 import type { AskRequestPayload, AiAction } from './types.js';
@@ -20,6 +20,15 @@ import { HealthMonitor } from './healthMonitor.js';
 type SidebarModelOption = {
   value: string;
   label: string;
+};
+
+type AuthBroadcastOverrides = {
+  isAuthenticated?: boolean;
+  balance?: number;
+  purchaseUrl?: string;
+  error?: string;
+  isVerifying?: boolean;
+  reconnecting?: boolean;
 };
 
 const SIDEBAR_MODEL_OPTIONS: SidebarModelOption[] = [
@@ -163,10 +172,14 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private _currentPhase: 'IDLE' | 'REQUEST_INITIATED' | 'REQUEST_STREAMING' | 'REQUEST_COMPLETED' | 'REQUEST_FAILED' | 'REQUEST_CANCELLED' = 'IDLE';
   private _trustMap: Map<string, string> = new Map(); // path -> trust_id
   private _activeAbortController?: AbortController;
+  private _currentSessionId: string | undefined;
   private _isAuthenticated: boolean = false;
   private _authError: string = '';
   private _balance: number = 0;
   private _purchaseUrl: string = '';
+  private _isAuthVerifying: boolean = false;
+  private _isAuthReconnecting: boolean = false;
+  private _authRefreshRunId: number = 0;
   private static _instances: Set<CodeAlchemistChatProvider> = new Set();
 
   public static refreshAll() {
@@ -210,12 +223,13 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     CodeAlchemistChatProvider._instances.add(this);
   }
 
-  public resolveWebviewView(
+  public async resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken,
   ) {
     this._view = webviewView;
+    CodeAlchemistChatProvider._instances.add(this);
 
     webviewView.webview.options = {
       enableScripts: true,
@@ -230,9 +244,8 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       modelOptions: SIDEBAR_MODEL_OPTIONS,
     });
 
-    // Broadcast initial state snapshot immediately
     this._broadcastSnapshot();
-    void this.refreshAuthStatus();
+    void this._runAuthRefreshCycle();
 
     // ── Health Monitor Integration ─────────────────────────────
     const healthMonitor = HealthMonitor.getInstance();
@@ -257,6 +270,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       switch (data.command) {
         case 'webviewReady':
           this._broadcastSnapshot();
+          await this._runAuthRefreshCycle();
           webviewView.webview.postMessage({
             command: 'HEALTH_STATUS',
             status: healthMonitor.status,
@@ -269,6 +283,9 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
               timestamp: Date.now()
             });
           });
+          break;
+        case 'refreshAuthStatus':
+          await this._runAuthRefreshCycle(true);
           break;
         case 'healthCheck':
           await healthMonitor.checkNow();
@@ -292,6 +309,9 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
           break;
         case 'resolveAction':
           await this._handleResolveAction(data.action, data.decision, data.actionId);
+          break;
+        case 'runCommand':
+          await this._handleResolveAction({ action: 'run_command', command: data.command, cwd: data.cwd, newTerminal: data.newTerminal }, 'accept', data.actionId);
           break;
         case 'setModel':
           await this._handleSetModel(data.model);
@@ -317,67 +337,134 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     // Cleanup
     webviewView.onDidDispose(() => {
       healthSub.dispose();
-      CodeAlchemistChatProvider._instances.delete(this);
       this._view = undefined;
     });
   }
-  public async refreshAuthStatus() {
-    const apiKey = await this._readApiKey();
-    const hasKey = !!apiKey;
-    
-    // Step 1: Immediate unlock if key exists (Fast UI)
-    this._isAuthenticated = hasKey;
-    this._authError = hasKey ? '' : 'Please login to continue.';
-    this._broadcastAuthStatus();
 
-    if (hasKey) {
-        void this._syncHistory();
-    }
+  private _setLoggedOutAuthState(message: string) {
+    this._isAuthenticated = false;
+    this._balance = 0;
+    this._purchaseUrl = '';
+    this._authError = message;
+  }
 
+  private async _primeLocalAuthState(): Promise<void> {
+    const hasKey = !!(await this._readApiKey());
     if (!hasKey) {
+      this._setLoggedOutAuthState('Please login to continue.');
       return;
     }
 
-    // Step 2: Background Validation (Silent check)
+    this._isAuthenticated = true;
+    if (
+      this._authError === 'Please login to continue.' ||
+      this._authError === 'Logged out.'
+    ) {
+      this._authError = '';
+    }
+  }
+
+  private async _runAuthRefreshCycle(reconnecting = false): Promise<void> {
+    await this._primeLocalAuthState();
+    this._isAuthVerifying = true;
+    this._isAuthReconnecting = reconnecting;
+    await this._broadcastAuthStatus();
+    await this.refreshAuthStatus();
+
+    if (this._isAuthVerifying) {
+      this._isAuthVerifying = false;
+      await this._broadcastAuthStatus();
+    }
+  }
+
+  public async refreshAuthStatus() {
+    const runId = ++this._authRefreshRunId;
+    const apiKey = await this._readApiKey();
+    const hasKey = !!apiKey;
+
+    if (!hasKey) {
+      this._setLoggedOutAuthState('Please login to continue.');
+      this._isAuthVerifying = false;
+      this._isAuthReconnecting = false;
+      await this._broadcastAuthStatus();
+      return;
+    }
+
+    this._isAuthenticated = true;
+    if (
+      this._authError === 'Please login to continue.' ||
+      this._authError === 'Logged out.'
+    ) {
+      this._authError = '';
+    }
+    await this._broadcastAuthStatus();
+    void this._syncHistory();
+
     const cfg = vscode.workspace.getConfiguration('codeAlchemist');
     const endpoint = (cfg.get<string>('endpoint') || '').trim();
-    if (!endpoint) return;
+    if (!endpoint) {
+      this._isAuthVerifying = false;
+      this._isAuthReconnecting = true;
+      this._authError = 'Endpoint yapılandırması eksik. Yeniden bağlanılıyor...';
+      await this._broadcastAuthStatus();
+      return;
+    }
 
     try {
       const root = deriveEndpointRoot(endpoint);
       this._output.appendLine(`[Auth] Validating session at: ${root}/v1/status`);
       const status = await getBackendStatus(endpoint, apiKey);
-      
-      if (status.status === 'unauthorized') {
-        this._isAuthenticated = false;
-        this._balance = 0;
-        this._purchaseUrl = '';
-        this._authError = 'Oturum süresi dolmuş veya geçersiz. Lütfen tekrar giriş yapın.';
-        this._broadcastAuthStatus();
-      } else if (status.status === 'ok') {
-        this._balance = (status as any).balance ?? 0;
-        this._purchaseUrl = (status as any).purchase_url ?? '';
-        
-        // Validation success - confirm auth state
-        if (!this._isAuthenticated) {
-          this._isAuthenticated = true;
-          this._authError = '';
-        }
-        this._output.appendLine(`[Auth] Updated local state: user=${status.user}, balance=${this._balance}`);
-        this._broadcastAuthStatus();
+
+      if (runId !== this._authRefreshRunId) {
+        return;
       }
+
+      if (status.status === 'unauthorized' || status.auth_state === 'unauthorized') {
+        this._setLoggedOutAuthState('Oturum süresi dolmuş veya geçersiz. Lütfen tekrar giriş yapın.');
+        this._isAuthVerifying = false;
+        this._isAuthReconnecting = false;
+        await this._broadcastAuthStatus();
+        return;
+      }
+
+      if (status.status === 'ok') {
+        this._balance = status.balance ?? 0;
+        this._purchaseUrl = status.purchase_url ?? '';
+        this._isAuthenticated = true;
+        this._authError = '';
+        this._isAuthVerifying = false;
+        this._isAuthReconnecting = false;
+        this._output.appendLine(`[Auth] Updated local state: user=${status.user}, balance=${this._balance}`);
+        await this._broadcastAuthStatus();
+        return;
+      }
+
+      this._isAuthVerifying = false;
+      this._isAuthReconnecting = true;
+      this._authError = status.error
+        ? `Oturum doğrulanamadı: ${status.error}`
+        : 'Oturum doğrulaması gecikti. Yeniden bağlanılıyor...';
+      await this._broadcastAuthStatus();
     } catch (err) {
+      if (runId !== this._authRefreshRunId) {
+        return;
+      }
+
       this._output.appendLine(`[Auth] Background validation failed: ${err}`);
       console.warn('Background auth validation failed:', err);
+      this._isAuthVerifying = false;
+      this._isAuthReconnecting = true;
+      this._authError = 'Oturum doğrulaması gecikti. Yeniden bağlanılıyor...';
+      await this._broadcastAuthStatus();
     }
   }
 
   private async _handleLogout() {
     const API_KEY_SECRET_NAME = 'codeAlchemist.apiKey';
     await this._context.secrets.delete(API_KEY_SECRET_NAME);
-    this._isAuthenticated = false;
-    this._balance = 0;
-    this._authError = 'Logged out.';
+    this._setLoggedOutAuthState('Logged out.');
+    this._isAuthVerifying = false;
+    this._isAuthReconnecting = false;
     
     // Purge UI state in webview
     if (this._view) {
@@ -421,6 +508,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     try {
       const res = await getConversationHistory(endpoint, apiKey, sessionId);
       if (res.status === 'ok' && res.messages) {
+        this._currentSessionId = sessionId;
         this._view.webview.postMessage({
           command: 'SESSION_DETAILS',
           sessionId,
@@ -432,16 +520,28 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private _broadcastAuthStatus() {
+  private async _broadcastAuthStatus(overrides: AuthBroadcastOverrides = {}) {
     if (!this._view) return;
-    this._view.webview.postMessage({
+
+    const payload = {
       command: 'AUTH_STATUS',
-      isAuthenticated: this._isAuthenticated,
-      balance: this._balance,
-      purchaseUrl: this._purchaseUrl,
-      error: this._authError,
+      isAuthenticated: overrides.isAuthenticated ?? this._isAuthenticated,
+      balance: overrides.balance ?? this._balance,
+      purchaseUrl: overrides.purchaseUrl ?? this._purchaseUrl,
+      error: overrides.error ?? this._authError,
+      isVerifying: overrides.isVerifying ?? this._isAuthVerifying,
+      reconnecting: overrides.reconnecting ?? this._isAuthReconnecting,
       timestamp: Date.now()
-    });
+    };
+
+    try {
+      const delivered = await this._view.webview.postMessage(payload);
+      if (!delivered) {
+        this._output.appendLine('[Auth] AUTH_STATUS was not delivered to the webview.');
+      }
+    } catch (err) {
+      this._output.appendLine(`[Auth] Failed to broadcast auth status: ${String(err)}`);
+    }
   }
 
   private async _handleOpenPurchase() {
@@ -521,6 +621,20 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         return;
       }
 
+      // ── 💰 UI-Side Token Guard ────────────────────────────────
+      if (this._isAuthenticated && this._balance <= 0) {
+        this._view.webview.postMessage({
+          command: 'action_found',
+          requestId: this._activeRequestId,
+          action: {
+            action: 'payment',
+            message: 'Bakiyeniz tükendiği için yeni istek yapamazsınız. Devam etmek için bakiye yüklemeniz gerekmektedir.'
+          },
+        });
+        this._sendStateEvent('REQUEST_FAILED', 'Yetersiz bakiye.');
+        return;
+      }
+
       const wsContext = await getWorkspaceContext(workspaceFileLimit);
 
       // Update Trust Map for recovery
@@ -547,6 +661,8 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         workspace_root: wsContext.workspaceRoot || '',
         open_files: wsContext.openFiles || [],
         workspace_files: wsContext.workspaceFiles,
+        conversation_id: this._currentSessionId,
+        request_id: this._activeRequestId,
         client_context: {
           source: 'vscode-extension-sidebar',
           extension: 'code-alchemist',
@@ -591,8 +707,30 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         payload,
         mockOutput as any,
         this._activeAbortController.signal,
-        { preferJson: agentMode },
+        {
+          preferJson: agentMode,
+          onMeta: (meta) => {
+            if (meta.balance !== undefined) {
+              this._view?.webview.postMessage({
+                command: 'UPDATE_BALANCE',
+                balance: meta.balance,
+                purchase_url: meta.purchase_url || ''
+              });
+            }
+          }
+        },
       );
+
+      // 💰 Update local balance and broadcast to webview
+      if (typeof result.balance === "number") {
+        this._balance = result.balance;
+        void this._broadcastAuthStatus();
+      }
+
+      // 📜 Update Session ID for continuous conversation
+      if (result.raw?.conversation_id) {
+        this._currentSessionId = String(result.raw.conversation_id);
+      }
 
       // Handle Trace Steps (Render timeline in sidebar)
       if (result.agentTrace && Array.isArray(result.agentTrace)) {
@@ -626,24 +764,54 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         });
       }
 
-    } catch (err) {
+    } catch (err: any) {
+      // 🔄 Sync balance even on error/abort (Reactive fallback)
+      void this.refreshAuthStatus();
+
       if (this._activeAbortController?.signal.aborted) {
         this._view.webview.postMessage({
           command: 'stream_chunk',
           requestId: this._activeRequestId,
           text: '\n\n⏹️ Yanıt durduruldu.',
         });
+
+        // If the error object has a balance (from our 499 response), update it immediately
+        if (err?.balance !== undefined) {
+          this._balance = err.balance;
+          void this._broadcastAuthStatus();
+        }
+
         this._sendStateEvent('REQUEST_CANCELLED', 'Yanıt durduruldu.');
         return;
       }
 
       const msg = err instanceof Error ? err.message : String(err);
-      this._view.webview.postMessage({
-        command: 'stream_chunk',
-        requestId: this._activeRequestId,
-        text: `\n\n❌ Hata: ${msg}`,
-      });
-      this._sendStateEvent('REQUEST_FAILED', 'İstek başarısız oldu.');
+      const balance = err?.balance;
+      
+      if (balance !== undefined) {
+        this._balance = balance;
+        void this._broadcastAuthStatus();
+      }
+      
+      // Specialized handling for Insufficient Balance (HTTP 402)
+      if (msg.includes('402')) {
+        this._view.webview.postMessage({
+          command: 'action_found',
+          requestId: this._activeRequestId,
+          action: {
+            action: 'payment',
+            message: msg.replace(/Backend returned 402: /i, '')
+          },
+        });
+        this._sendStateEvent('REQUEST_FAILED', 'Yetersiz bakiye.');
+      } else {
+        this._view.webview.postMessage({
+          command: 'stream_chunk',
+          requestId: this._activeRequestId,
+          text: `\n\n❌ Hata: ${msg}`,
+        });
+        this._sendStateEvent('REQUEST_FAILED', 'İstek başarısız oldu.');
+      }
     } finally {
       this._isAskInFlight = false;
       this._activeAbortController = undefined;
@@ -651,11 +819,32 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private _handleStopAsk() {
+  private async _handleStopAsk() {
     if (!this._isAskInFlight) {
       return;
     }
-    this._activeAbortController?.abort();
+    
+    // Capture the exact request that is being stopped to prevent race conditions
+    const rid = this._activeRequestId;
+    const abortCtrl = this._activeAbortController;
+    
+    const cfg = vscode.workspace.getConfiguration('codeAlchemist');
+    const endpoint = (cfg.get<string>('endpoint') || 'http://localhost:5000').trim();
+    const apiKey = await this._readApiKey(); // Use await for reliable key access
+
+    console.log(`[STOP] Manually stopping request: ${rid}`);
+    
+    // 🛑 Signal 1: Local cancellation
+    abortCtrl?.abort();
+    
+    // 🛑 Signal 2: Backend cancellation
+    if (rid && apiKey) {
+        // Notify backend to kill the agent process
+        await cancelAskRequest(endpoint, apiKey, rid).catch(e => console.error('[CANCEL] signal failed:', e));
+        
+        // Final sync: Pull balance after stop signal is confirmed processed by backend
+        setTimeout(() => void this.refreshAuthStatus(), 500);
+    }
   }
 
   private async _handleSetModel(modelValue: string) {
@@ -759,6 +948,56 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         status: 'rejected',
         message: 'Reddedildi',
       });
+      return;
+    }
+
+    if (action.action === 'run_command') {
+      try {
+        const cmd = action.command || (action as any).script || '';
+        if (!cmd) throw new Error('Komut içeriği boş.');
+
+        let terminal;
+        if (action.newTerminal) {
+           terminal = vscode.window.createTerminal({
+              name: `CodeAlchemist (${new Date().toLocaleTimeString()})`,
+              cwd: action.cwd
+           });
+        } else {
+           terminal = vscode.window.terminals.find(t => t.name === 'CodeAlchemist (bash)');
+           if (!terminal) {
+             try {
+               terminal = vscode.window.createTerminal({
+                 name: 'CodeAlchemist (bash)',
+                 shellPath: 'bash',
+                 cwd: action.cwd
+               });
+             } catch (e) {
+               terminal = vscode.window.createTerminal({
+                 name: 'CodeAlchemist (bash)',
+                 cwd: action.cwd
+               });
+             }
+           }
+        }
+        
+        terminal.show(true); // show and take focus
+        terminal.sendText(cmd);
+        
+        this._view.webview.postMessage({
+          command: 'action_result',
+          actionId,
+          status: 'applied',
+          message: 'Komut bash terminaline gönderildi.',
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this._view.webview.postMessage({
+          command: 'action_result',
+          actionId,
+          status: 'error',
+          message: `Komut çalıştırılamadı: ${msg}`,
+        });
+      }
       return;
     }
 
