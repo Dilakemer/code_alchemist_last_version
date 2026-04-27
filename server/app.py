@@ -1370,14 +1370,21 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
     # Model Seçimi
     if requested_model and ('gemini' in requested_model or 'gemma' in requested_model):
         model_mapping = {
+            # Gemini 3
+            'gemini-3-flash-preview': 'gemini-3-flash-preview',
+            # Gemini 3.1
             'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite-preview',
             'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
+            # Gemini 2.5
             'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
             'gemini-2.5-flash': 'gemini-2.5-flash',
+            # Gemma 4
             'gemma-4-26b': 'gemma-4-26b-a4b-it',
             'gemma-4-26b-it': 'gemma-4-26b-a4b-it',
+            'gemma-4-26b-a4b-it': 'gemma-4-26b-a4b-it',
             'gemma-4-31b': 'gemma-4-31b-it',
             'gemma-4-31b-it': 'gemma-4-31b-it',
+            # Gemma 2
             'gemma-2-27b': 'gemma-2-27b-it',
             'gemma-2-27b-it': 'gemma-2-27b-it',
             'gemma-2-9b': 'gemma-2-9b-it',
