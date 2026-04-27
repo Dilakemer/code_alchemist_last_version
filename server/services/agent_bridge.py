@@ -151,9 +151,9 @@ def build_runtime_request(
         "question": question or "",
         "code": code or "",
         "model": model,
-        "conversation_id": getattr(conversation, "id", None) if conversation else None,
-        "project_id": getattr(project, "id", None) if project else None,
-        "user_id": getattr(user, "id", None) if user else None,
+        "conversation_id": conversation if isinstance(conversation, (int, str)) else getattr(conversation, "id", None) if conversation else None,
+        "project_id": project if isinstance(project, (int, str)) else getattr(project, "id", None) if project else None,
+        "user_id": user if isinstance(user, (int, str)) else getattr(user, "id", None) if user else None,
         "workspace_files": ws_files,
         "workspace_root": workspace_root,
         "include_history": False,  # history passed directly via _rag_context / messages
@@ -167,7 +167,7 @@ def build_runtime_request(
         "user_prefs": prefs or {},
         "_rag_context": github_context or "",
         "_memory_context": memory_context or "",
-        "_project": project,
+        "_project": project if isinstance(project, (int, str)) else getattr(project, "id", None) if project else None,
         "_search_project_callback": search_project_callback,
         "_db_read_callback": db_read_callback,
         "_invalidate_project_cache": invalidate_project_cache,
@@ -346,11 +346,20 @@ def stream_agent_bridge(
     q = queue.Queue(maxsize=16)
 
     def _producer():
-        # Inner thread has its own event loop
+        # Inner thread has its own event loop and should have its own app context
+        from app import app
+        from models import db, Conversation, User, Project
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             async def _consume():
+                # Re-fetch objects if IDs were passed to ensure they are bound to this thread's session
+                with app.app_context():
+                    # We only need to ensure the request is built with correct IDs.
+                    # The build_runtime_request call already handles obj vs id.
+                    pass
+
                 async for chunk in runtime.stream(req):
                     # Direct passthrough of SSE strings
                     q.put(chunk)

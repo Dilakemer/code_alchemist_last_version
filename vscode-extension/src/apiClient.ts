@@ -310,6 +310,7 @@ export async function sendAskRequest(
         'Content-Type': 'application/json',
         'Accept': acceptHeader,
         'X-API-Key': apiKey,
+        'X-Client-Source': 'extension',
       },
       body: JSON.stringify(payload),
       signal,
@@ -480,6 +481,7 @@ export async function getBackendStatus(
       headers: {
         'X-API-Key': apiKey,
         'Accept': 'application/json',
+        'X-Client-Source': 'extension',
       },
       signal: controller.signal,
     });
@@ -517,7 +519,8 @@ export async function getVscodeOtp(
             headers: {
                 'X-API-Key': apiKey,
                 'Accept': 'application/json',
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-Client-Source': 'extension'
             }
         });
 
@@ -545,6 +548,7 @@ export async function getHistory(
       headers: {
         'X-API-Key': apiKey,
         'Accept': 'application/json',
+        'X-Client-Source': 'extension',
       },
     });
     if (!res.ok) {
@@ -572,6 +576,7 @@ export async function getConversationHistory(
       headers: {
         'X-API-Key': apiKey,
         'Accept': 'application/json',
+        'X-Client-Source': 'extension',
       },
     });
     if (!res.ok) {

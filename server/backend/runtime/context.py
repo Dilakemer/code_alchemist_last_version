@@ -329,8 +329,18 @@ class ContextAssembler:
 
         # ── 5. Tool / workspace label ─────────────────────────────────────
         has_tools = bool(project or workspace_files)
+        
+        project_name = "project"
+        if project:
+            if hasattr(project, 'name'):
+                project_name = f"project '{project.name}'"
+            else:
+                # If it's an ID, we don't have the name here without a DB fetch.
+                # Just use a generic label or pass name via bridge.
+                project_name = f"project (ID: {project})"
+                
         workspace_label = (
-            f"project '{project.name}'" if project else
+            project_name if project else
             "workspace snapshot"         if workspace_files else
             "conversation"
         )

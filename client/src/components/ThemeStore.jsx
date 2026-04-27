@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 
 const THEMES = [
-  { id: 'dark', name: 'Alchemist Dark (Default)', cost: 0, isPremium: false, colors: ['#0f141d', '#7f8bb0', '#6a769b'], description: 'Balanced dark interface with muted accents.' },
-  { id: 'light', name: 'Alchemist Light (Default)', cost: 0, isPremium: false, colors: ['#f5f7fa', '#66789d', '#5a6a8d'], description: 'Soft light palette with calm contrast.' },
-  { id: 'dracula', name: 'Dracula', cost: 20, isPremium: true, colors: ['#2a2e3c', '#8c98bb', '#a3acc4'], description: 'Moody dark palette, toned and readable.' },
-  { id: 'monokai', name: 'Monokai', cost: 30, isPremium: true, colors: ['#2c2e2a', '#b88f64', '#8ca07b'], description: 'Warm, low-saturation coding vibe.' },
-  { id: 'nord', name: 'Nord', cost: 40, isPremium: true, colors: ['#2f3642', '#7f9eb1', '#6f879f'], description: 'Cool arctic palette with soft blues.' },
-  { id: 'github-dark', name: 'GitHub Dark', cost: 50, isPremium: true, colors: ['#131821', '#6f8da8', '#5c7a95'], description: 'Professional dark with muted steel accents.' },
-  { id: 'synthwave', name: 'Synthwave 84', cost: 75, isPremium: true, colors: ['#2a2a3a', '#8d84aa', '#768ca6'], description: 'Retro atmosphere with softened neon tones.' },
-  { id: 'cyberpunk', name: 'Cyberpunk 2077', cost: 100, isPremium: true, colors: ['#1f2126', '#8b96a8', '#6f7a8e'], description: 'Urban dark theme with restrained accents.' }
+  { id: 'dark', name: 'Alchemist Dark', cost: 0, isPremium: false, colors: ['#0f172a', '#6366f1', '#a855f7'], description: 'Modern deep space interface with vibrant indigo glow.' },
+  { id: 'light', name: 'Alchemist Light', cost: 0, isPremium: false, colors: ['#f8fafc', '#4f46e5', '#ec4899'], description: 'Crisp and clean professional palette with soft pink accents.' },
+  { id: 'dracula', name: 'Dracula Pro', cost: 20, isPremium: true, colors: ['#282a36', '#bd93f9', '#ff79c6'], description: 'The legendary vampire theme with electric purple and pink.' },
+  { id: 'monokai', name: 'Monokai Vivid', cost: 30, isPremium: true, colors: ['#272822', '#f92672', '#a6e22e'], description: 'Warm tropical coding vibe with high-energy highlights.' },
+  { id: 'nord', name: 'Nordic Frost', cost: 40, isPremium: true, colors: ['#2e3440', '#88c0d0', '#ebcb8b'], description: 'Arctic elegance with frosty blues and golden sunlight.' },
+  { id: 'github-dark', name: 'GitHub Universe', cost: 50, isPremium: true, colors: ['#0d1117', '#58a6ff', '#3fb950'], description: 'Professional dark mode with deep ocean blues and forest greens.' },
+  { id: 'synthwave', name: 'Synthwave Neon', cost: 75, isPremium: true, colors: ['#241b2f', '#ff7edb', '#36f9f6'], description: 'Retro 80s aesthetic with glowing neon pink and cyan.' },
+  { id: 'cyberpunk', name: 'Cyberpunk Edge', cost: 100, isPremium: true, colors: ['#1a1a1a', '#fdf500', '#ff00ff'], description: 'High-tech, low-life vibes with toxic yellow and magenta.' }
 ];
 
 const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefreshCoins }) => {
@@ -138,7 +138,28 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
   }
 
   return (
-    <div className="theme-store">
+    <div className="theme-store store-container-rounded p-8 bg-gray-900/5 backdrop-blur-xl border border-gray-700/20 text-gray-900 dark:text-gray-100 relative overflow-hidden">
+      {/* Background decoration */}
+      <div className="absolute -top-24 -left-24 w-64 h-64 bg-fuchsia-600/5 blur-[100px] rounded-full"></div>
+      <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-indigo-600/5 blur-[100px] rounded-full"></div>
+
+      {/* Guest Overlay */}
+      {!token && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-md p-6 text-center">
+          <div className="w-20 h-20 bg-fuchsia-600/20 rounded-full flex items-center justify-center mb-6 border border-fuchsia-500/30">
+            <i className="fas fa-user-lock text-3xl text-fuchsia-400"></i>
+          </div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Login Required</h3>
+          <p className="text-gray-600 dark:text-gray-400 max-w-xs mb-8">You must be logged in to unlock and apply custom themes to your workspace.</p>
+          <button 
+            onClick={onClose}
+            className="px-8 py-3 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-fuchsia-900/50"
+          >
+            Close & Log In
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -172,51 +193,76 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
           return (
             <div 
               key={theme.id} 
-              className={`p-5 rounded-xl border relative overflow-hidden transition-all duration-300 ${isActive ? 'border-fuchsia-500 shadow-[0_0_15px_rgba(217,70,239,0.3)] bg-gray-800/80' : 'border-gray-700 bg-gray-900/50 hover:bg-gray-800/80 hover:border-gray-600'}`}
+              className={`p-6 store-card-rounded border-2 relative overflow-hidden transition-all duration-500 group ${isActive ? 'border-fuchsia-500 shadow-xl bg-white dark:bg-gray-800/80' : 'border-gray-200 dark:border-gray-700/50 bg-gray-50 dark:bg-gray-900/40 hover:bg-white dark:hover:bg-gray-800/60'}`}
             >
-              {/* Preview Colors */}
-              <div className="absolute top-0 left-0 w-full h-2 flex">
-                <div style={{backgroundColor: theme.colors[0], flex: 1}}></div>
-                <div style={{backgroundColor: theme.colors[1], flex: 1}}></div>
-                <div style={{backgroundColor: theme.colors[2], flex: 1}}></div>
-              </div>
-
+              {/* Background Accent Glow */}
               {isActive && (
-                <div className="absolute top-4 right-4 text-fuchsia-400 text-sm font-bold flex items-center gap-1">
-                  <i className="fas fa-check-circle"></i> Active
-                </div>
+                <div className="absolute -right-4 -top-4 w-24 h-24 bg-fuchsia-500/10 blur-3xl rounded-full"></div>
               )}
 
-              <div className="mt-2 text-lg font-bold text-gray-100 flex items-center gap-2">
-                {theme.name}
-                {!isUnlocked && <i className="fas fa-lock text-gray-500 text-sm"></i>}
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex-1">
+                  <div className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    {theme.name}
+                    {!isUnlocked && <i className="fas fa-lock text-gray-400 dark:text-gray-600 text-sm"></i>}
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 leading-relaxed line-clamp-2">{theme.description}</p>
+                </div>
+                {isActive && (
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-fuchsia-500/20 text-fuchsia-400 text-xs font-bold border border-fuchsia-500/30">
+                    <i className="fas fa-check-circle"></i> Active
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-gray-400 mt-1 h-8">{theme.description}</p>
 
-              <div className="mt-4 pt-4 border-t border-gray-700/50 flex items-center justify-between">
-                <div className="flex items-center gap-1.5 font-mono text-sm">
+              {/* Color Palette Display */}
+              <div className="flex items-center gap-3 mb-6">
+                {theme.colors.map((color, idx) => (
+                  <div 
+                    key={idx}
+                    className="group/swatch relative"
+                  >
+                    <div 
+                      className="w-10 h-10 store-swatch-rounded shadow-lg border border-white/10 transform transition-transform group-hover/swatch:scale-110 group-hover/swatch:rotate-3"
+                      style={{ 
+                        backgroundColor: color,
+                        boxShadow: `0 4px 12px ${color}44` 
+                      }}
+                    ></div>
+                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] font-mono text-gray-500 opacity-0 group-hover/swatch:opacity-100 transition-opacity whitespace-nowrap">
+                      {color}
+                    </span>
+                  </div>
+                ))}
+                <div className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 font-mono tracking-widest uppercase">Palette</div>
+              </div>
+
+              <div className="pt-4 border-t border-gray-700/30 flex items-center justify-between">
+                <div className="flex items-center gap-2">
                   {isUnlocked ? (
-                    <span className="text-gray-500">Owned</span>
+                    <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wider border border-gray-200 dark:border-gray-700">Owned</span>
                   ) : (
-                    <>
-                      <span className={canAfford ? 'text-yellow-400' : 'text-red-400'}>{theme.cost}</span>
-                      <span className="text-gray-500">💎</span>
-                    </>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-lg font-black ${canAfford ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>{theme.cost}</span>
+                      <span className="text-lg">💎</span>
+                    </div>
                   )}
                 </div>
 
                 <button
                   onClick={() => isUnlocked ? handleApplyTheme(theme.id) : handleUnlockTheme(theme)}
                   disabled={isProcessing || (!isUnlocked && !canAfford) || isActive}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                    isActive ? 'bg-gray-700 text-gray-500 cursor-not-allowed' :
+                  className={`relative px-6 py-2 rounded-xl text-sm font-bold transition-all overflow-hidden ${
+                    isActive ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed' :
                     isProcessing ? 'bg-fuchsia-600/50 text-white cursor-wait' :
-                    isUnlocked ? 'bg-fuchsia-600 hover:bg-fuchsia-500 text-white shadow-lg shadow-fuchsia-900/50' :
-                    canAfford ? 'bg-yellow-600 hover:bg-yellow-500 text-white shadow-lg shadow-yellow-900/50' :
-                    'bg-gray-800 text-gray-500 cursor-not-allowed'
+                    isUnlocked ? 'bg-fuchsia-600 hover:bg-fuchsia-500 text-white shadow-lg active:scale-95' :
+                    canAfford ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-fuchsia-600 dark:hover:bg-yellow-400 hover:text-white shadow-lg active:scale-95' :
+                    'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed border border-gray-200 dark:border-gray-700'
                   }`}
                 >
-                  {isProcessing ? 'Processing...' : isActive ? 'Applied' : isUnlocked ? 'Apply Theme' : 'Unlock Now'}
+                  <span className="relative z-10">
+                    {isProcessing ? 'Processing...' : isActive ? 'Applied' : isUnlocked ? 'Apply Theme' : 'Unlock Now'}
+                  </span>
                 </button>
               </div>
             </div>

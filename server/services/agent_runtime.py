@@ -181,7 +181,11 @@ class AgentToolRuntime:
         invalidate_project_cache: Optional[Callable[[int], None]] = None,
         max_file_chars: int = DEFAULT_MAX_FILE_CHARS,
     ):
-        self.project = project
+        # We store the ID to avoid detached instance errors in threads
+        self.project_id = project if isinstance(project, (int, str)) else getattr(project, "id", None) if project else None
+        # We still keep the reference for sync use if it's already loaded, but we'll re-fetch if needed
+        self._project = project if not isinstance(project, (int, str)) else None
+        
         self.workspace_root = workspace_root
         self.search_project_callback = search_project_callback
         self.invalidate_project_cache = invalidate_project_cache
@@ -357,10 +361,32 @@ class AgentToolRuntime:
 
         return {"ok": False, "error": f"Unknown tool: {tool_name}"}
 
+    @property
+    def project(self):
+        """Lazy-loaded, session-safe project property."""
+        if self._project:
+            try:
+                # Check if detached/expired
+                _ = self._project.id
+                return self._project
+            except Exception:
+                self._project = None
+
+        if self.project_id:
+            from app import app
+            from models import Project, db
+            with app.app_context():
+                self._project = db.session.get(Project, self.project_id)
+        return self._project
+
     def _get_project_files(self) -> List[ProjectFile]:
-        if not self.project:
+        p = self.project
+        if not p:
             return []
-        return self.project.files.order_by(ProjectFile.name).all()
+        from app import app
+        from models import ProjectFile
+        with app.app_context():
+            return p.files.order_by(ProjectFile.name).all()
 
     def _find_project_file(self, path: str):
         normalized = _normalize_path(path)

@@ -1412,6 +1412,47 @@ select,
   border: 1px solid rgba(168, 85, 247, 0.4);
 }
 
+/* Theme Store Specific Animations */
+@keyframes float-gentle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.theme-card-premium {
+  animation: float-gentle 6s ease-in-out infinite;
+}
+
+.theme-store {
+  perspective: 1000px;
+}
+
+.theme-store .grid {
+  gap: 2rem;
+}
+
+.theme-swatch-glow {
+  filter: drop-shadow(0 0 8px currentColor);
+}
+
+/* Bypass global light-mode overrides for the Theme Store */
+.store-container-rounded {
+  border-radius: 2.5rem !important;
+}
+
+.store-card-rounded {
+  border-radius: 1rem !important;
+}
+
+.store-swatch-rounded {
+  border-radius: 0.75rem !important;
+}
+
+/* 
+   IMPORTANT: The swatches MUST maintain their colors.
+   The global [data-theme="light"] .rounded-xl override was the culprit.
+   By using .store-swatch-rounded, we avoid that rule.
+*/
+
 .level-header {
   display: flex;
   align-items: center;

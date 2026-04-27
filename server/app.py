@@ -575,98 +575,121 @@ def _embed_text_with_fallback(text, task_type='RETRIEVAL_DOCUMENT'):
     return None, None
 
 
-def _build_project_embedding_index(project):
+def _build_project_embedding_index(project_or_id):
     """Build or reuse cached embedding index for project files."""
-    files = project.files.order_by(ProjectFile.name).all()
-    if not files:
-        return None
-
-    signature = _project_signature(files)
-    now = time.time()
-
-    cached = project_embedding_cache.get(project.id)
-    if cached and cached.get('signature') == signature and (now - cached.get('timestamp', 0) < PROJECT_EMBED_CACHE_TTL):
-        return cached
-
-    raw_items = []
-    for pf in files:
-        content = (pf.content or '')[:12000]  # hard limit per file for cost control
-        for idx, chunk in enumerate(_chunk_text(content, chunk_size=1200, overlap=200)):
-            raw_items.append({
-                'pf_name': pf.name,
-                'pf_lang': pf.language or 'plaintext',
-                'text': chunk,
-                'chunk_index': idx
-            })
-
-    if not raw_items:
-        return None
-
-    def _embed_task(item):
-        emb, model_used = _embed_text_with_fallback(item['text'], task_type='RETRIEVAL_DOCUMENT')
-        if not emb:
+    with app.app_context():
+        # Force re-fetch to ensure we are in a session
+        pid = project_or_id if isinstance(project_or_id, (int, str)) else getattr(project_or_id, 'id', None)
+        if not pid:
             return None
-        return {
-            'file': item['pf_name'],
-            'language': item['pf_lang'],
-            'text': item['text'],
-            'embedding': emb,
-            'chunk_index': item['chunk_index'],
-            'model_used': model_used,
+            
+        project = db.session.get(Project, int(pid))
+        if not project:
+            return None
+            
+        files = project.files.order_by(ProjectFile.name).all()
+        if not files:
+            return None
+
+        signature = _project_signature(files)
+        now = time.time()
+
+        cached = project_embedding_cache.get(pid)
+        if cached and cached.get('signature') == signature and (now - cached.get('timestamp', 0) < PROJECT_EMBED_CACHE_TTL):
+            return cached
+
+        raw_items = []
+        for pf in files:
+            content = (pf.content or '')[:12000]  # hard limit per file for cost control
+            for idx, chunk in enumerate(_chunk_text(content, chunk_size=1200, overlap=200)):
+                raw_items.append({
+                    'pf_name': pf.name,
+                    'pf_lang': pf.language or 'plaintext',
+                    'text': chunk,
+                    'chunk_index': idx
+                })
+
+        if not raw_items:
+            return None
+
+        def _embed_task(item):
+            emb, model_used = _embed_text_with_fallback(item['text'], task_type='RETRIEVAL_DOCUMENT')
+            if not emb:
+                return None
+            return {
+                'file': item['pf_name'],
+                'language': item['pf_lang'],
+                'text': item['text'],
+                'embedding': emb,
+                'chunk_index': item['chunk_index'],
+                'model_used': model_used,
+            }
+
+        chunks = []
+        # Use max_workers=10 for fast parallel embedding. Most API quotas allow this.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            results = list(executor.map(_embed_task, raw_items))
+        
+        chunks = [r for r in results if r]
+
+        if not chunks:
+            return None
+
+        index_data = {
+            'signature': signature,
+            'timestamp': now,
+            'chunks': chunks,
         }
-
-    chunks = []
-    # Use max_workers=10 for fast parallel embedding. Most API quotas allow this.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = list(executor.map(_embed_task, raw_items))
-    
-    chunks = [r for r in results if r]
-
-    if not chunks:
-        return None
-
-    index_data = {
-        'signature': signature,
-        'timestamp': now,
-        'chunks': chunks,
-    }
-    project_embedding_cache[project.id] = index_data
-    return index_data
+        project_embedding_cache[pid] = index_data
+        return index_data
 
 
-def build_project_context_for_question(project, question, top_k=6):
+def build_project_context_for_question(project_or_id, question, top_k=6):
     """Return concise, relevance-ranked project context for a user question."""
-    semantic_result = get_project_semantic_hits(project, question, top_k=top_k)
-    if not semantic_result:
-        return None
+    with app.app_context():
+        if isinstance(project_or_id, (int, str)):
+            try:
+                pid = int(project_or_id)
+                project = db.session.get(Project, pid)
+            except Exception:
+                return ""
+        else:
+            project = project_or_id
 
-    query_model = semantic_result['query_model']
-    selected = semantic_result['hits']
+        if not project:
+            return ""
 
-    ctx = [f"[System: Bu sohbet '{project.name}' projesine aittir."]
-    if project.description:
-        ctx.append(f"Proje açıklaması: {project.description}")
-    ctx.append(f"Soruya göre embedding tabanlı en alakalı dosya parçaları (query_model={query_model}):")
+        semantic_result = get_project_semantic_hits(project, question, top_k=top_k)
+        if not semantic_result:
+            return f"[System: Bu sohbet '{project.name}' projesine aittir.]"
 
-    total_chars = 0
-    for item in selected:
-        score = item['score']
-        snippet = item['snippet']
-        total_chars += len(snippet)
-        if total_chars > 7000:
-            break
-        ctx.append(
-            f"\n## Dosya: {item['file']} ({item['language']}) | Benzerlik: {score:.3f}\n"
-            f"```{item['language']}\n{snippet}\n```"
-        )
+        query_model = semantic_result.get('query_model', {})
+        selected = semantic_result.get('hits', [])
 
-    ctx.append(']')
-    return '\n'.join(ctx)
+        ctx = [f"[System: Bu sohbet '{project.name}' projesine aittir."]
+        if project.description:
+            ctx.append(f"Proje açıklaması: {project.description}")
+        ctx.append(f"Soruya göre embedding tabanlı en alakalı dosya parçaları (query_model={query_model}):")
+
+        total_chars = 0
+        for item in selected:
+            score = item.get('score', 0)
+            snippet = item.get('snippet', '')
+            total_chars += len(snippet)
+            if total_chars > 7000:
+                break
+            ctx.append(
+                f"\n## Dosya: {item['file']} ({item['language']}) | Benzerlik: {score:.3f}\n"
+                f"```{item['language']}\n{snippet}\n```"
+            )
+
+        ctx.append(']')
+        return '\n'.join(ctx)
 
 
-def get_project_semantic_hits(project, question, top_k=6):
+def get_project_semantic_hits(project_or_id, question, top_k=6):
     """Return top semantic hits for a question within project files."""
-    index_data = _build_project_embedding_index(project)
+    index_data = _build_project_embedding_index(project_or_id)
     if not index_data:
         return None
 
@@ -712,42 +735,51 @@ def invalidate_project_embedding_cache(project_id):
     project_embedding_cache.pop(pid, None)
 
 
-def _agent_project_search(project, query, top_k=6):
-    result = get_project_semantic_hits(project, query, top_k=top_k)
-    if not result:
-        return None
-    return {
-        'hits': [
-            {
-                'file': hit.get('file'),
-                'score': hit.get('score'),
-                'text': hit.get('snippet'),
-                'chunk_index': hit.get('chunk_index'),
-            }
-            for hit in (result.get('hits') or [])
-        ]
-    }
+def _agent_project_search(project_id, query, top_k=6):
+    with app.app_context():
+        try:
+            pid = int(project_id)
+        except Exception:
+            return None
+        project = db.session.get(Project, pid)
+        if not project:
+            return None
+        result = get_project_semantic_hits(project, query, top_k=top_k)
+        if not result:
+            return None
+        return {
+            'hits': [
+                {
+                    'file': hit.get('file'),
+                    'score': hit.get('score'),
+                    'text': hit.get('snippet'),
+                    'chunk_index': hit.get('chunk_index'),
+                }
+                for hit in (result.get('hits') or [])
+            ]
+        }
 
 
 def _agent_db_read(query, limit=100):
     """Run read-only SQL for agent db_read tool with a server-side row cap."""
-    sql = str(query or '').strip()
-    if not sql:
-        return {'ok': False, 'error': 'query is required'}
+    with app.app_context():
+        sql = str(query or '').strip()
+        if not sql:
+            return {'ok': False, 'error': 'query is required'}
 
-    lowered = sql.lower().strip()
-    if not (lowered.startswith('select') or lowered.startswith('with')):
-        return {'ok': False, 'error': 'Only SELECT/WITH queries are allowed.'}
+        lowered = sql.lower().strip()
+        if not (lowered.startswith('select') or lowered.startswith('with')):
+            return {'ok': False, 'error': 'Only SELECT/WITH queries are allowed.'}
 
-    safe_limit = max(1, min(500, int(limit or 100)))
-    wrapped = f"SELECT * FROM ({sql}) AS _agent_read LIMIT :agent_limit"
-    rows = db.session.execute(sql_text(wrapped), {'agent_limit': safe_limit}).mappings().all()
-    return {
-        'ok': True,
-        'limit': safe_limit,
-        'row_count': len(rows),
-        'rows': [dict(r) for r in rows],
-    }
+        safe_limit = max(1, min(500, int(limit or 100)))
+        wrapped = f"SELECT * FROM ({sql}) AS _agent_read LIMIT :agent_limit"
+        rows = db.session.execute(sql_text(wrapped), {'agent_limit': safe_limit}).mappings().all()
+        return {
+            'ok': True,
+            'limit': safe_limit,
+            'row_count': len(rows),
+            'rows': [dict(r) for r in rows],
+        }
 
 
 def _parse_workspace_files_payload(raw_value, max_files=80, max_chars_per_file=18000):
@@ -4734,6 +4766,11 @@ def ask():
                 'balance': balance
             }), 402 # Payment Required
 
+    # Client source (Web vs Extension)
+    source_header = request.headers.get("X-Client-Source", payload.get("source", "web"))
+    if source_header == 'vscode': # Legacy compatibility
+        source_header = 'extension'
+
     # Legacy Free/Premium quota gate (opsiyonel, paralel çalışabilir)
     try:
         estimated_tokens = _estimate_tokens_for_request(question, code)
@@ -5027,8 +5064,13 @@ def ask():
     agent_provider = None
     agent_effective_model = None
 
+    # Capture primitive IDs for thread-safe/session-safe streaming
+    final_user_id = user.id if user else None
+    final_conv_id = conversation.id if conversation else None
+    final_proj_id = resolved_agent_project.id if resolved_agent_project else (conversation.project_id if conversation else None)
+
     # --- Model Yönlendirme Mantığı ---
-    def generate_stream():
+    def generate_stream(u_id, c_id, p_id, source):
         nonlocal answer # Outer scope answer variable updating
         nonlocal agent_trace, agent_changed_files, agent_tool_capable, agent_provider, agent_effective_model
         full_answer = ""
@@ -5041,7 +5083,7 @@ def ask():
             'detected_language': detected_lang,
             'detected_intent': detected_intent,
             'agent_mode': bool(agent_mode),
-            'agent_project_id': resolved_agent_project.id if resolved_agent_project else None,
+            'agent_project_id': p_id,
             'agent_project_source': agent_project_source,
             'agent_workspace_file_count': len(workspace_files or []),
         }
@@ -5102,9 +5144,9 @@ def ask():
                         question=question,
                         code=code,
                         model=provider_model,
-                        project=resolved_agent_project,
-                        user=user,
-                        conversation=conversation,
+                        project=p_id,
+                        user=u_id,
+                        conversation=c_id,
                         workspace_files=workspace_files,
                         prefs=prefs,
                         messages=agent_messages[:-1],
@@ -5182,7 +5224,7 @@ def ask():
                 'agent_provider': agent_provider,
                 'agent_model': agent_effective_model,
                 'agent_tool_capable': agent_tool_capable,
-                'agent_project_id': resolved_agent_project.id if resolved_agent_project else None,
+                'agent_project_id': p_id,
                 'agent_project_source': agent_project_source,
                 'agent_trace': clipped_agent_meta['trace'],
                 'agent_changed_files': clipped_agent_meta['changed_files'],
@@ -5190,7 +5232,7 @@ def ask():
                 'agent_changed_total': clipped_agent_meta['changed_total'],
                 'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
                 'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
-                'persona': prefs.get('persona', 'General User') if user else 'General User',
+                'persona': prefs.get('persona', 'General User') if u_id else 'General User',
                 'memory_used': bool(memory_context.get('text')),
                 'memory_hits': int(memory_context.get('hit_count') or 0),
                 'carryover': include_previous_modules,
@@ -5198,18 +5240,20 @@ def ask():
             }
 
             # Only save to database if not a no_save request
-            if not no_save and conversation:
+            if not no_save and c_id:
                 try:
                     # Session'a conversation'ı tekrar bağla/getir
-                    current_conv = db.session.get(Conversation, conversation.id)
+                    current_conv = db.session.get(Conversation, c_id)
+                    current_user = db.session.get(User, u_id) if u_id else None
+                    
                     if not current_conv:
                         # Should not happen normally
-                        current_conv = Conversation(id=conversation.id, user_id=user_id, title=question[:50], source='web')
+                        current_conv = Conversation(id=c_id, user_id=u_id, title=question[:50], source=source)
                         db.session.add(current_conv)
 
                     # Özetleme ve kalıcı hafıza çıkarımı
                     summary = summarize_answer(full_answer)
-                    extracted_memory_items = extract_memory_candidates(question, full_answer) if user else []
+                    extracted_memory_items = extract_memory_candidates(question, full_answer) if current_user else []
 
                     # Başlık güncelleme (ilk mesajsa) - kısa ve öz başlık üret
                     if not history_context:
@@ -5225,30 +5269,28 @@ def ask():
                         summary=summary,
                         image_path=image_path,
                         routing_reason=routing_reason,
-                        persona=prefs.get('persona', 'General User') if user else 'General User'
+                        persona=prefs.get('persona', 'General User') if current_user else 'General User'
                     )
                     db.session.add(history)
 
                     # Flush first so the new history id can be attached to summary rows.
                     db.session.flush()
 
-                    if user:
-                        _upsert_conversation_summary(current_conv, history.id, user.id, summary, extracted_memory_items)
-                        _store_memory_items(user.id, current_conv.id, extracted_memory_items)
-                        learning_snapshot = _write_back_memory_graph(user.id, current_conv.id, history.id, memory_context)
+                    if current_user:
+                        _upsert_conversation_summary(current_conv, history.id, current_user.id, summary, extracted_memory_items)
+                        _store_memory_items(current_user.id, current_conv.id, extracted_memory_items)
+                        learning_snapshot = _write_back_memory_graph(current_user.id, current_conv.id, history.id, memory_context)
                         final_data['memory_learning'] = learning_snapshot
 
                     db.session.commit()
 
                     # 4. AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
-                    if user:
-                        # Bu scope'ta detached instance riskini önlemek için kullanıcıyı yeniden al.
-                        charge_user = db.session.get(User, user.id)
-                        update_user_taste(charge_user, model, full_answer, question)
+                    if current_user:
+                        update_user_taste(current_user, model, full_answer, question)
 
                         # 💰 TOKEN EKONOMİSİ — Harcamayı düş
                         success, new_bal = deduct_tokens(
-                            charge_user,
+                            current_user,
                             model,
                             description=f"Chat: {question[:30]}...",
                             reference_id=history.id
@@ -5265,8 +5307,8 @@ def ask():
                     })
 
                     # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa)
-                    if user and current_conv:
-                        xp_result = award_xp(user.id, XP_REWARDS['ask_question'], "Asking a Question", source='ask_question')
+                    if current_user and current_conv:
+                        xp_result = award_xp(current_user.id, XP_REWARDS['ask_question'], "Asking a Question", source='ask_question')
                         if xp_result:
                             final_data['xp_awarded'] = xp_result
                 except Exception as save_err:
@@ -5278,7 +5320,7 @@ def ask():
 
             yield f"data: {json.dumps(final_data)}\n\n"
 
-    return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
+    return Response(stream_with_context(generate_stream(final_user_id, final_conv_id, final_proj_id, source_header)), mimetype='text/event-stream')
 
 
 # ==========================================
@@ -5604,8 +5646,10 @@ def list_conversations():
             # Project-linked conversations are shown only in Project Workspace.
             query = query.filter(Conversation.project_id.is_(None))
             
-        # Filter by source (exclude VS Code chats from Web UI)
-        query = query.filter(Conversation.source != 'vscode')
+        # Filter by source (Web vs Extension)
+        source_filter = request.headers.get("X-Client-Source", "web")
+        if source_filter == 'vscode': source_filter = 'extension'
+        query = query.filter(Conversation.source == source_filter)
 
         # Exclude community posts and include archive filter logic if needed
         convs = query.filter(Conversation.is_deleted == False)\
@@ -10027,7 +10071,7 @@ def external_ask():
                 'agent_mode': False,
                 'selected_model': provider_model,
                 'agent_provider': provider_key,
-                'conversation_id': _conv.id if _conv else None,
+                'conversation_id': final_conv_id,
                 'balance': new_balance,
             }
             yield f"data: {json.dumps(meta)}\n\n"
@@ -10045,7 +10089,7 @@ def external_ask():
             try:
                 with app.app_context():
                     db.session.rollback()
-                    _fresh_conv = db.session.get(Conversation, _conv.id) if _conv else None
+                    _fresh_conv = db.session.get(Conversation, final_conv_id) if final_conv_id else None
                     if _fresh_conv:
                         _hist = History(
                             conversation_id=_fresh_conv.id,
@@ -10129,29 +10173,40 @@ def external_ask():
             )
             CANCELLED_REQUESTS.pop(request_id, None)
 
+    # Capture primitive IDs for session-safe access in generators
+    final_conv_id = _conv.id if _conv else None
+    final_proj_id = project_for_agent.id if project_for_agent else None
+    
     # 📜 HISTORY PERSISTENCE
     try:
-        if _conv and project_for_agent and not _conv.project_id:
-            _conv.project_id = project_for_agent.id
-            db.session.add(_conv)
-        if not _conv:
-            _conv = Conversation(
-                user_id=user_id,
-                title=str(conversation_id) if conversation_id else f"Chat {_utcnow().strftime('%Y-%m-%d %H:%M')}",
-                project_id=project_for_agent.id if project_for_agent else None,
-                source='vscode'
+        with app.app_context():
+            db.session.rollback()
+            current_conv = db.session.get(Conversation, final_conv_id) if final_conv_id else None
+            
+            if current_conv and final_proj_id and not current_conv.project_id:
+                current_conv.project_id = final_proj_id
+                db.session.add(current_conv)
+                
+            if not current_conv:
+                current_conv = Conversation(
+                    user_id=user_id,
+                    title=str(conversation_id) if conversation_id else f"Chat {_utcnow().strftime('%Y-%m-%d %H:%M')}",
+                    project_id=final_proj_id,
+                    source='extension'
+                )
+                db.session.add(current_conv)
+                db.session.flush()
+                final_conv_id = current_conv.id
+                
+            _hist = History(
+                conversation_id=current_conv.id,
+                user_question=question,
+                ai_response=agent_result.text,
+                selected_model=provider_model,
+                timestamp=_utcnow()
             )
-            db.session.add(_conv)
-            db.session.flush()
-        _hist = History(
-            conversation_id=_conv.id,
-            user_question=question,
-            ai_response=agent_result.text,
-            selected_model=provider_model,
-            timestamp=_utcnow()
-        )
-        db.session.add(_hist)
-        db.session.commit()
+            db.session.add(_hist)
+            db.session.commit()
     except Exception as _e:
         db.session.rollback()
         print(f"[HISTORY] Error saving turn for user {user_id}: {_e}")
@@ -10165,10 +10220,10 @@ def external_ask():
                     'agent_mode': True,
                     'selected_model': provider_model,
                     'agent_provider': provider_key,
-                    'agent_project_id': project_for_agent.id if project_for_agent else None,
+                    'agent_project_id': final_proj_id,
                     'agent_tool_capable': bool(agent_result.tool_capable),
                     'balance': new_balance,
-                    'conversation_id': _conv.id if _conv else None,
+                    'conversation_id': final_conv_id,
                 }
                 yield f"data: {json.dumps(meta)}\n\n"
                 final_text = (agent_result.text or '').strip() or 'No response generated.'
@@ -10187,7 +10242,7 @@ def external_ask():
                 yield f"data: {json.dumps(done_payload)}\n\n"
                 yield 'data: [DONE]\n\n'
             except Exception as e:
-                yield f"data: {json.dumps({'text': '[Backend error]'})}\n\n"
+                yield f"data: {json.dumps({'text': f'[Backend error: {str(e)}]'})}\n\n"
                 yield 'data: [DONE]\n\n'
         return Response(stream_with_context(generate_agent()), mimetype='text/event-stream')
 

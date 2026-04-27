@@ -78,7 +78,7 @@ function App() {
     return raw ? JSON.parse(raw) : null;
   });
   const authHeaders = useMemo(() => (
-    token ? { Authorization: `Bearer ${token}` } : {}
+    token ? { Authorization: `Bearer ${token}`, 'X-Client-Source': 'web' } : { 'X-Client-Source': 'web' }
   ), [token]);
   const [authOpen, setAuthOpen] = useState(false);
   const [showCommunityFeed, setShowCommunityFeed] = useState(false);
@@ -1651,7 +1651,7 @@ function App() {
       // Reset theme on backend before logout (only if NOT a deletion flow)
       // We check for isDeletion strictly to avoid accidental triggers
       if (token && isDeletion !== true) {
-        const defaultTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        const defaultTheme = 'dark';
         await fetch(`${API_BASE}/api/themes`, {
           method: 'POST',
           headers: {
@@ -1669,7 +1669,7 @@ function App() {
       localStorage.removeItem('codebrain_user');
       localStorage.removeItem('codebrain_theme');
       // Hard reset theme
-      const defaultTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      const defaultTheme = 'dark';
       setTheme(defaultTheme);
       document.documentElement.setAttribute('data-theme', defaultTheme);
       setConversations([]);

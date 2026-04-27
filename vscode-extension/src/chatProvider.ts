@@ -1025,7 +1025,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         this._view.webview.postMessage({
           command: 'stream_chunk',
           requestId: this._activeRequestId,
-          text: `\n\n❌ Hata: ${msg}`,
+          text: `\n\n❌ Hata: ${msg === 'Backend error' ? 'Sunucu tarafında beklenmeyen bir hata oluştu. Lütfen daha sonra tekrar deneyin veya sistem yöneticisine başvurun.' : msg}`,
         });
         this._sendStateEvent('REQUEST_FAILED', 'İstek başarısız oldu.');
       }
