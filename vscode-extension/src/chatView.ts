@@ -17,6 +17,7 @@ type ChatViewModelOption = {
 type ChatViewOptions = {
     selectedModel: string;
     modelOptions: ChatViewModelOption[];
+    initialHealth: string;
 };
 
 function getNonce(): string {
@@ -47,6 +48,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
     const inlineStateJson = escapeForInlineJson({
         selectedModel: options.selectedModel,
         modelOptions: options.modelOptions,
+        health: options.initialHealth,
     });
     const modelOptionsMarkup = options.modelOptions
         .map((opt) => {
@@ -60,8 +62,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'nonce-${nonce}'; script-src ${cspSource} 'nonce-${nonce}' https://cdn.jsdelivr.net; font-src ${cspSource}; img-src ${cspSource} https:;">
-    <style nonce="${nonce}">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; font-src ${cspSource}; img-src ${cspSource} https: data:; connect-src *;">
+    <script id="initial-state" type="application/json">${inlineStateJson}</script>
+    <style>
         :root {
             --primary: #8b5cf6;
             --primary-glow: rgba(139, 92, 246, 0.4);
@@ -88,7 +91,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             background-image: radial-gradient(circle at top right, rgba(139, 92, 246, 0.05), transparent);
         }
 
-        /* ── Header ── */
+        /* -- Header -- */
         .chat-header {
             padding: 14px 18px;
             border-bottom: 1px solid var(--border);
@@ -133,7 +136,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             background: rgba(255,255,255,0.05);
         }
 
-        /* ── Health Indicator ── */
+        /* -- Health Indicator -- */
         .health-indicator {
             display: flex;
             align-items: center;
@@ -148,17 +151,17 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             transition: all 0.3s ease;
         }
         .health-indicator.online {
-            color: #34d399;
+            color: #34d399 !important;
             background: rgba(52, 211, 153, 0.08);
             border-color: rgba(52, 211, 153, 0.2);
         }
         .health-indicator.connecting {
-            color: #fbbf24;
+            color: #fbbf24 !important;
             background: rgba(251, 191, 36, 0.08);
             border-color: rgba(251, 191, 36, 0.2);
         }
         .health-indicator.offline {
-            color: #f87171;
+            color: #f87171 !important;
             background: rgba(248, 113, 113, 0.08);
             border-color: rgba(248, 113, 113, 0.2);
         }
@@ -353,7 +356,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             justify-content: space-between;
         }
 
-        /* ── Message List ── */
+        /* -- Message List -- */
         #chat-container {
             flex: 1;
             overflow-y: auto;
@@ -406,7 +409,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             backdrop-filter: blur(12px);
         }
 
-        /* ── Agent Trace ── */
+        /* -- Agent Trace -- */
         .trace-container {
             margin-top: 10px;
             padding: 8px 10px;
@@ -469,7 +472,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         .w-full { width: 100%; }
         .fs-11 { font-size: 11px; }
 
-        /* ── Action Cards ── */
+        /* -- UI Components -- */
         .action-card {
             margin-top: 14px;
             background: rgba(30, 41, 59, 0.72);
@@ -622,7 +625,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             font-size: 12px;
         }
 
-        /* ── Sidebar Global Header ── */
+        /* -- Sidebar Global Header -- */
         .header-title {
             font-size: 15px;
             font-weight: 700;
@@ -748,6 +751,10 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             transform: translateY(-1px);
             box-shadow: 0 4px 12px var(--primary-glow);
         }
+        .btn-login {
+            padding: 12px 24px;
+            font-size: 14px;
+        }
         .btn-secondary {
             background: rgba(255, 255, 255, 0.06);
             color: var(--text-main);
@@ -801,8 +808,12 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             transform: none;
             box-shadow: none;
         }
+        .input-actions-wrapper {
+            display: flex;
+            gap: 8px;
+        }
 
-        /* ── Input Area ── */
+        /* -- Input Area -- */
         .input-area {
             padding: 20px;
             border-top: 1px solid var(--border);
@@ -876,7 +887,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             color: var(--vscode-dropdown-foreground, #f1f5f9);
         }
 
-        /* ── Markdown ── */
+        /* -- Markdown -- */
         .markdown-body pre {
             background: rgba(0,0,0,0.3);
             padding: 12px;
@@ -896,7 +907,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         .markdown-body p { margin-top: 0; margin-bottom: 8px; }
         .markdown-body p:last-child { margin-bottom: 0; }
 
-        /* ── Scrollbar ── */
+        /* -- Scrollbar -- */
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
@@ -949,7 +960,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
         }
 
-        /* ── Auth Gate ── */
+        /* -- Auth Gate -- */
         .auth-gate {
             position: absolute;
             inset: 0;
@@ -1016,16 +1027,21 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         .auth-error.visible {
             display: block;
         }
+        .debug-status {
+            font-size: 8px;
+            opacity: 0.5;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
     <div class="chat-header">
         <div class="header-left">
-            <div id="health-indicator" class="health-indicator connecting">
+            <div id="health-indicator" class="health-indicator ${options.initialHealth}">
                 <div class="health-dot"></div>
-                <span id="health-text">Connecting</span>
+                <span id="health-text">${options.initialHealth.charAt(0).toUpperCase() + options.initialHealth.slice(1)}</span>
             </div>
-            <div class="header-title">CodeAlchemist</div>
+            <div class="header-title">CodeAlchemist <span id="debug-status" class="debug-status"></span></div>
         </div>
         <div class="header-center">
             <div id="auth-sync-indicator" class="auth-sync-indicator hidden">Yenileniyor</div>
@@ -1056,7 +1072,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         </div>
         <div class="auth-title">CodeAlchemist'e Hoş Geldiniz</div>
         <div class="auth-desc">Chat ve Agent özelliklerini kullanmak için giriş yapmanız gerekmektedir.</div>
-        <button class="btn btn-primary" id="login-btn" style="padding: 12px 24px; font-size: 14px;">
+        <button class="btn btn-primary btn-login" id="login-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-4"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
             Giriş Yap
         </button>
@@ -1091,7 +1107,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             <textarea id="chat-input" rows="3" placeholder="Sorunuzu sorun veya '/' ile komutları görün..."></textarea>
             <div class="input-footer">
                 <div class="hint">Shift + Enter ile alt satıra geçin</div>
-                <div style="display:flex; gap:8px;">
+                <div class="input-actions-wrapper">
                     <div class="send-stop-slot">
                         <button class="btn btn-secondary btn-icon-square btn-hidden" id="stop-btn" title="Yanıtı Durdur" aria-label="Yanıtı Durdur">
                             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"></rect></svg>
@@ -1112,15 +1128,40 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
     <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
     <script nonce="${nonce}">
-        /**
-         * ── CodeAlchemist Sidebar State Machine ──
-         * This script implements a deterministic FSM with Dual Readiness and 
-         * RequestId Authority to ensure UI synchronization and robustness.
-         **/
+        (function() {
+            const vscode = acquireVsCodeApi();
+            window.vscode = vscode;
+            
+            window.onerror = function(msg, url, line, col, error) {
+                const errInfo = msg + ' at ' + url + ':' + line + ':' + col;
+                console.error('GLOBAL_ERROR:', errInfo);
+                vscode.postMessage({ command: 'log', level: 'ERROR', message: 'GLOBAL_ERROR: ' + errInfo });
+                return false;
+            };
 
-        const initialState = ${inlineStateJson};
-        const vscode = acquireVsCodeApi();
+            console.log('--- WEBVIEW SCRIPT START ---');
+            vscode.postMessage({ command: 'log', level: 'INFO', message: 'WEBVIEW_BOOT_START' });
+
+            function webviewLog(level, message) {
+                console.log('[' + level + '] ' + message);
+                vscode.postMessage({ command: 'log', level, message });
+            }
+
+            webviewLog('INFO', 'WEBVIEW_BOOT_START');
+
         let md;
+        let initialState = { selectedModel: 'auto', modelOptions: [], health: 'connecting' };
+        try {
+            const el = document.getElementById('initial-state');
+            if (el) {
+                initialState = JSON.parse(el.textContent || '{}');
+                webviewLog('INFO', 'Initial state parsed successfully');
+            } else {
+                webviewLog('WARN', 'initial-state element not found');
+            }
+        } catch (parseErr) {
+            webviewLog('ERROR', 'Failed to parse initial state: ' + parseErr.message);
+        }
 
         // Elements
         const chatContainer = document.getElementById('chat-container');
@@ -1142,10 +1183,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
         // Application State (The Single Source of Truth)
         const appState = {
-            // FSM Logic
-            phase: 'IDLE',      // 'IDLE' | 'REQUEST_INITIATED' | 'REQUEST_STREAMING' | 'REQUEST_COMPLETED' | 'REQUEST_FAILED' | 'REQUEST_CANCELLED'
-            health: 'connecting', // 'online' | 'offline' | 'connecting'
-            requestId: '',      // Current active requestId authority
+            phase: 'IDLE',
+            health: initialState.health || 'connecting',
+            requestId: '',
             statusText: '',
             isAuthenticated: false,
             balance: 0,
@@ -1175,9 +1215,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         };
 
         const MAX_SESSIONS = 30;
-        const GREETING = \`Merhaba! Ben **CodeAlchemist Agent**. Kodunuzu inceleyebilir, dosya değişiklikleri yapabilir ve projelerinizde size eşlik edebilirim.
+        const GREETING = \`Hello! I am **CodeAlchemist Agent**. I can analyze your code, make file changes, and assist you in your projects.
 
-*Nasıl yardımcı olabilirim?*\`;
+*How can I help you today?*\`;
 
         function clearAuthRefreshTimeout() {
             if (authRefreshTimeoutId) {
@@ -1215,7 +1255,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 : 'Oturum doğrulanıyor...';
         }
 
-        // ── Deterministic FSM ──
+        // -- Deterministic FSM --
         function dispatch(action) {
             logStateTransition(action);
 
@@ -1236,6 +1276,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     }
                     if (action.payload.text) {
                         appState.statusText = action.payload.text;
+                    }
+                    if (action.payload.health) {
+                        appState.health = action.payload.health;
                     }
                     if (action.type === 'RECONCILE_SNAPSHOT' || action.type === 'RECONCILE_EVENT') {
                         appState.ready.provider = true;
@@ -1279,97 +1322,94 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         }
 
         function logStateTransition(action) {
-            console.log(\`[\${new Date().toISOString()}] ACTION: \${action.type} -> RequestId: \${appState.requestId} | Phase: \${appState.phase}\`);
+            console.log('[' + new Date().toISOString() + '] ACTION: ' + action.type + ' -> RequestId: ' + appState.requestId + ' | Phase: ' + appState.phase);
         }
 
-        /**
-         * ── Pure Renderer ──
-         * Toggles DOM states based on appState.
-         **/
         function syncUi() {
-            const isFullyReady = appState.ready.ui && appState.ready.provider;
-            const isIdle = appState.phase === 'IDLE';
-            const isOnline = appState.health === 'online';
-            const canAttemptRequest = appState.health !== 'offline';
-            const isBusy = !isIdle;
-            const isAuthSettling = appState.isVerifying || appState.reconnecting;
-
-            // Gating interaction
-            const canChat = isFullyReady && isIdle && canAttemptRequest && appState.isAuthenticated && !isAuthSettling;
-            sendBtn.disabled = !canChat;
-            chatInput.disabled = !canChat;
-            if (stopBtn) {
-                stopBtn.disabled = !isFullyReady || !isBusy;
-                stopBtn.classList.toggle('btn-hidden', !isBusy);
-            }
-            sendBtn.classList.toggle('btn-hidden', isBusy);
-            chatInput.placeholder = isAuthSettling
-                ? "Oturum yenileniyor..."
-                : (isOnline ? "Sorunuzu sorun veya '/' ile komutları görün..." : "Bakım modunda veya çevrimdışı...");
-            resetBtn.disabled = !isFullyReady;
-            historyBtn.disabled = !isFullyReady;
-            newChatBtn.disabled = !isFullyReady;
-
-            // Status Bar Visibility
-            if (!isAuthSettling && (isIdle || !isFullyReady)) {
-                requestStatus.classList.add('hidden');
-            } else {
-                requestStatus.classList.remove('hidden');
-                requestStatus.classList.toggle('syncing', isAuthSettling);
-                requestStatus.classList.toggle('generating', !isAuthSettling && appState.phase === 'REQUEST_STREAMING');
-                requestStatus.classList.toggle('error', !isAuthSettling && appState.phase === 'REQUEST_FAILED');
-                requestStatusText.textContent = isAuthSettling
-                    ? getAuthSyncStatusText()
-                    : (appState.statusText || getDefaultStatusText(appState.phase));
-            }
-
-            // Health Indicator UI
-            const healthIndicator = document.getElementById('health-indicator');
-            const healthText = document.getElementById('health-text');
-            const reconnectArea = document.getElementById('reconnect-area');
-
-            healthIndicator.className = \`health-indicator \${appState.health}\`;
-            healthText.textContent = appState.health.charAt(0).toUpperCase() + appState.health.slice(1);
-            
-            if (appState.health === 'offline') {
-                reconnectArea.classList.add('visible');
-            } else {
-                reconnectArea.classList.remove('visible');
-            }
-
-            // Auth Gate Overlay
-            const authGate = document.getElementById('auth-gate');
-            const authError = document.getElementById('auth-error');
-            
-            const shouldKeepAuthGateHidden = appState.isAuthenticated || appState.isVerifying || appState.reconnecting;
-
-            if (shouldKeepAuthGateHidden) {
-                authGate.classList.add('hidden');
-                authError.classList.remove('visible');
-            } else {
-                authGate.classList.remove('hidden');
-                if (appState.authError) {
-                    authError.textContent = appState.authError;
-                    authError.classList.add('visible');
-                } else {
-                    authError.classList.remove('visible');
+            try {
+                const healthIndicator = document.getElementById('health-indicator');
+                const healthText = document.getElementById('health-text');
+                const reconnectArea = document.getElementById('reconnect-area');
+                if (healthIndicator && healthText) {
+                    healthIndicator.className = 'health-indicator ' + appState.health;
+                    healthText.textContent = appState.health.charAt(0).toUpperCase() + appState.health.slice(1);
+                    if (reconnectArea) {
+                        reconnectArea.classList.toggle('visible', appState.health === 'offline');
+                    }
                 }
-            }
 
-            // Balance UI
-            const balanceAmount = document.getElementById('balance-amount');
-            if (balanceAmount) {
-                balanceAmount.textContent = appState.balance.toLocaleString();
-            }
+                const isFullyReady = appState.ready.ui && appState.ready.provider;
+                const isIdle = appState.phase === 'IDLE';
+                const isOnline = appState.health === 'online';
+                const canAttemptRequest = appState.health !== 'offline';
+                const isBusy = !isIdle;
+                const isAuthSettling = appState.isVerifying || appState.reconnecting;
 
-            if (authSyncIndicator) {
-                authSyncIndicator.textContent = appState.reconnecting ? 'Yeniden bağlanıyor' : 'Yenileniyor';
-                authSyncIndicator.classList.toggle('hidden', !appState.isAuthenticated || !isAuthSettling);
-            }
+                const canChat = isFullyReady && isIdle && canAttemptRequest && appState.isAuthenticated && !isAuthSettling;
+                sendBtn.disabled = !canChat;
+                chatInput.disabled = !canChat;
+                if (stopBtn) {
+                    stopBtn.disabled = !isFullyReady || !isBusy;
+                    stopBtn.classList.toggle('btn-hidden', !isBusy);
+                }
+                sendBtn.classList.toggle('btn-hidden', isBusy);
+                chatInput.placeholder = isAuthSettling
+                    ? "Oturum yenileniyor..."
+                    : (isOnline ? "Sorunuzu sorun veya komutları görün..." : "Bakım modunda veya çevrimdışı...");
+                resetBtn.disabled = !isFullyReady;
+                historyBtn.disabled = !isFullyReady;
+                newChatBtn.disabled = !isFullyReady;
 
-            const balanceChip = document.getElementById('balance-chip');
-            if (balanceChip) {
-                balanceChip.classList.toggle('verifying', appState.isAuthenticated && isAuthSettling);
+                if (!isAuthSettling && (isIdle || !isFullyReady)) {
+                    requestStatus.classList.add('hidden');
+                } else {
+                    requestStatus.classList.remove('hidden');
+                    requestStatus.classList.toggle('syncing', isAuthSettling);
+                    requestStatus.classList.toggle('generating', !isAuthSettling && appState.phase === 'REQUEST_STREAMING');
+                    requestStatus.classList.toggle('error', !isAuthSettling && appState.phase === 'REQUEST_FAILED');
+                    requestStatusText.textContent = isAuthSettling
+                        ? getAuthSyncStatusText()
+                        : (appState.statusText || getDefaultStatusText(appState.phase));
+                }
+
+                const authGate = document.getElementById('auth-gate');
+                const authError = document.getElementById('auth-error');
+                
+                const shouldKeepAuthGateHidden = appState.isAuthenticated || appState.isVerifying || appState.reconnecting;
+
+                if (shouldKeepAuthGateHidden) {
+                    authGate.classList.add('hidden');
+                    authError.classList.remove('visible');
+                } else {
+                    authGate.classList.remove('hidden');
+                    if (appState.authError) {
+                        authError.textContent = appState.authError;
+                        authError.classList.add('visible');
+                    } else {
+                        authError.classList.remove('visible');
+                    }
+                }
+
+                const balanceAmount = document.getElementById('balance-amount');
+                if (balanceAmount) {
+                    balanceAmount.textContent = appState.balance.toLocaleString();
+                }
+
+                if (authSyncIndicator) {
+                    authSyncIndicator.textContent = appState.reconnecting ? 'Yeniden bağlanıyor' : 'Yenileniyor';
+                    authSyncIndicator.classList.toggle('hidden', !appState.isAuthenticated || !isAuthSettling);
+                }
+
+                const balanceChip = document.getElementById('balance-chip');
+                if (balanceChip) {
+                    balanceChip.classList.toggle('verifying', appState.isAuthenticated && isAuthSettling);
+                }
+                const debugStatus = document.getElementById('debug-status');
+                if (debugStatus) {
+                    debugStatus.textContent = '[' + appState.health + ']';
+                }
+            } catch (err) {
+                webviewLog('ERROR', 'syncUi failed: ' + err.message);
             }
         }
 
@@ -1382,19 +1422,22 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             }
         }
 
-        // ── Boot Sequence ──
+        // -- Boot Sequence --
         function init() {
-            setupMessageListener(); // Call this first to not miss early provider messages
+            webviewLog('INFO', 'init() started');
+            setupMessageListener();
             
             try {
                 if (typeof window.markdownit === 'function') {
                     md = window.markdownit({ html: true, linkify: true, typographer: true });
+                    webviewLog('INFO', 'markdown-it initialized');
                 } else {
                     md = { render: (t) => t };
+                    webviewLog('WARN', 'markdown-it not found, using fallback');
                 }
             } catch (e) {
-                console.error('Markdown-it failed:', e);
                 md = { render: (t) => t };
+                webviewLog('ERROR', 'markdown-it init failed: ' + e.message);
             }
 
             loadInitialPersistentData();
@@ -1402,8 +1445,13 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             initModelPicker();
             renderActiveSession();
             renderHistory();
+            webviewLog('INFO', 'UI rendered, sending webviewReady');
             vscode.postMessage({ command: 'webviewReady' });
             setTimeout(() => {
+                if (appState.health === 'connecting') {
+                    webviewLog('INFO', 'Fallback health check triggered');
+                    vscode.postMessage({ command: 'healthCheck' });
+                }
                 if (!hasReceivedAuthStatus || appState.isVerifying) {
                     if (appState.isAuthenticated) {
                         appState.reconnecting = true;
@@ -1412,7 +1460,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     }
                     requestAuthRefresh();
                 }
-            }, 3000);
+            }, 2000);
         }
 
         function setupMessageListener() {
@@ -1421,7 +1469,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 const rid = message.requestId;
 
                 if (rid && appState.requestId && rid !== appState.requestId && message.command !== 'STATE_SNAPSHOT') {
-                    console.warn(\`Ignoring message for stale requestId: \${rid}\`);
+                    console.warn('Ignoring message for stale requestId: ' + rid);
                     return;
                 }
 
@@ -1455,6 +1503,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                         break;
                     case 'stream_chunk':
                         updateAiMessage(message.text);
+                        break;
+                    case 'log':
+                        console.log('[Host] ' + (message.level || 'INFO') + ': ' + message.message);
                         break;
                     case 'trace_step':
                         addTraceStep(message.tool, message.reasoning);
@@ -1803,8 +1854,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             };
         }
 
-        function escapeHtml(s) { 
-            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); 
+        function escapeHtml(s) {
+            if (!s) return '';
+            return s.split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;').split('"').join('&quot;').split("'").join('&#39;');
         }
 
         function renderActiveSession() {
@@ -1826,29 +1878,18 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         function addMessage(text, role, shouldPersist = true) {
             // AI yanıtı ise, sistem mesajı veya prompt izi içeren satırları temizle
             if (role === 'ai') {
-                const lines = text.split(/\r?\n/);
+                const lines = text.split(/\\r?\\n/);
+                const blacklist = [
+                    'The user', 'Acknowledge', 'This could be a mistake', 'Offer assistance',
+                    "User's first input", "Assistant's first response", "User's second input",
+                    "Assistant's second response", "User's third input", 'This could be',
+                    'Is there anything else', 'Hello again', 'Hello! Hello again', 'Hello! Welcome back'
+                ];
                 const filtered = lines.filter(line => {
                     const l = line.trim();
-                    if (
-                        l.startsWith('The user') ||
-                        l.startsWith('Acknowledge') ||
-                        l.startsWith('This could be a mistake') ||
-                        l.startsWith('Offer assistance') ||
-                        l.startsWith("User's first input") ||
-                        l.startsWith("Assistant's first response") ||
-                        l.startsWith("User's second input") ||
-                        l.startsWith("Assistant's second response") ||
-                        l.startsWith("User's third input") ||
-                        l.startsWith('This could be') ||
-                        l.startsWith('Acknowledge') ||
-                        l.startsWith('Is there anything else') ||
-                        l.startsWith('Hello again') ||
-                        l.startsWith('Hello! Hello again') ||
-                        l.startsWith('Hello! Welcome back')
-                    ) return false;
-                    return true;
+                    return !blacklist.some(term => l.startsWith(term));
                 });
-                text = filtered.join('\n').trim();
+                text = filtered.join('\\n').trim();
             }
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message ' + role;
@@ -2212,6 +2253,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         }
 
         init();
+        })();
     </script>
 </body>
 </html>`;

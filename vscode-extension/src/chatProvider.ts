@@ -209,6 +209,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private _isAuthVerifying: boolean = false;
   private _isAuthReconnecting: boolean = false;
   private _authRefreshRunId: number = 0;
+  private _healthSub?: vscode.Disposable;
   private static _instances: Set<CodeAlchemistChatProvider> = new Set();
 
   public static refreshAll() {
@@ -333,11 +334,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const normalized = this._normalizeUserIdentity(userIdentity || this._currentUserIdentity);
-    if (!normalized) {
-      return;
-    }
-
+    const normalized = this._normalizeUserIdentity(userIdentity || this._currentUserIdentity) || 'local_guest';
     const state = await this._readPersistedChatState(normalized);
     await this._view.webview.postMessage({
       command: 'LOAD_PERSISTED_STATE',
@@ -347,28 +344,23 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handlePersistChatState(state: unknown): Promise<void> {
-    const normalized = this._normalizeUserIdentity(this._currentUserIdentity);
-    if (!normalized) {
-      return;
-    }
-
+    const normalized = this._normalizeUserIdentity(this._currentUserIdentity) || 'local_guest';
     await this._writePersistedChatState(normalized, state);
   }
 
   private _broadcastSnapshot() {
-    if (!this._view) return;
-    this._view.webview.postMessage({
+    void this._postWebviewMessage({
       command: 'STATE_SNAPSHOT',
       requestId: this._activeRequestId,
       phase: this._currentPhase,
+      health: HealthMonitor.getInstance().status,
       timestamp: Date.now()
     });
   }
 
   private _sendStateEvent(phase: typeof this._currentPhase, text?: string) {
-    if (!this._view) return;
     this._currentPhase = phase;
-    this._view.webview.postMessage({
+    void this._postWebviewMessage({
       command: 'STATE_EVENT',
       type: 'PHASE_TRANSITION',
       requestId: this._activeRequestId,
@@ -399,19 +391,30 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this._extensionUri],
     };
 
+    const healthMonitor = HealthMonitor.getInstance();
     const cfg = vscode.workspace.getConfiguration('codeAlchemist');
     const configuredModel = (cfg.get<string>('model') || '').trim();
     const selectedModel = this._resolveModel(configuredModel, 'auto');
-    webviewView.webview.html = getChatWebviewContent(webviewView.webview, this._extensionUri, {
+    const html = getChatWebviewContent(webviewView.webview, this._extensionUri, {
       selectedModel,
       modelOptions: SIDEBAR_MODEL_OPTIONS,
+      initialHealth: healthMonitor.status,
     });
+    
+    // DEBUG: Write HTML to file for inspection
+    try {
+      const debugPath = vscode.Uri.joinPath(this._extensionUri, 'webview_debug.html');
+      await vscode.workspace.fs.writeFile(debugPath, Buffer.from(html, 'utf8'));
+    } catch (e: any) {
+      this._output.appendLine(`[Debug] Failed to write debug HTML: ${e.message}`);
+    }
+
+    webviewView.webview.html = html;
 
     this._broadcastSnapshot();
     void this._runAuthRefreshCycle();
-
     // ── Health Monitor Integration ─────────────────────────────
-    const healthMonitor = HealthMonitor.getInstance();
+
 
     // Push initial health state
     webviewView.webview.postMessage({
@@ -421,7 +424,8 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     });
 
     // Listen for health changes
-    const healthSub = healthMonitor.onStateChange((status) => {
+    this._healthSub?.dispose();
+    this._healthSub = healthMonitor.onStateChange((status) => {
       webviewView.webview.postMessage({
         command: 'HEALTH_STATUS',
         status: status,
@@ -433,13 +437,17 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       switch (data.command) {
         case 'webviewReady':
           this._broadcastSnapshot();
-          await this._runAuthRefreshCycle();
-          webviewView.webview.postMessage({
-            command: 'HEALTH_STATUS',
-            status: healthMonitor.status,
-            timestamp: Date.now()
-          });
-          void healthMonitor.checkNow().then(() => {
+          void this._runAuthRefreshCycle();
+          // Await the health check first, then push the definitive status.
+          // Without await, checkNow might silently skip firing if status hasn't
+          // changed, leaving the webview permanently stuck on 'connecting'.
+          healthMonitor.checkNow().then(() => {
+            webviewView.webview.postMessage({
+              command: 'HEALTH_STATUS',
+              status: healthMonitor.status,
+              timestamp: Date.now()
+            });
+          }).catch(() => {
             webviewView.webview.postMessage({
               command: 'HEALTH_STATUS',
               status: healthMonitor.status,
@@ -447,6 +455,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
             });
           });
           break;
+
         case 'refreshAuthStatus':
           await this._runAuthRefreshCycle(true);
           break;
@@ -459,6 +468,9 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
           });
           break;
         case 'ask':
+          if (typeof data.text !== 'string' || !data.text.trim()) {
+            return;
+          }
           await this._handleAsk(data.text, data.model, data.sessionId, data.conversationId);
           break;
         case 'persistChatState':
@@ -494,6 +506,9 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         case 'loadSession':
           await this._loadSessionDetails(data.sessionId);
           break;
+        case 'log':
+          this._output.appendLine(`[Webview] ${data.level || 'INFO'}: ${data.message}`);
+          break;
         case 'openPurchase':
           await this._handleOpenPurchase();
           break;
@@ -502,8 +517,11 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
     // Cleanup
     webviewView.onDidDispose(() => {
-      healthSub.dispose();
+      this._healthSub?.dispose();
+      this._healthSub = undefined;
       this._view = undefined;
+      this._handleStopAsk(); // Abort in-flight requests
+      CodeAlchemistChatProvider._instances.delete(this);
     });
   }
 
@@ -711,6 +729,18 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       }
     } catch (err) {
       this._output.appendLine(`[Auth] Failed to broadcast auth status: ${String(err)}`);
+    }
+  }
+
+  private async _postWebviewMessage(message: any): Promise<boolean> {
+    if (!this._view) {
+      return false;
+    }
+    try {
+      return await this._view.webview.postMessage(message);
+    } catch (err) {
+      this._output.appendLine(`[Webview] postMessage failed: ${err}`);
+      return false;
     }
   }
 

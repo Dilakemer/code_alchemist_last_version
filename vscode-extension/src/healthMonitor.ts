@@ -54,15 +54,22 @@ export class HealthMonitor {
 
     const healthUrl = deriveHealthUrl(endpoint);
     this._output?.appendLine(`[Health] Checking: ${healthUrl || endpoint}...`);
-    const isAlive = await pingBackend(endpoint);
     
-    if (isAlive) {
-      this._output?.appendLine('[Health] Online');
-    } else {
-      this._output?.appendLine(`[Health] Offline (ping failed for ${healthUrl || endpoint})`);
+    try {
+      const isAlive = await pingBackend(endpoint);
+      
+      if (isAlive) {
+        this._output?.appendLine('[Health] Online');
+      } else {
+        this._output?.appendLine(`[Health] Offline (ping failed for ${healthUrl || endpoint}). Check if backend is running.`);
+      }
+      
+      this.setStatus(isAlive ? 'online' : 'offline');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._output?.appendLine(`[Health] Error during ping: ${msg}`);
+      this.setStatus('offline');
     }
-    
-    this.setStatus(isAlive ? 'online' : 'offline');
   }
 
   private setStatus(newStatus: BackendHealthStatus) {

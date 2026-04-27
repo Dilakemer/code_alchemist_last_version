@@ -1,2 +1,9 @@
 node_modules/
 dist/
+webview_debug.html
+scratch/
+debug-webview.html
+debug-inline.js
+test.out.js
+test_emitted.js
+*.log

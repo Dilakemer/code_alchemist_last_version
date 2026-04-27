@@ -40,7 +40,8 @@ export function deriveEndpointRoot(endpoint: string): string {
     parsed.pathname = stripKnownRoute(parsed.pathname);
     return stripTrailingSlash(parsed.toString());
   } catch {
-    return stripTrailingSlash(trimmed.replace(/\/(v1|api)\/(ask|status)\/?$|\/health\/?$/i, ''));
+    // Fallback for non-URL strings or incomplete entries
+    return stripTrailingSlash(trimmed.replace(/\/(v1|api)\/(ask|status|history|status|cancel|auth\/vscode\/generate-otp)\/?$|\/health\/?$/i, ''));
   }
 }
 
@@ -471,13 +472,19 @@ export async function getBackendStatus(
   const statusUrl = `${root}/v1/status`;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
     const res = await fetch(statusUrl, {
       method: 'GET',
       headers: {
         'X-API-Key': apiKey,
         'Accept': 'application/json',
       },
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       if (res.status === 401) {
@@ -488,7 +495,11 @@ export async function getBackendStatus(
 
     return await res.json() as BackendStatusResponse;
   } catch (err) {
-    return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    const isAbort = err instanceof Error && err.name === 'AbortError';
+    return { 
+      status: 'error', 
+      error: isAbort ? 'Oturum doğrulaması zaman aşımına uğradı (10s)' : (err instanceof Error ? err.message : String(err)) 
+    };
   }
 }
 
