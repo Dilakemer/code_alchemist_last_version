@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
+import { useAccountDeletion } from '../hooks/useAccountDeletion';
 
-const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout }) => {
+const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout, onShowAlert }) => {
     const [displayName, setDisplayName] = useState(user?.display_name || '');
     const [bio, setBio] = useState(user?.bio || '');
     const [currentPassword, setCurrentPassword] = useState('');
@@ -13,11 +14,18 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout }) => {
     const [deletePassword, setDeletePassword] = useState('');
     const fileInputRef = useRef(null);
 
-    // Password visibility states
     const [showCurrentPassword, setShowCurrentPassword] = useState(false);
     const [showNewPassword, setShowNewPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [showDeletePassword, setShowDeletePassword] = useState(false);
+
+    const { deleteAccount, isDeleting } = useAccountDeletion({
+        apiBase,
+        authHeaders,
+        onShowAlert,
+        onLogout,
+        onClose: () => setDeleteModalOpen(false)
+    });
 
     const isPasswordStrong = (pwd) => /^(?=.*[a-z])(?=.*[A-Z]).{8,}$/.test(pwd);
 
@@ -43,30 +51,9 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout }) => {
 
     const handleDeleteAccount = async () => {
         if (!deletePassword) return;
-
-        setLoading(true);
-        setMessage({ type: '', text: '' });
-
-        try {
-            const res = await fetch(`${apiBase}/api/auth/delete-account`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json', ...authHeaders },
-                body: JSON.stringify({ password: deletePassword })
-            });
-
-            const data = await res.json();
-
-            if (res.ok) {
-                // Başarılı, çıkış yap
-                if (onLogout) await onLogout();
-            } else {
-                setMessage({ type: 'error', text: data.error || 'Failed to delete account.' });
-                setLoading(false);
-            }
-        } catch (err) {
-            console.error('Delete account error:', err);
-            setMessage({ type: 'error', text: 'Connection error.' });
-            setLoading(false);
+        const success = await deleteAccount(deletePassword);
+        if (success) {
+            setDeletePassword('');
         }
     };
 
@@ -418,10 +405,10 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout }) => {
                                 </button>
                                 <button
                                     onClick={handleDeleteAccount}
-                                    disabled={loading || !deletePassword}
+                                    disabled={isDeleting || !deletePassword}
                                     className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50"
                                 >
-                                    {loading ? 'Deleting...' : 'Delete Account'}
+                                    {isDeleting ? 'Deleting...' : 'Delete Account'}
                                 </button>
                             </div>
                         </div>

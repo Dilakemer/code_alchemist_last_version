@@ -22,7 +22,7 @@ class LLMIntentClassifier:
         self.dispatcher = AdapterDispatcher()
         # Use a fast, cost-effective model for classification tasks
         self.model_name = os.getenv("INTENT_LLM_MODEL", "gemini-2.5-flash")
-        self.timeout_sec = float(os.getenv("INTENT_CLASSIFIER_LLM_TIMEOUT_SEC", "4.0"))
+        self.timeout_sec = float(os.getenv("INTENT_CLASSIFIER_LLM_TIMEOUT_SEC", "12.0"))
 
     def _get_cache_key(self, prompt: str) -> str:
         """Returns a stable SHA-256 hash of the trimmed prompt."""

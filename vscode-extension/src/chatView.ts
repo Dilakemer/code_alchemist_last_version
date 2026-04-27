@@ -1163,6 +1163,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             // Persistent Context
             chatSessions: [],
             activeSessionId: '',
+            currentUserKey: '',
             selectedModel: initialState.selectedModel || 'auto',
             historySearchTerm: '',
 
@@ -1203,7 +1204,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 appState.reconnecting = true;
                 appState.authError = 'Oturum doğrulaması gecikti. Yeniden bağlanılıyor...';
                 syncUi();
-                persist();
+                persist({ skipRemote: true });
                 requestAuthRefresh();
             }, 3000);
         }
@@ -1263,13 +1264,14 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     appState.authError = typeof action.payload.error === 'string' ? action.payload.error : '';
                     appState.isVerifying = Boolean(action.payload.isVerifying);
                     appState.reconnecting = Boolean(action.payload.reconnecting);
+                    appState.currentUserKey = typeof action.payload.userKey === 'string' ? action.payload.userKey : appState.currentUserKey;
                     appState.ready.provider = true;
                     if (appState.isVerifying) {
                         scheduleAuthRefreshTimeout();
                     } else {
                         clearAuthRefreshTimeout();
                     }
-                    persist();
+                    persist({ skipRemote: true });
                     break;
             }
 
@@ -1406,7 +1408,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     if (appState.isAuthenticated) {
                         appState.reconnecting = true;
                         syncUi();
-                        persist();
+                        persist({ skipRemote: true });
                     }
                     requestAuthRefresh();
                 }
@@ -1436,11 +1438,17 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     case 'AUTH_STATUS':
                         dispatch({ type: 'AUTH_UPDATE', payload: message });
                         break;
+                    case 'LOAD_PERSISTED_STATE':
+                        applyPersistedChatState(message.state, message.userKey);
+                        break;
                     case 'HISTORY_LIST':
                         handleHistoryList(message.sessions);
                         break;
                     case 'SESSION_DETAILS':
                         handleSessionDetails(message.sessionId, message.messages);
+                        break;
+                    case 'SESSION_LINKED':
+                        linkSessionToConversation(message.sessionId, message.conversationId);
                         break;
                     case 'PURGE_STATE':
                         purgeState();
@@ -1468,7 +1476,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
         function createSession() {
             const id = 'session-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-            return { id, title: 'Yeni Sohbet', createdAt: nowIso(), updatedAt: nowIso(), pinned: false, messages: [] };
+            return { id, title: 'Yeni Sohbet', createdAt: nowIso(), updatedAt: nowIso(), pinned: false, messages: [], backendConversationId: '' };
         }
 
         function normalizeSession(raw) {
@@ -1479,6 +1487,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : nowIso(),
                 pinned: Boolean(raw?.pinned),
                 messages: Array.isArray(raw?.messages) ? raw.messages : [],
+                backendConversationId: typeof raw?.backendConversationId === 'string' ? raw.backendConversationId : '',
+                isServerSession: Boolean(raw?.isServerSession),
             };
         }
 
@@ -1486,24 +1496,89 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             return appState.chatSessions.find((s) => s.id === appState.activeSessionId) || null;
         }
 
-        function persist() {
+        function ensureSessionState() {
+            if (appState.chatSessions.length > MAX_SESSIONS) {
+                appState.chatSessions = appState.chatSessions.slice(0, MAX_SESSIONS);
+            }
+
+            if (appState.chatSessions.length === 0) {
+                const s = createSession();
+                appState.chatSessions.push(s);
+                appState.activeSessionId = s.id;
+                setDefaultGreetingIfNeeded(s);
+                return;
+            }
+
+            const found = appState.chatSessions.some((s) => s.id === appState.activeSessionId);
+            if (!found) {
+                appState.activeSessionId = appState.chatSessions[0].id;
+            }
+
+            setDefaultGreetingIfNeeded(getActiveSession());
+        }
+
+        function buildPersistedChatState() {
+            return {
+                chatSessions: appState.chatSessions.map(session => ({
+                    id: session.id,
+                    title: session.title,
+                    createdAt: session.createdAt,
+                    updatedAt: session.updatedAt,
+                    pinned: Boolean(session.pinned),
+                    messages: Array.isArray(session.messages) ? session.messages : [],
+                    backendConversationId: session.backendConversationId || ''
+                })),
+                activeSessionId: appState.activeSessionId
+            };
+        }
+
+        function scheduleRemotePersist() {
+            if (!appState.currentUserKey || !appState.isAuthenticated) {
+                return;
+            }
+
+            if (window.__codeAlchemistPersistTimer) {
+                clearTimeout(window.__codeAlchemistPersistTimer);
+            }
+
+            window.__codeAlchemistPersistTimer = setTimeout(() => {
+                if (appState.currentUserKey && appState.isAuthenticated) {
+                    vscode.postMessage({ command: 'persistChatState', state: buildPersistedChatState() });
+                }
+                window.__codeAlchemistPersistTimer = null;
+            }, 150);
+        }
+
+        function persist(options = {}) {
+            const skipRemote = Boolean(options.skipRemote);
             vscode.setState({
-                chatSessions: appState.chatSessions,
-                activeSessionId: appState.activeSessionId,
                 selectedModel: appState.selectedModel,
                 isAuthenticated: appState.isAuthenticated,
                 balance: appState.balance,
                 purchaseUrl: appState.purchaseUrl,
                 authError: appState.authError,
                 isVerifying: appState.isVerifying,
-                reconnecting: appState.reconnecting
+                reconnecting: appState.reconnecting,
+                currentUserKey: appState.currentUserKey
             });
+
+            if (!skipRemote) {
+                scheduleRemotePersist();
+            }
+        }
+
+        function applyPersistedChatState(state, userKey) {
+            appState.currentUserKey = typeof userKey === 'string' ? userKey : '';
+            appState.chatSessions = Array.isArray(state?.chatSessions) ? state.chatSessions.map(normalizeSession) : [];
+            appState.activeSessionId = typeof state?.activeSessionId === 'string' ? state.activeSessionId : '';
+            ensureSessionState();
+            renderActiveSession();
+            renderHistory();
+            persist({ skipRemote: true });
         }
 
         function loadInitialPersistentData() {
             const saved = vscode.getState() || {};
-            appState.chatSessions = Array.isArray(saved.chatSessions) ? saved.chatSessions.map(normalizeSession) : [];
-            appState.activeSessionId = typeof saved.activeSessionId === 'string' ? saved.activeSessionId : '';
             appState.selectedModel = typeof saved.selectedModel === 'string' ? saved.selectedModel : appState.selectedModel;
             appState.isAuthenticated = Boolean(saved.isAuthenticated);
             appState.balance = typeof saved.balance === 'number' ? saved.balance : 0;
@@ -1511,17 +1586,10 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             appState.authError = typeof saved.authError === 'string' ? saved.authError : '';
             appState.isVerifying = Boolean(saved.isVerifying);
             appState.reconnecting = Boolean(saved.reconnecting);
-
-            if (appState.chatSessions.length === 0) {
-                const s = createSession();
-                appState.chatSessions.push(s);
-                appState.activeSessionId = s.id;
-                setDefaultGreetingIfNeeded(s);
-            } else {
-                const found = appState.chatSessions.some((s) => s.id === appState.activeSessionId);
-                if (!found) appState.activeSessionId = appState.chatSessions[0].id;
-                setDefaultGreetingIfNeeded(getActiveSession());
-            }
+            appState.currentUserKey = typeof saved.currentUserKey === 'string' ? saved.currentUserKey : '';
+            appState.chatSessions = [];
+            appState.activeSessionId = '';
+            ensureSessionState();
 
             if (appState.isAuthenticated) {
                 appState.isVerifying = true;
@@ -1602,6 +1670,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 createdAt: s.updatedAt,
                 updatedAt: s.updatedAt,
                 pinned: s.pinned,
+                backendConversationId: typeof s.id === 'number' || typeof s.id === 'string' ? String(s.id) : '',
                 isServerSession: true
             }));
 
@@ -1634,8 +1703,24 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             }
         }
 
+        function linkSessionToConversation(sessionId, conversationId) {
+            const session = appState.chatSessions.find(x => x.id === sessionId);
+            if (!session) {
+                return;
+            }
+
+            session.backendConversationId = typeof conversationId === 'string' ? conversationId : '';
+            session.isServerSession = false;
+            persist();
+        }
+
         function purgeState() {
             clearAuthRefreshTimeout();
+            if (window.__codeAlchemistPersistTimer) {
+                clearTimeout(window.__codeAlchemistPersistTimer);
+                window.__codeAlchemistPersistTimer = null;
+            }
+            appState.currentUserKey = '';
             appState.chatSessions = [];
             const s = createSession();
             setDefaultGreetingIfNeeded(s);
@@ -1649,7 +1734,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             appState.reconnecting = false;
             renderActiveSession();
             renderHistory();
-            persist();
+            persist({ skipRemote: true });
         }
 
         window.requestDeleteSession = (sid, title) => {
@@ -2009,12 +2094,20 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         function sendMsg() {
             const text = chatInput.value.trim();
             if (!text || appState.phase !== 'IDLE' || appState.isVerifying || appState.reconnecting) return;
+            const session = getActiveSession();
+            if (!session) return;
             addMessage(text, 'user');
             // Start a fresh AI container for this request before streaming begins.
             addMessage('', 'ai');
             chatInput.value = '';
             dispatch({ type: 'UX_ASK' });
-            vscode.postMessage({ command: 'ask', text, model: appState.selectedModel });
+            vscode.postMessage({
+                command: 'ask',
+                text,
+                model: appState.selectedModel,
+                sessionId: session.id,
+                conversationId: session.backendConversationId || undefined
+            });
         }
 
         if (sendBtn) {
@@ -2048,7 +2141,17 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         if (resetBtn) {
             resetBtn.onclick = () => {
             const s = getActiveSession();
-            if (s) { s.messages = []; setDefaultGreetingIfNeeded(s); s.title='Yeni Sohbet'; renderActiveSession(); renderHistory(); persist(); }
+            if (s) {
+                s.messages = [];
+                s.title = 'Yeni Sohbet';
+                s.updatedAt = nowIso();
+                s.backendConversationId = '';
+                s.isServerSession = false;
+                setDefaultGreetingIfNeeded(s);
+                renderActiveSession();
+                renderHistory();
+                persist();
+            }
             };
         }
         if (historyBtn && historyDrawer && historySearch) {

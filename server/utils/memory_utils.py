@@ -11,6 +11,7 @@ try:
     from google import genai as google_genai
 except Exception:
     google_genai = None
+from .timeout_utils import to_gemini_timeout
 
 MEMORY_ITEM_LIMIT = 3
 MEMORY_CHAR_BUDGET = 1000
@@ -199,7 +200,10 @@ def _get_embedding_client():
         return None
 
     try:
-        _EMBEDDING_CLIENT = google_genai.Client(api_key=api_key)
+        _EMBEDDING_CLIENT = google_genai.Client(
+            api_key=api_key,
+            http_options={'timeout': to_gemini_timeout(60)}
+        )
     except Exception:
         _EMBEDDING_CLIENT = None
 
@@ -280,7 +284,10 @@ def _embed_text_with_fallback(text, task_type='RETRIEVAL_DOCUMENT'):
             response = client.models.embed_content(
                 model=model_name,
                 contents=text,
-                config={'task_type': task_type},
+                config={
+                    'task_type': task_type,
+                    'http_options': {'timeout': to_gemini_timeout(60)}
+                },
             )
             values = _extract_embedding_values(response)
             if values:

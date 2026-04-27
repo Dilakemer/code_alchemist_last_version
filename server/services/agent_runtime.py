@@ -4,13 +4,21 @@ import json
 import math
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
+
+class AgentAbortException(Exception):
+    """Raised when an agent turn is cancelled by the user."""
+    pass
+
 from models import ProjectFile, db
+from services.latency_tracker import tracker
+from utils.timeout_utils import to_gemini_timeout
 
 
-MAX_AGENT_STEPS = 4
+MAX_AGENT_STEPS = 10
 DEFAULT_MAX_FILE_CHARS = 120000
 
 
@@ -102,10 +110,9 @@ def build_agent_system_prompt(
     tool_guidance = (
         f"You are operating in Agent Mode with tool access to the active {workspace_label}. "
         "Use tools whenever you need to inspect, search, create, update, or delete files. "
-        "For tasks involving library installations (e.g. npm install, pip install), project builds, or running tests, you MUST use the `run_command` or `execute_command` tools instead of manually editing configuration files. "
-        "If you identify a bug and a writable workspace is attached, you MUST use the `write_file` tool to apply a fix instead of just explaining it. "
-        "Before modifying a file, read it first when possible. Keep edits minimal and safe. "
-        "When you change files or run commands, explain the results clearly. "
+        "IMPORTANT: Batch related file operations in a single turn whenever possible (e.g., write multiple files at once if they belong to the same logical change) to reduce latency. "
+        "When you change files, explain the results clearly. "
+        "IMPORTANT: The `run_command` and `execute_command` tools are ASYNCHRONOUS. They send the command to the user's terminal but do NOT return the command's output to you in the same turn. When you use these tools, you MUST inform the user that the command has been started and then provide your final answer immediately. Do NOT attempt to poll or wait for the command output."
         "Prefer 1-2 searches before fetching pages. Avoid redundant queries. "
         "When search results expose recommended_fetch_urls, fetch only the top 2 distinct trusted domains first. "
         "Batch independent search or fetch calls in one turn when they do not depend on each other."
@@ -147,6 +154,8 @@ def build_agent_system_prompt(
         "- Kısa tanım soruları\n\n"
         "Eğer kullanıcı mesajı yukarıdaki \"NORMAL YANIT\" kategorisine giriyorsa,\n"
         "hiçbir tool çağırma, hiçbir adım atmadan DOĞRUDAN yanıt ver."
+        "STRICT: Your final response MUST ONLY contain the message for the user. Do NOT include any internal thoughts, reasoning, or 'Thinking process' labels in the output. "
+        "For simple terminal commands, provide your final answer immediately after sending the command. For complex research tasks, you may use up to 10 steps. "
     ).strip()
 
 
@@ -301,7 +310,7 @@ class AgentToolRuntime:
             },
             {
                 "name": "run_command",
-                "description": "Execute a shell command in the user's terminal. Use this for installing dependencies, running tests, or building the project.",
+                "description": "Execute a shell command in the user's terminal. Use this for installing dependencies, running tests, or building the project. NOTE: This tool is asynchronous and does not return the output of the command in the current turn.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -395,6 +404,7 @@ class AgentToolRuntime:
         trust_id: Optional[str] = None,
         content: Optional[str] = None,
         language: Optional[str] = None,
+        original_content: Optional[str] = None,
     ):
         normalized_path = _normalize_path(path)
         self.changed_files.append(
@@ -405,6 +415,7 @@ class AgentToolRuntime:
                 "trust_id": trust_id,
                 "trust_scope": self.trusted_files.get(path, {}).get("trust_scope") if path in self.trusted_files else None,
                 "content": self._truncate_content(content) if content is not None and operation != "delete" else None,
+                "originalContent": self._truncate_content(original_content) if original_content is not None else None,
                 "language": language or "plaintext",
             }
         )
@@ -520,6 +531,7 @@ class AgentToolRuntime:
         if self.project is not None:
             # (Existing project logic remains same, it's inherently trusted as it's in DB)
             pf = self._find_project_file(path)
+            old_content = pf.content if pf else None
             created = pf is None
             if created:
                 pf = ProjectFile(
@@ -546,6 +558,7 @@ class AgentToolRuntime:
                 persisted=True,
                 content=safe_content,
                 language=pf.language or language or "plaintext",
+                original_content=old_content,
             )
             return {
                 "ok": True,
@@ -562,6 +575,7 @@ class AgentToolRuntime:
 
         # For workspace snapshots, we allow the write if it's trusted or inside workspace
         wf_entry = self._find_workspace_file(path)
+        old_content = wf_entry["content"] if wf_entry else None
         created = wf_entry is None
         
         self.workspace_files[path] = {
@@ -578,6 +592,7 @@ class AgentToolRuntime:
             trust_id=trust_id,
             content=safe_content,
             language=language or "plaintext",
+            original_content=old_content,
         )
         
         return {
@@ -608,7 +623,7 @@ class AgentToolRuntime:
                     self.invalidate_project_cache(self.project.id)
                 except Exception:
                     pass
-            self._register_change("delete", path, persisted=True)
+            self._register_change("delete", path, persisted=True, original_content=pf.content)
             return {
                 "ok": True,
                 "scope": "project",
@@ -620,7 +635,7 @@ class AgentToolRuntime:
         if not wf:
             return {"ok": False, "error": f"File not found: {path}"}
         self.workspace_files.pop(wf["path"], None)
-        self._register_change("delete", path, persisted=False)
+        self._register_change("delete", path, persisted=False, original_content=wf.get("content"))
         return {
             "ok": True,
             "scope": "workspace",
@@ -914,6 +929,8 @@ def _run_openai_agent(
     history_context: Optional[List[dict]],
     tool_runtime: Optional[AgentToolRuntime],
     on_event: Optional[Callable[[dict], None]] = None,
+    on_first_llm_success: Optional[Callable[[], None]] = None,
+    request_id: Optional[str] = None,
 ) -> AgentRunResult:
     if not client:
         return AgentRunResult(text="Error: OPENAI_API_KEY missing.", tool_capable=False)
@@ -928,6 +945,13 @@ def _run_openai_agent(
     max_steps = _max_agent_steps()
 
     for step in range(max_steps):
+        # Check if request was cancelled via /v1/cancel
+        if request_id:
+            from app import is_request_cancelled
+            if is_request_cancelled(request_id):
+                print(f"[Agent-OpenAI] Request {request_id} ABORTED by user.")
+                raise AgentAbortException("Request cancelled by user")
+
         try:
             params = {
                 "model": model,
@@ -941,7 +965,19 @@ def _run_openai_agent(
                 params["parallel_tool_calls"] = True
                 
             response = client.chat.completions.create(**params)
+            
+            # 🔥 SUCCESS: Trigger token deduction callback on first successful LLM call
+            if step == 0 and on_first_llm_success:
+                try:
+                    on_first_llm_success()
+                except Exception as cb_err:
+                    print(f"[Agent-OpenAI] Callback error: {cb_err}")
         except Exception as e:
+            # Check if this was an intentional abort that happened during the call
+            if request_id:
+                from app import is_request_cancelled
+                if is_request_cancelled(request_id):
+                    raise AgentAbortException("Request cancelled by user during API call")
             print("OPENAI ERROR:", repr(e))
             raise
         choice = response.choices[0]
@@ -1060,6 +1096,8 @@ def _run_anthropic_agent(
     history_context: Optional[List[dict]],
     tool_runtime: Optional[AgentToolRuntime],
     on_event: Optional[Callable[[dict], None]] = None,
+    on_first_llm_success: Optional[Callable[[], None]] = None,
+    request_id: Optional[str] = None,
 ) -> AgentRunResult:
     if not client:
         return AgentRunResult(text="Error: ANTHROPIC_API_KEY missing.", tool_capable=False)
@@ -1073,6 +1111,13 @@ def _run_anthropic_agent(
     max_steps = _max_agent_steps()
 
     for step in range(max_steps):
+        # Check if request was cancelled via /v1/cancel
+        if request_id:
+            from app import is_request_cancelled
+            if is_request_cancelled(request_id):
+                print(f"[Agent-Anthropic] Request {request_id} ABORTED by user.")
+                raise AgentAbortException("Request cancelled by user")
+
         kwargs = {
             "model": model,
             "max_tokens": 2200,
@@ -1086,7 +1131,21 @@ def _run_anthropic_agent(
 
         print(f"DEBUG AGENT ANTHROPIC KWARGS: {json.dumps({k:v for k,v in kwargs.items() if k != 'messages'}, indent=2)}")
             
-        response = client.messages.create(**kwargs)
+        try:
+            response = client.messages.create(**kwargs)
+            
+            # 🔥 SUCCESS: Trigger token deduction callback on first successful LLM call
+            if step == 0 and on_first_llm_success:
+                try:
+                    on_first_llm_success()
+                except Exception as cb_err:
+                    print(f"[Agent-Anthropic] Callback error: {cb_err}")
+        except Exception as e:
+            if request_id:
+                from app import is_request_cancelled
+                if is_request_cancelled(request_id):
+                    raise AgentAbortException("Request cancelled by user during API call")
+            raise
 
         blocks = getattr(response, "content", []) or []
         tool_blocks = [block for block in blocks if getattr(block, "type", None) == "tool_use"]
@@ -1187,6 +1246,32 @@ def _run_anthropic_agent(
     )
 
 
+def _call_gemini_with_retry(client, model, contents, config, max_retries=3):
+    """Call Gemini generate_content with exponential backoff on 503/504 errors."""
+    for attempt in range(max_retries + 1):
+        try:
+            # Inject timeout into config if not present
+            if hasattr(config, 'http_options') and config.http_options is None:
+                from google.genai import types as gemini_types
+                config.http_options = gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
+            
+            return client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+        except Exception as e:
+            error_str = str(e).lower()
+            is_transient = "500" in error_str or "503" in error_str or "504" in error_str or "internal error" in error_str or "service unavailable" in error_str or "deadline exceeded" in error_str or "timeout" in error_str or "handshake" in error_str
+            
+            if is_transient and attempt < max_retries:
+                wait_time = (2 ** attempt) + (0.1 * attempt)
+                print(f"[GeminiRetry] Attempt {attempt+1} failed ({error_str}). Retrying in {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+            raise e
+
+
 def _run_gemini_agent(
     *,
     client,
@@ -1196,6 +1281,8 @@ def _run_gemini_agent(
     history_context: Optional[List[dict]],
     tool_runtime: Optional[AgentToolRuntime],
     on_event: Optional[Callable[[dict], None]] = None,
+    on_first_llm_success: Optional[Callable[[], None]] = None,
+    request_id: Optional[str] = None
 ) -> AgentRunResult:
     gemini_types = _get_gemini_types()
     if gemini_types is None:
@@ -1212,21 +1299,57 @@ def _run_gemini_agent(
         system_instruction=system_prompt,
         temperature=0.2,
         tools=_build_gemini_tools(tool_runtime.get_tool_specs()) if tool_runtime and tool_runtime.has_tool_access else None,
+        automatic_function_calling=gemini_types.AutomaticFunctionCallingConfig(disable=True) if hasattr(gemini_types, 'AutomaticFunctionCallingConfig') else None,
+        http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
     )
 
     max_steps = _max_agent_steps()
 
     for step in range(max_steps):
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
-        )
+        # Check if request was cancelled via /v1/cancel
+        if request_id:
+            from app import is_request_cancelled
+            if is_request_cancelled(request_id):
+                print(f"[Agent] Request {request_id} ABORTED by user.")
+                raise AgentAbortException("Request cancelled by user")
+
+        import time
+        start_step_time = time.perf_counter()
+        try:
+            response = _call_gemini_with_retry(
+                client=client,
+                model=model,
+                contents=contents,
+                config=config,
+            )
+            step_duration = time.perf_counter() - start_step_time
+            print(f"[LATENCY_PROFILE] Step {step} Gemini API call took {step_duration:.4f}s")
+            tracker.record_step("gemini_api_call", step_duration)
+            
+            # 🔥 SUCCESS: Trigger token deduction callback on first successful LLM call
+            if step == 0 and on_first_llm_success:
+                try:
+                    on_first_llm_success()
+                except Exception as cb_err:
+                    print(f"[Agent-Gemini] Callback error: {cb_err}")
+        except Exception as e:
+            if request_id:
+                from app import is_request_cancelled
+                if is_request_cancelled(request_id):
+                    raise AgentAbortException("Request cancelled by user during API call")
+            return AgentRunResult(text=f"Gemini API Error: {str(e)}", trace=trace, tool_capable=True)
 
         function_calls = list(getattr(response, "function_calls", None) or [])
         text = _extract_gemini_text_from_candidates(response)
-        model_content = None
         candidates = list(getattr(response, "candidates", None) or [])
+        
+        if not function_calls and not text:
+            print(f"[GeminiAgent] Warning: Empty response (no text, no tools) at step {step}. Candidates: {len(candidates)}")
+        
+        # Priority: If tool calls are present, ignore accompanying text (treat as internal reasoning)
+        if function_calls:
+            text = ""
+        model_content = None
         if candidates:
             candidate_content = getattr(candidates[0], "content", None)
             if candidate_content and getattr(candidate_content, "parts", None):
@@ -1255,6 +1378,8 @@ def _run_gemini_agent(
                         system_instruction=system_prompt,
                         temperature=0.2,
                         tools=None,
+                        automatic_function_calling=gemini_types.AutomaticFunctionCallingConfig(disable=True) if hasattr(gemini_types, 'AutomaticFunctionCallingConfig') else None,
+                        http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
                     )
                     forced_response = client.models.generate_content(
                         model=model,
@@ -1286,10 +1411,14 @@ def _run_gemini_agent(
                     )
                 contents.append(gemini_types.Content(role="model", parts=model_parts))
 
+            tool_start_time = time.perf_counter()
             batch = _execute_tool_batch(
                 tool_runtime,
                 [type("ToolCall", (), {"name": call.name, "args": call.args or {}})() for call in function_calls],
             )
+            tool_duration = time.perf_counter() - tool_start_time
+            print(f"[LATENCY_PROFILE] Step {step} Tool batch execution took {tool_duration:.4f}s for {len(function_calls)} tools")
+            tracker.record_step("tool_batch_execution", tool_duration)
 
             for call, payload in zip(function_calls, batch):
                 _emit(on_event, {"type": "tool_start", "tool": call.name, "args": payload["args"]})
@@ -1321,14 +1450,14 @@ def _run_gemini_agent(
             continue
 
         return AgentRunResult(
-            text=text,
+            text=text if text else "I processed the request but no final response was generated. If you ran a command, please check the terminal.",
             trace=trace,
             changed_files=list(tool_runtime.changed_files if tool_runtime else []),
             tool_capable=bool(tool_runtime and tool_runtime.has_tool_access),
         )
 
     return AgentRunResult(
-        text="Agent Mode reached the maximum tool steps before producing a final answer.",
+        text="Agent Mode reached the maximum tool steps before producing a final answer. Please check if your request requires more specific instructions.",
         trace=trace,
         changed_files=list(tool_runtime.changed_files if tool_runtime else []),
         tool_capable=bool(tool_runtime and tool_runtime.has_tool_access),
@@ -1349,6 +1478,8 @@ def run_agent_turn(
     anthropic_client=None,
     gemini_client=None,
     on_event: Optional[Callable[[dict], None]] = None,
+    on_first_llm_success: Optional[Callable[[], None]] = None, # <--- NEW
+    request_id: Optional[str] = None
 ) -> AgentRunResult:
     has_tool_access = bool(tool_runtime and tool_runtime.has_tool_access)
     system_prompt = build_agent_system_prompt(
@@ -1370,6 +1501,8 @@ def run_agent_turn(
             history_context=history_context,
             tool_runtime=tool_runtime,
             on_event=on_event,
+            on_first_llm_success=on_first_llm_success,
+            request_id=request_id,
         )
     if provider_key == "anthropic":
         return _run_anthropic_agent(
@@ -1380,6 +1513,8 @@ def run_agent_turn(
             history_context=history_context,
             tool_runtime=tool_runtime,
             on_event=on_event,
+            on_first_llm_success=on_first_llm_success,
+            request_id=request_id
         )
     if provider_key == "gemini":
         return _run_gemini_agent(
@@ -1390,6 +1525,8 @@ def run_agent_turn(
             history_context=history_context,
             tool_runtime=tool_runtime,
             on_event=on_event,
+            on_first_llm_success=on_first_llm_success,
+            request_id=request_id,
         )
 
     return AgentRunResult(text=f"Unsupported agent provider: {provider_key}", tool_capable=has_tool_access)

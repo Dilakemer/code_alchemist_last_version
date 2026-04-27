@@ -12,6 +12,7 @@ import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from .base import BaseAdapter, AdapterConfig, AdapterResponse, ToolCallRequest
+from ...utils.timeout_utils import to_gemini_timeout
 
 
 class GeminiAdapter(BaseAdapter):
@@ -21,7 +22,10 @@ class GeminiAdapter(BaseAdapter):
         try:
             from google import genai
             from google.genai import types as gemini_types
-            self._client = genai.Client(api_key=api_key)
+            self._client = genai.Client(
+                api_key=api_key,
+                http_options={'timeout': to_gemini_timeout(120)}
+            )
             self._types = gemini_types
         except ImportError as exc:
             raise RuntimeError("google-genai package is required for GeminiAdapter") from exc
@@ -236,6 +240,7 @@ class GeminiAdapter(BaseAdapter):
             temperature=config.temperature,
             max_output_tokens=config.max_tokens,
             tools=tools,
+            http_options=types.HttpOptions(timeout=to_gemini_timeout(120)),
         )
 
         # google-genai SDK is synchronous; run in executor
@@ -287,6 +292,7 @@ class GeminiAdapter(BaseAdapter):
             max_output_tokens=config.max_tokens,
             tools=tools,
             tool_config={"function_calling_config": {"mode": "AUTO"}} if tools else None,
+            http_options=types.HttpOptions(timeout=to_gemini_timeout(120)),
         )
 
         loop = asyncio.get_event_loop()

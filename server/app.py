@@ -40,7 +40,7 @@ from flask_jwt_extended import (
 )
 from passlib.hash import pbkdf2_sha256
 from google import genai as google_genai
-from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey, VSCodeLoginState, VSCodeOTP
+from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey, VSCodeLoginState, VSCodeOTP, PostLike, AnswerLike, NotificationRead, NotificationHidden, Feedback, FeedbackDetail, UserTheme
 from anthropic import Anthropic, APIError
 from openai import OpenAI
 import stripe
@@ -49,6 +49,13 @@ from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
 from utils.github_parser import GitHubParser
+from utils.timeout_utils import to_gemini_timeout
+
+# Global registry for cancelled requests
+CANCELLED_REQUESTS = {}
+
+def is_request_cancelled(request_id):
+    return CANCELLED_REQUESTS.get(request_id, False)
 from utils.memory_utils import (
     build_minimum_continuation_capsule,
     build_memory_retrieval_plan,
@@ -57,7 +64,7 @@ from utils.memory_utils import (
     extract_memory_candidates,
 )
 from services.lifecycle_orchestrator import start_worker, LifecycleOrchestrator
-from services.agent_runtime import AgentToolRuntime, run_agent_turn, stream_text_chunks
+from services.agent_runtime import AgentToolRuntime, run_agent_turn, stream_text_chunks, AgentAbortException
 
 
 def _classify_openai_error(error: Exception) -> str:
@@ -132,11 +139,18 @@ class _GeminiCompatModel:
 
     def generate_content(self, contents, stream=False, request_options=None):
         # request_options is accepted for backward compatibility with old SDK call sites.
+        # It is assumed to be in seconds and is converted to milliseconds with a 10s floor.
+        timeout_sec = (request_options or {}).get('timeout') if isinstance(request_options, dict) else None
+        gemini_timeout = to_gemini_timeout(timeout_sec)
+        
+        config = {'http_options': {'timeout': gemini_timeout}}
+
         if stream:
             def _iter_stream():
                 stream_iter = self._client.models.generate_content_stream(
                     model=self._model_name,
                     contents=contents,
+                    config=config,
                 )
                 for item in stream_iter:
                     yield SimpleNamespace(text=_extract_gemini_text(item))
@@ -146,6 +160,7 @@ class _GeminiCompatModel:
         response = self._client.models.generate_content(
             model=self._model_name,
             contents=contents,
+            config=config,
         )
         text = _extract_gemini_text(response)
         return SimpleNamespace(
@@ -162,7 +177,8 @@ class _GeminiCompat:
         if not api_key:
             self._client = None
             return
-        self._client = google_genai.Client(api_key=api_key)
+        # to_gemini_timeout ensures 10s floor and millisecond conversion
+        self._client = google_genai.Client(api_key=api_key, http_options={'timeout': to_gemini_timeout(300)})
 
     def GenerativeModel(self, model_name):
         if not self._client:
@@ -225,6 +241,11 @@ TOKEN_COSTS = {
     'gemini-3.1-flash-lite-preview': 2,
     'gemini-2.5-flash-lite': 1,
     'gemini-1.5-flash': 1,
+    'gemma': 3,
+    'gemma-4-26b-it': 3,
+    'gemma-4-31b-it': 4,
+    'gemma-2-27b-it': 3,
+    'gemma-2-9b-it': 2,
     # OpenAI ailesi
     'gpt': 10,
     'gpt-4o': 10,
@@ -1170,7 +1191,7 @@ graph TD
 #     ...eski kod kaldırıldı...
 
 # --- 1. GEMINI KONFIGURASYONU ---
-GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.5-flash')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-1.5-flash')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 if GEMINI_API_KEY:
@@ -1353,10 +1374,14 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite-preview',
             'gemini-2.5-flash-lite': 'gemini-2.5-flash-lite',
             'gemini-2.5-flash': 'gemini-2.5-flash',
+            'gemma-4-26b': 'gemma-4-26b-it',
+            'gemma-4-26b-it': 'gemma-4-26b-it',
             'gemma-4-31b': 'gemma-4-31b-it',
             'gemma-4-31b-it': 'gemma-4-31b-it',
-            'gemma-4-26b': 'gemma-4-26b-a4b-it',
-            'gemma-4-26b-a4b-it': 'gemma-4-26b-a4b-it',
+            'gemma-2-27b': 'gemma-2-27b-it',
+            'gemma-2-27b-it': 'gemma-2-27b-it',
+            'gemma-2-9b': 'gemma-2-9b-it',
+            'gemma-2-9b-it': 'gemma-2-9b-it',
         }
         
         target_id = model_mapping.get(requested_model, requested_model)
@@ -1591,8 +1616,9 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             # Hata Analizi
             is_quota = "429" in error_str or "TooManyRequests" in error_str or "quota" in error_str.lower()
             is_not_found = "404" in error_str or "NotFound" in error_str
+            is_internal = "500" in error_str or "internal" in error_str.lower()
             
-            if is_quota or is_not_found or "503" in error_str:
+            if is_quota or is_not_found or is_internal or "503" in error_str:
                 print(f"Hata ({model_name}): {error_str} -> Sıradaki modele geçiliyor.")
                 continue # Sonraki modele geç
             else:
@@ -3605,9 +3631,10 @@ def deduct_tokens(user: User, model_name: str = "default", description: str = No
 
     print(f"[TOKEN] Deduction attempt for user {user.id} ({user.email}). Current: {wallet.balance}, Cost: {cost}, Model: {model_name}")
 
+    # Note: We allow balance to go negative if authorized at the start of request, 
+    # to ensure the user is correctly penalized and blocked on the next turn.
     if wallet.balance < cost:
-        print(f"[TOKEN] Deduction failed: Insufficient balance for user {user.id}. Required: {cost}, Found: {wallet.balance}")
-        return False, wallet.balance
+        print(f"[TOKEN] Deduction notice: Insufficient balance for user {user.id}. Required: {cost}, Found: {wallet.balance}. Allowing debt to prevent bypass loop.")
 
     wallet.balance -= cost
     wallet.total_spent += cost
@@ -3622,6 +3649,7 @@ def deduct_tokens(user: User, model_name: str = "default", description: str = No
     db.session.add(tx)
     try:
         db.session.commit()
+        print(f"[TOKEN] SUCCESS: User {user.email} -{cost} tokens. Final Balance: {wallet.balance}")
         print(f"[TOKEN] Deduction success for user {user.id}. New balance: {wallet.balance}")
     except Exception as e:
         db.session.rollback()
@@ -3958,98 +3986,98 @@ def analyze_profile():
 @jwt_required()
 def delete_account():
     """Kullanıcı hesabını ve ilgili tüm verileri siler."""
-    user = get_current_user()
-    data = request.json or {}
-    password = data.get('password')
-
-    if not password:
-        return jsonify({'error': 'Enter your password for confirmation.'}), 400
-
-    if not verify_password(password, user.password_hash):
-        return jsonify({'error': 'Incorrect password.'}), 401
-
+    import sys
+    sys.stderr.write('>>> DELETE_ACCOUNT: İstek alındı.\n')
     try:
-        # 1. Kullanıcının konuşmalarındaki History ID'lerini al
+        user = get_current_user()
+        if not user:
+            sys.stderr.write('>>> DELETE_ACCOUNT: Kullanıcı bulunamadı.\n')
+            return jsonify({'error': 'User not found.'}), 404
+
+        data = request.json or {}
+        password = data.get('password')
+        if not password:
+            return jsonify({'error': 'Enter password.'}), 400
+        if not verify_password(password, user.password_hash):
+            return jsonify({'error': 'Incorrect password.'}), 401
+
+        # 1. Genel tablolar
+        UserFollow.query.filter(db.or_(UserFollow.follower_id == user.id, UserFollow.following_id == user.id)).delete(synchronize_session=False)
+        Snippet.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        PasswordResetToken.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        ApiKey.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        VSCodeLoginState.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        VSCodeOTP.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        XPEvent.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        UserBadge.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        UserTheme.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        MemoryEdge.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        MemoryNode.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        MemoryItem.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+
+        # 2. Sohbetler
         conversations = Conversation.query.filter_by(user_id=user.id).all()
         conv_ids = [c.id for c in conversations]
-        
-        # 2. Bu konuşmalardaki History kayıtlarını al
         history_ids = []
         if conv_ids:
             histories = History.query.filter(History.conversation_id.in_(conv_ids)).all()
             history_ids = [h.id for h in histories]
-        
-        # 3. Bu History kayıtlarına ait PostLike'ları sil
+
         if history_ids:
+            Notification.query.filter(Notification.related_post_id.in_(history_ids)).delete(synchronize_session=False)
+            Favorite.query.filter(Favorite.history_id.in_(history_ids)).delete(synchronize_session=False)
+            Feedback.query.filter(Feedback.history_id.in_(history_ids)).delete(synchronize_session=False)
+            FeedbackDetail.query.filter(FeedbackDetail.history_id.in_(history_ids)).delete(synchronize_session=False)
+            ConversationSummary.query.filter(ConversationSummary.last_history_id.in_(history_ids)).delete(synchronize_session=False)
             PostLike.query.filter(PostLike.history_id.in_(history_ids)).delete(synchronize_session=False)
-        
-        # 4. Bu History kayıtlarına ait Answer'ları ve AnswerLike'ları sil
-        if history_ids:
+            
             answers = Answer.query.filter(Answer.history_id.in_(history_ids)).all()
-            answer_ids = [a.id for a in answers]
-            if answer_ids:
-                AnswerLike.query.filter(AnswerLike.answer_id.in_(answer_ids)).delete(synchronize_session=False)
+            ans_ids = [a.id for a in answers]
+            if ans_ids:
+                AnswerLike.query.filter(AnswerLike.answer_id.in_(ans_ids)).delete(synchronize_session=False)
             Answer.query.filter(Answer.history_id.in_(history_ids)).delete(synchronize_session=False)
-        
-        # 5. History kayıtlarını sil
-        if history_ids:
-            History.query.filter(History.id.in_(history_ids)).delete(synchronize_session=False)
-        
-        # 6. Konuşmaları sil
-        if conv_ids:
-            Conversation.query.filter(Conversation.id.in_(conv_ids)).delete(synchronize_session=False)
-        
-        # 7. Kullanıcının başka gönderilere yaptığı yorumları sil
-        user_answers = Answer.query.filter_by(author_id=user.id).all()
-        user_answer_ids = [a.id for a in user_answers]
-        if user_answer_ids:
-            AnswerLike.query.filter(AnswerLike.answer_id.in_(user_answer_ids)).delete(synchronize_session=False)
-        Answer.query.filter_by(author_id=user.id).delete(synchronize_session=False)
 
-        # 8. Kullanıcının beğenilerini sil
-        PostLike.query.filter_by(user_id=user.id).delete(synchronize_session=False)
-        AnswerLike.query.filter_by(user_id=user.id).delete(synchronize_session=False)
-
-        # 9. Bildirimleri (Notification) sil
-        # Hem kullanıcının aldığı hem de kullanıcının sebep olduğu bildirimler silinmeli
-        Notification.query.filter(
-            db.or_(Notification.user_id == user.id, Notification.related_user_id == user.id)
-        ).delete(synchronize_session=False)
-        
-        # 9.1 Bildirim durumlarını sil
+        Notification.query.filter(db.or_(Notification.user_id == user.id, Notification.related_user_id == user.id)).delete(synchronize_session=False)
         NotificationRead.query.filter_by(user_id=user.id).delete(synchronize_session=False)
         NotificationHidden.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        Favorite.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        Feedback.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        FeedbackDetail.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        PostLike.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        AnswerLike.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        Answer.query.filter_by(author_id=user.id).delete(synchronize_session=False)
 
-        # 10. Takip (UserFollow) kayıtlarını sil
-        # Hem takip ettikleri hem de takipçileri temizlenmeli
-        UserFollow.query.filter(
-            db.or_(UserFollow.follower_id == user.id, UserFollow.following_id == user.id)
-        ).delete(synchronize_session=False)
+        if conv_ids:
+            ConversationSummary.query.filter(ConversationSummary.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+        if history_ids:
+            History.query.filter(History.id.in_(history_ids)).delete(synchronize_session=False)
+        if conv_ids:
+            SharedSession.query.filter(SharedSession.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+            Conversation.query.filter(Conversation.id.in_(conv_ids)).delete(synchronize_session=False)
 
-        # 11. Snippet'ları sil
-        Snippet.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        SharedSession.query.filter_by(owner_id=user.id).delete(synchronize_session=False)
+        CollaborationReview.query.filter_by(updated_by_user_id=user.id).delete(synchronize_session=False)
+        CollaborationComment.query.filter_by(author_user_id=user.id).delete(synchronize_session=False)
         
-        # 12. PasswordResetToken'ları sil
-        PasswordResetToken.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        projects = Project.query.filter_by(user_id=user.id).all()
+        for p in projects:
+            db.session.delete(p)
+            
+        TokenBalance.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        TokenTransaction.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        TokenPurchase.query.filter_by(user_id=user.id).delete(synchronize_session=False)
 
-        # 13. Profil fotoğrafını diskten sil
         if user.profile_image and os.path.exists(user.profile_image):
-            try:
-                os.remove(user.profile_image)
-            except:
-                pass
+            try: os.remove(user.profile_image)
+            except: pass
 
-        # 14. Kullanıcıyı sil
         db.session.delete(user)
         db.session.commit()
-
-        return jsonify({'message': 'Your account and all data have been successfully deleted.'})
-
+        return jsonify({'message': 'Account deleted.'})
     except Exception as e:
         db.session.rollback()
-        print(f"Hesap silme hatası: {e}")
-        return jsonify({'error': 'An error occurred while deleting account.'}), 500
-
+        sys.stderr.write(f'ERROR: {str(e)}\n')
+        return jsonify({'error': str(e)}), 500
 
 # --- ŞİFRE SIFIRLAMA ---
 
@@ -4469,7 +4497,6 @@ def bulk_refactor():
     })
 
 @app.route('/api/ask', methods=['POST'])
-@app.route('/v1/ask', methods=['POST'])
 def ask():
     # Debug logging
     print(f"DEBUG: /api/ask called. Content-Type: {request.content_type}")
@@ -7780,8 +7807,11 @@ def semantic_search_project_context(project_id):
 def get_user_theme():
     """Kullanıcının tercih ettiği temayı ve açılmış temaları getir."""
     from models import UserTheme
-    user_id = int(get_jwt_identity())
+    user = get_current_user()
+    if not user:
+        return jsonify({'message': 'User session cleared or user deleted'}), 200
     
+    user_id = user.id
     theme_pref = UserTheme.query.filter_by(user_id=user_id).first()
     
     if not theme_pref:
@@ -7809,8 +7839,13 @@ def get_user_theme():
 @jwt_required()
 def update_user_theme():
     """Kullanıcının aktif temasını güncelle veya yeni tema satın al."""
+    print("DEBUG: update_user_theme POST called")
     from models import UserTheme, User
-    user_id = int(get_jwt_identity())
+    user = get_current_user()
+    if not user:
+        return jsonify({'message': 'User session cleared or user deleted'}), 200
+    
+    user_id = user.id
     data = request.json or {}
     
     action = data.get('action') # 'set_active' or 'unlock'
@@ -7820,7 +7855,6 @@ def update_user_theme():
         return jsonify({'error': 'Tema adı gerekli'}), 400
         
     theme_pref = UserTheme.query.filter_by(user_id=user_id).first()
-    user = User.query.get(user_id)
     
     if not theme_pref:
         theme_pref = UserTheme(
@@ -9455,6 +9489,18 @@ def revoke_api_key(key_id):
     return jsonify({'message': 'Key revoked successfully'})
 
 
+@app.route('/v1/cancel', methods=['POST'])
+def cancel_request():
+    """Signals that a specific request should be aborted."""
+    data = request.get_json(silent=True) or {}
+    request_id = data.get('request_id')
+    if request_id:
+        CANCELLED_REQUESTS[request_id] = True
+        print(f"[CANCEL] Request {request_id} has been marked for cancellation.")
+        return jsonify({'status': 'ok'})
+    return jsonify({'error': 'request_id missing'}), 400
+
+
 @app.route('/v1/ask', methods=['POST'])
 def external_ask():
     """
@@ -9462,6 +9508,8 @@ def external_ask():
     Expects header: X-API-Key
     Expects JSON body: { "question": "...", "code": "..." }
     """
+    _vsc_balance = 0
+    _vsc_cost = 0
     api_key_header = _extract_api_key_from_request()
     if not api_key_header:
         return jsonify({'error': 'X-API-Key header is missing'}), 401
@@ -9478,17 +9526,6 @@ def external_ask():
     key_record.last_used_at = _utcnow()
     db.session.commit()
 
-    # ── 💰 Token Balance Check ───────────────────────────────────
-    _vsc_user = User.query.get(key_record.user_id)
-    if _vsc_user:
-        _has_tokens, _vsc_balance, _vsc_cost = check_tokens(_vsc_user, 'default')
-        if not _has_tokens:
-            return jsonify({
-                'error': f'Yetersiz token bakiyesi. Mevcut: {_vsc_balance}, Gerekli: {_vsc_cost}.',
-                'error_code': 'insufficient_balance',
-                'balance': _vsc_balance,
-                'required': _vsc_cost,
-            }), 402
 
     # Tolerate invalid/missing JSON to avoid generic 400 from Werkzeug
     data = request.get_json(silent=True)
@@ -9501,6 +9538,8 @@ def external_ask():
     question = data.get('question', '')
     code = data.get('code', '')
     conversation_id = data.get('conversation_id')
+    session_id = str(data.get('session_id') or '').strip()
+    request_id = data.get('request_id') or str(uuid.uuid4())
     active_file = str(data.get('active_file') or data.get('file_path') or '').strip()
     requested_model = str(data.get('model') or GEMINI_MODEL.replace('models/', '')).strip()
     if requested_model == 'auto':
@@ -9509,6 +9548,8 @@ def external_ask():
     has_stream_flag = 'stream' in data
     stream_flag = _parse_bool(data.get('stream')) if has_stream_flag else None
     payload_project_id = data.get('project_id')
+
+    # ── 💰 Token Balance Check — Preliminary check moved down for accuracy ──────────────────
     workspace_files = _parse_workspace_files_payload(data.get('workspace_files'))
     history_context = data.get('history_context') if isinstance(data.get('history_context'), list) else []
     
@@ -9519,14 +9560,64 @@ def external_ask():
     user = User.query.get(user_id)
     prefs = json.loads(user.preferences) if user and user.preferences else {}
 
-    state_key = _conversation_state_key(user_id, conversation_id)
-    state = _external_conversation_state.get(state_key, {})
+    # 📜 CONVERSATION LOOKUP — Handle numeric ID or Title fallback (Deprecated)
+    _conv = None
+    if conversation_id:
+        # Try finding by integer ID first (Modern approach)
+        if str(conversation_id).isdigit():
+            _conv = db.session.get(Conversation, int(conversation_id))
+            if _conv and _conv.user_id != user_id:
+                _conv = None
+        
+        # Fallback to Title lookup (Legacy approach - slated for removal in v2.0)
+        if not _conv:
+            _conv = Conversation.query.filter_by(
+                user_id=user_id,
+                title=str(conversation_id),
+                is_deleted=False
+            ).first()
+            if _conv:
+                print(f"[ASK] DEPRECATION WARNING: User {user_id} used title-based lookup for conversation '{conversation_id}'. This will be removed in v2.0.")
+
+    if not _conv and session_id:
+        _conv = Conversation.query.filter_by(
+            user_id=user_id,
+            title=session_id,
+            is_deleted=False
+        ).first()
+
+    if not _conv:
+        conversation_title = session_id or (
+            str(conversation_id)
+            if conversation_id and not str(conversation_id).isdigit()
+            else f"Chat {_utcnow().strftime('%Y-%m-%d %H:%M')}"
+        )
+        _conv = Conversation(
+            user_id=user_id,
+            title=conversation_title,
+            project_id=payload_project_id if payload_project_id else None
+        )
+        db.session.add(_conv)
+        db.session.commit()
+        print(f"[ASK] Created/Identified conversation: {_conv.id} for user {user_id}")
+
+    # 🔄 SESSION STATE — Isolate per-request vs per-session
+    # Persistent session state (shared across requests in same chat)
+    session_state_key = _conversation_state_key(user_id, _conv.id)
+    session_state = _external_conversation_state.get(session_state_key, {})
+    
+    # Transient request state (isolated to this specific rid)
+    request_state = {
+        'request_id': request_id,
+        'start_time': _utcnow().isoformat(),
+        'active_file': active_file or session_state.get('active_file')
+    }
 
     if active_file:
-        state['active_file'] = active_file
-        state['last_action'] = 'active_file_supplied'
+        session_state['active_file'] = active_file
+        session_state['last_action'] = 'active_file_supplied'
 
-    carried_active_file = str(state.get('active_file') or '').strip()
+    carried_active_file = str(session_state.get('active_file') or '').strip()
     if not active_file and carried_active_file:
         active_file = carried_active_file
 
@@ -9545,8 +9636,9 @@ def external_ask():
                 if resolved_content:
                     code = f"Active file ({resolved_path}) content:\n{resolved_content}"
 
-            state['active_file'] = target_file
-            state['last_action'] = 'confirmation_intent_applied'
+            session_state['active_file'] = target_file
+            session_state['last_action'] = 'confirmation_intent_applied'
+            request_state['active_file'] = target_file
 
     project_for_agent = None
     if payload_project_id:
@@ -9570,6 +9662,23 @@ def external_ask():
             'supported_agent_models': list(SUPPORTED_GEMINI_AGENT_MODELS) + ['gemma-*', 'gpt-*', 'claude-*'],
         }), 400
 
+    # ── 💰 Token Balance Check (STRICT & ACCURATE) ──────────────────
+    _vsc_user = User.query.get(key_record.user_id)
+    if not _vsc_user:
+        return jsonify({'error': 'İstek için yetkili kullanıcı bulunamadı.'}), 401
+    
+    _has_tokens, _vsc_balance, _vsc_cost = check_tokens(_vsc_user, provider_model)
+    print(f"[TOKEN] Pre-check: User={_vsc_user.id}, Balance={_vsc_balance}, Cost={_vsc_cost}, Model={provider_model}")
+    
+    if not _has_tokens:
+        print(f"[TOKEN] BLOCKED: User {_vsc_user.id} has insufficient balance ({_vsc_balance} < {_vsc_cost})")
+        return jsonify({
+            'error': f'Yetersiz token bakiyesi. Mevcut: {_vsc_balance}, Gerekli: {_vsc_cost}.',
+            'error_code': 'insufficient_balance',
+            'balance': _vsc_balance,
+            'required': _vsc_cost,
+        }), 402
+
     workspace_root = data.get('workspace_root')
     
     tool_runtime = None
@@ -9582,46 +9691,111 @@ def external_ask():
             invalidate_project_cache=invalidate_project_embedding_cache,
         )
 
-    agent_result = run_agent_turn(
-        provider=provider_key,
-        model=provider_model,
-        question=question,
-        code=code,
-        prefs=prefs,
-        history_context=history_context,
-        github_context='',
-        tool_runtime=tool_runtime,
-        openai_client=openai_client,
-        anthropic_client=claude_client,
-        gemini_client=getattr(genai, '_client', None),
-    )
+    # Progress callback for tool execution (optional)
+    on_event = None 
+    
+    # Define a deduction flag and balance tracker
+    deduction_occurred = False
+    new_balance = _vsc_balance
+
+    def trigger_token_deduction():
+        nonlocal deduction_occurred, new_balance
+        if deduction_occurred:
+            return
+        
+        # We need a fresh user record for the transaction
+        try:
+            with app.app_context():
+                db.session.rollback()
+                charge_user = db.session.get(User, user_id)
+                if charge_user:
+                    print(f"[TOKEN-CALLBACK] Triggering deduction for user {charge_user.id}. Model: {provider_model}")
+                    success, updated_balance = deduct_tokens(
+                        charge_user,
+                        provider_model,
+                        description=f"VSC Agent (Turn): {question[:30]}...",
+                        reference_id=request_id
+                    )
+                    if success:
+                        new_balance = updated_balance
+                        deduction_occurred = True
+                        print(f"[TOKEN-CALLBACK] Deduction successful. New Balance: {new_balance}")
+        except Exception as e:
+            print(f"[TOKEN-CALLBACK] Error during deduction: {e}")
+
+    try:
+        agent_result = run_agent_turn(
+            provider=provider_key,
+            model=provider_model,
+            question=question,
+            code=code,
+            prefs=prefs,
+            history_context=history_context,
+            github_context='',
+            tool_runtime=tool_runtime,
+            openai_client=openai_client,
+            anthropic_client=claude_client,
+            gemini_client=getattr(genai, '_client', None),
+            request_id=request_id,
+            on_event=on_event,
+            on_first_llm_success=trigger_token_deduction
+        )
+    except AgentAbortException:
+        print(f"[ASK] Request {request_id} ABORTED by user. Ensuring final balance sync.")
+        CANCELLED_REQUESTS.pop(request_id, None)
+        
+        # Sync balance even on abort (deduction might have happened if it reached first LLM call)
+        db.session.rollback()
+        _fresh_user = db.session.get(User, user_id)
+        current_balance = get_or_create_token_balance(_fresh_user).balance if _fresh_user else _vsc_balance
+        
+        return jsonify({
+            'error': 'Request cancelled by user',
+            'error_code': 'request_cancelled',
+            'balance': current_balance
+        }), 499
+    except Exception as e:
+        print(f"[ASK] Error during agent run: {e}")
+        db.session.rollback()
+        _fresh_user = db.session.get(User, user_id)
+        current_balance = get_or_create_token_balance(_fresh_user).balance if _fresh_user else _vsc_balance
+        
+        return jsonify({
+            'error': f'Agent error: {str(e)}',
+            'error_code': 'agent_error',
+            'balance': current_balance
+        }), 500
+
     clipped_agent_meta = _clip_agent_metadata(agent_result.trace, agent_result.changed_files)
 
     if agent_result and isinstance(agent_result.changed_files, list) and agent_result.changed_files:
         first_changed = agent_result.changed_files[0] if isinstance(agent_result.changed_files[0], dict) else {}
         changed_path = str(first_changed.get('path') or '').strip()
         if changed_path:
-            state['active_file'] = changed_path
-            state['last_action'] = 'patch_generated'
+            session_state['active_file'] = changed_path
+            session_state['last_action'] = 'patch_generated'
 
-    if active_file and not state.get('active_file'):
-        state['active_file'] = active_file
+    session_state['updated_at'] = _utcnow().isoformat()
+    _external_conversation_state[session_state_key] = session_state
 
-    state['updated_at'] = _utcnow().isoformat()
-    _external_conversation_state[state_key] = state
-
-    # 💰 TOKEN EKONOMİSİ — Harcamayı düş
-    new_balance = _vsc_balance
-    if _vsc_user:
-        # Re-fetch user to ensure we have a fresh DB session state after potentially long agent run
-        charge_user = db.session.get(User, _vsc_user.id)
+    # 💰 TOKEN EKONOMİSİ — Final sync (ensure deduction happened)
+    if not deduction_occurred and _vsc_user:
+        # If the turn finished successfully but NO LLM calls were made (rare for agent), 
+        # we might still want to deduct if significant work was done.
+        # For now, we only deduct if the callback triggered.
+        db.session.rollback()
+        charge_user = db.session.get(User, user_id)
         if charge_user:
-            _, new_balance = deduct_tokens(
+            print(f"[TOKEN] Starting deduction for user {charge_user.id} using model {provider_model}. RequestId: {request_id}")
+            success, new_balance = deduct_tokens(
                 charge_user,
                 provider_model,
                 description=f"VSC Agent: {question[:30]}...",
                 reference_id=None
             )
+            print(f"[TOKEN] Deduction result: success={success}, balance={new_balance}")
+            # Cleanup cancellation flag if it exists
+            CANCELLED_REQUESTS.pop(request_id, None)
         else:
             print(f"[TOKEN] CRITICAL: Could not re-fetch user {_vsc_user.id} for token deduction.")
 
@@ -9629,9 +9803,9 @@ def external_ask():
     try:
         # Mevcut konuşmayı bul veya yeni oluştur
         # Not: Eklenti tarafı rastgele string ID ("sess-xyz") gönderir, bunu title olarak kullanıyoruz.
-        _conv = None
-        if conversation_id:
-            _conv = Conversation.query.filter_by(user_id=user_id, title=str(conversation_id)).first()
+        if _conv and project_for_agent and not _conv.project_id:
+            _conv.project_id = project_for_agent.id
+            db.session.add(_conv)
         
         if not _conv:
             _conv = Conversation(
@@ -9663,33 +9837,47 @@ def external_ask():
     
     if wants_stream:
         def generate():
-            meta = {
-                'meta': True,
-                'agent_mode': bool(agent_mode),
-                'selected_model': provider_model,
-                'agent_provider': provider_key,
-                'agent_project_id': project_for_agent.id if project_for_agent else None,
-                'agent_workspace_file_count': len(workspace_files or []),
-                'agent_tool_capable': bool(agent_result.tool_capable),
-                'active_file': state.get('active_file') if isinstance(state, dict) else None,
-                'balance': new_balance,
-                'conversation_id': _conv.id if _conv else None,
-            }
-            yield f"data: {json.dumps(meta)}\n\n"
-            for chunk in stream_text_chunks(agent_result.text or ''):
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
-            done_payload = {
-                'done': True,
-                'steps': len(clipped_agent_meta['trace'] or []),
-                'agent_trace': clipped_agent_meta['trace'],
-                'agent_changed_files': clipped_agent_meta['changed_files'],
-                'agent_trace_total': clipped_agent_meta['trace_total'],
-                'agent_changed_total': clipped_agent_meta['changed_total'],
-                'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
-                'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
-            }
-            yield f"data: {json.dumps(done_payload)}\n\n"
-            yield "data: [DONE]\n\n"
+            try:
+                meta = {
+                    'meta': True,
+                    'agent_mode': bool(agent_mode),
+                    'selected_model': provider_model,
+                    'agent_provider': provider_key,
+                    'agent_project_id': project_for_agent.id if project_for_agent else None,
+                    'agent_workspace_file_count': len(workspace_files or []),
+                    'agent_tool_capable': bool(agent_result.tool_capable),
+                    'active_file': session_state.get('active_file') if isinstance(session_state, dict) else None,
+                    'balance': new_balance,
+                    'conversation_id': _conv.id if _conv else None,
+                }
+                yield f"data: {json.dumps(meta)}\n\n"
+
+                final_text = (agent_result.text or '').strip()
+                if not final_text:
+                    final_text = "I processed the request but no text response was generated."
+                    print(f"[STREAM] Warning: agent_result.text was empty for user {user_id}")
+
+                for chunk in stream_text_chunks(final_text):
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
+                
+                done_payload = {
+                    'done': True,
+                    'steps': len(clipped_agent_meta['trace'] or []),
+                    'agent_trace': clipped_agent_meta['trace'],
+                    'agent_changed_files': clipped_agent_meta['changed_files'],
+                    'agent_trace_total': clipped_agent_meta['trace_total'],
+                    'agent_changed_total': clipped_agent_meta['changed_total'],
+                    'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
+                    'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
+                }
+                yield f"data: {json.dumps(done_payload)}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                print(f"[STREAM] CRITICAL ERROR during generation: {e}")
+                err_msg = json.dumps({'text': '\n[Backend Error during streaming. Please check server logs.]'})
+                yield f"data: {err_msg}\n\n"
+                yield "data: [DONE]\n\n"
+
         return Response(stream_with_context(generate()), mimetype='text/event-stream')
     else:
         return jsonify({
@@ -9700,7 +9888,7 @@ def external_ask():
             'agent_provider': provider_key,
             'agent_project_id': project_for_agent.id if project_for_agent else None,
             'agent_tool_capable': bool(agent_result.tool_capable),
-            'active_file': state.get('active_file') if isinstance(state, dict) else None,
+            'active_file': session_state.get('active_file') if isinstance(session_state, dict) else None,
             'agent_trace': clipped_agent_meta['trace'],
             'agent_changed_files': clipped_agent_meta['changed_files'],
             'agent_trace_total': clipped_agent_meta['trace_total'],

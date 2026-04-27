@@ -11,6 +11,7 @@ import useTypingEffect from '../hooks/useTypingEffect';
 import VoiceRecorder from './VoiceRecorder';
 import ConfirmationModal from './ConfirmationModal';
 import InteractiveMergeModal from './InteractiveMergeModal';
+import BulkMergeModal from './BulkMergeModal';
 
 
 const LoadingDots = () => (
@@ -699,6 +700,8 @@ const ChatInterface = ({
 
   // Magic Fix State
   const [isMagicFix, setIsMagicFix] = useState(false);
+  const [pendingAgentChanges, setPendingAgentChanges] = useState([]);
+  const [showBulkMerge, setShowBulkMerge] = useState(false);
 
   // PR Modal State
   const [showPrModal, setShowPrModal] = useState(false);
@@ -758,6 +761,37 @@ const ChatInterface = ({
     setPatchCount(prev => prev + 1);
   };
 
+  const handleBulkApply = async (changes) => {
+    setLoading(true);
+    setShowBulkMerge(false); // Close modal immediately to avoid interactions during application
+    try {
+      const results = [];
+      for (const change of changes) {
+        try {
+          if (change.path === activeProject?.current_file || change.path === code) {
+            setCode(change.content);
+          }
+          results.push({ path: change.path, success: true });
+        } catch (err) {
+          results.push({ path: change.path, success: false, error: err.message });
+        }
+      }
+
+      const failures = results.filter(r => !r.success);
+      if (failures.length > 0) {
+        showToast(`Applied ${results.length - failures.length} changes, but ${failures.length} failed.`, "error");
+      } else {
+        showToast(`Successfully applied ${changes.length} file changes!`, "success");
+      }
+      
+      setPendingAgentChanges([]);
+    } catch (error) {
+      showToast(`Bulk application failed: ${error.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleApplyPatchRequest = (newCode) => {
     const risk = evaluatePatchRisk(code, newCode);
 
@@ -793,6 +827,23 @@ const ChatInterface = ({
 
     showToast(`${tokenErrorNotice.message || 'Token yetersiz.'}${requiredPart}${balancePart}`, 'error');
   }, [tokenErrorNotice?.nonce]);
+
+  // Track pending agent changes from history
+  useEffect(() => {
+    if (history.length > 0) {
+      const lastTurn = history[history.length - 1];
+      if (lastTurn.agent_changed_files && lastTurn.agent_changed_files.length > 0) {
+        // Check if these changes are already being tracked
+        const currentPaths = new Set(pendingAgentChanges.map(c => c.path));
+        const hasNew = lastTurn.agent_changed_files.some(c => !currentPaths.has(c.path));
+        
+        if (hasNew) {
+          // For now, we replace with the latest turn's changes
+          setPendingAgentChanges(lastTurn.agent_changed_files);
+        }
+      }
+    }
+  }, [history]);
 
   useEffect(() => {
     if (!linkedRepoProp) return;
@@ -1202,6 +1253,28 @@ const ChatInterface = ({
 
   const handleAskRequest = (mode = 'auto') => {
     if (loading || (!question.trim() && !image)) return;
+
+    // Bulk Accept Command Interception (Fuzzy Matching)
+    const lowerQuestion = question.trim().toLowerCase();
+    
+    // Check for negations to prevent accidental triggers (e.g., "don't accept changes")
+    const isNegated = /\b(don't|dont|not|stop|cancel|no|never)\b/i.test(lowerQuestion);
+    
+    if (!isNegated) {
+      const acceptPatterns = [
+        /\b(accept|apply|approve)\s+(all\s+)?(the\s+)?changes\b/i,
+        /\b(apply|accept)\s+all\b/i,
+        /\b(keep)\s+all\b/i
+      ];
+      
+      if (acceptPatterns.some(pattern => pattern.test(lowerQuestion))) {
+        if (pendingAgentChanges.length > 0) {
+          setShowBulkMerge(true);
+          setQuestion('');
+          return;
+        }
+      }
+    }
 
     if (image) {
       setPromptOptimizeSuggestion(null);
@@ -1760,6 +1833,29 @@ const ChatInterface = ({
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* Bulk Changes Bar */}
+      {pendingAgentChanges.length > 0 && (
+        <div className="mx-4 mb-2 p-3 bg-indigo-900/40 border border-indigo-500/30 rounded-xl flex items-center justify-between animate-in slide-in-from-bottom duration-300">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white">{pendingAgentChanges.length} Files With Changes</p>
+              <p className="text-[10px] text-indigo-300/80">Agent suggested multi-file modifications</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setShowBulkMerge(true)}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-lg transition-all transform active:scale-95"
+          >
+            Review Changes
+          </button>
+        </div>
+      )}
 
       {/* Input Area */}
       <div className="p-4 bg-gray-900/50 border-t border-gray-800 backdrop-blur-md mobile-input-area">
@@ -2482,6 +2578,14 @@ const ChatInterface = ({
 
       {/* Security Audit Modal */}
       {auditModal.show && renderAuditModal()}
+
+      {/* Bulk Merge Modal */}
+      <BulkMergeModal
+        isOpen={showBulkMerge}
+        onClose={() => setShowBulkMerge(false)}
+        pendingChanges={pendingAgentChanges}
+        onApply={handleBulkApply}
+      />
     </div>
   );
 };

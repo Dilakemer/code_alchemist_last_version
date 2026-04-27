@@ -17,6 +17,7 @@ services:
       db:
         condition: service_healthy
     volumes:
+      - ./server:/app
       - ./server/instance:/app/instance
       - ./server/uploads:/app/uploads
     restart: unless-stopped

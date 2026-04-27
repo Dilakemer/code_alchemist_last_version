@@ -40,7 +40,9 @@ export interface AskRequestPayload {
   };
   intent?: string;
   intent_confidence?: number;
-  conversation_id?: number;
+  conversation_id?: number | string;
+  session_id?: string;
+  request_id?: string;
 }
 
 /** Standard JSON response from the backend. */
@@ -124,6 +126,7 @@ export interface RunCommandAction {
   command: string;
   cwd?: string;
   background?: boolean;
+  newTerminal?: boolean;
 }
 
 /** Discriminated union of AI-driven actions. */

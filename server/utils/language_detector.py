@@ -1,6 +1,7 @@
 
 import os
 from google import genai as google_genai
+from .timeout_utils import to_gemini_timeout
 
 class LanguageDetector:
     """
@@ -34,7 +35,10 @@ class LanguageDetector:
         self.gemini_api_key = gemini_api_key
         self.client = None
         if self.gemini_api_key:
-            self.client = google_genai.Client(api_key=self.gemini_api_key)
+            self.client = google_genai.Client(
+                api_key=self.gemini_api_key,
+                http_options={'timeout': to_gemini_timeout(60)}
+            )
 
     def detect(self, text: str, code: str = "") -> str:
         """
@@ -90,7 +94,8 @@ class LanguageDetector:
             try:
                 result = self.client.models.generate_content(
                     model=m_name.replace('models/', '', 1),
-                    contents=prompt
+                    contents=prompt,
+                    config={'http_options': {'timeout': to_gemini_timeout(60)}}
                 )
                 detected = getattr(result, "text", "unknown").strip().lower()
                 

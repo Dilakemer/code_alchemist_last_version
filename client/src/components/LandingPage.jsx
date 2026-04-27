@@ -64,14 +64,18 @@ const DemoModal = ({ onClose }) => (
         <p className="text-gray-400 text-xs md:text-sm mb-6 md:mb-8 max-w-lg mx-auto">
           Çoklu model analizi, gerçek zamanlı karşılaştırma ve akıllı kod yamalarını keşfedin.
         </p>
-        <div className="aspect-video bg-[#020617] rounded-2xl border border-white/10 flex flex-col items-center justify-center gap-4 mb-6">
-          <div className="w-20 h-20 bg-indigo-600/20 rounded-full flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-indigo-400" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </div>
-          <p className="text-gray-500 text-sm font-medium">Video Yakında</p>
-          <p className="text-gray-600 text-xs">Uygulamayı hemen ücretsiz deneyebilirsiniz!</p>
+        <div className="aspect-video bg-black rounded-2xl border border-white/10 overflow-hidden shadow-2xl mb-6 relative group/video">
+          <video 
+            className="w-full h-full object-cover"
+            controls
+            autoPlay
+            muted
+            loop
+            playsInline
+          >
+            <source src="/demo-video.mp4" type="video/mp4" />
+            Tarayıcınız video etiketini desteklemiyor.
+          </video>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button

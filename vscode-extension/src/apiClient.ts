@@ -197,7 +197,8 @@ async function streamSseResponse(
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      if (aborted) {
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => {});
         throw new Error('AbortError');
       }
 
@@ -205,14 +206,19 @@ async function streamSseResponse(
       try {
         chunkResult = await reader.read();
       } catch (err) {
-        if (aborted || signal?.aborted) {
+        if (signal?.aborted) {
+          await reader.cancel().catch(() => {});
           throw new Error('AbortError');
         }
         throw err;
       }
 
       const { done, value } = chunkResult;
-      if (done) {
+      if (done || signal?.aborted) {
+        if (signal?.aborted) {
+          await reader.cancel().catch(() => {});
+          throw new Error('AbortError');
+        }
         break;
       }
 
@@ -290,7 +296,7 @@ export async function sendAskRequest(
   options?: { preferJson?: boolean; onMeta?: (meta: Record<string, unknown>) => void },
 ): Promise<AskResult> {
   // ── Send request ────────────────────────────────────────────────
-  output.appendLine(`[API] Requesting: ${endpoint}`);
+  // output.appendLine(`[API] Requesting: ${endpoint}`);
   let res: Response;
   const acceptHeader = options?.preferJson
     ? 'application/json'
@@ -312,15 +318,15 @@ export async function sendAskRequest(
     throw new Error(`Could not reach backend (${endpoint}): ${msg}`);
   }
 
-  output.appendLine(`Status: ${res.status} ${res.statusText}`);
-  output.appendLine('');
+  // output.appendLine(`Status: ${res.status} ${res.statusText}`);
+  // output.appendLine('');
 
   // ── Handle HTTP errors ──────────────────────────────────────────
   if (!res.ok) {
     const errorText = await res.text();
-    let errorData: AskResponse = {};
+    let errorData: any = {};
     try {
-      errorData = JSON.parse(errorText) as AskResponse;
+      errorData = JSON.parse(errorText);
     } catch {
       // leave as raw text
     }
@@ -330,19 +336,27 @@ export async function sendAskRequest(
         : errorText,
     );
     const detail = errorData.error || errorData.details || `HTTP ${res.status}`;
-    throw new Error(`Backend returned ${res.status}: ${detail}`);
+    
+    // Create error with structured fields for UI recovery
+    const error = new Error(`Backend returned ${res.status}: ${detail}`) as any;
+    error.status = res.status;
+    error.balance = errorData.balance;
+    error.purchase_url = errorData.purchase_url;
+    error.requestId = payload.request_id;
+    
+    throw error;
   }
 
   // ── Parse response ──────────────────────────────────────────────
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
 
   if (contentType.includes('text/event-stream')) {
-    output.appendLine('Streaming response:');
+    // output.appendLine('Streaming response:');
     const { text, trace, changedFiles, meta } = await streamSseResponse(res, output, options?.onMeta, signal);
     if (!text.trim()) {
       output.appendLine('[No streamed text received]');
     }
-    output.appendLine('');
+    // output.appendLine('');
 
     return {
       text,
@@ -411,6 +425,8 @@ export async function sendAskRequest(
     },
     agentTrace: data.agent_trace ?? [],
     agentChangedFiles: data.agent_changed_files ?? [],
+    balance: data.balance,
+    purchase_url: data.purchase_url,
     streamed: false,
   };
 }
@@ -556,3 +572,27 @@ export async function getConversationHistory(
     return { status: 'error' };
   }
 }
+
+/** Signals the backend to abort a specific request. */
+export async function cancelAskRequest(
+    endpoint: string,
+    apiKey: string,
+    requestId: string
+): Promise<void> {
+    const root = deriveEndpointRoot(endpoint);
+    const cancelUrl = `${root}/v1/cancel`;
+
+    try {
+        await fetch(cancelUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey,
+            },
+            body: JSON.stringify({ request_id: requestId }),
+        });
+    } catch (err) {
+        console.error('[API] Failed to send cancel signal:', err);
+    }
+}
+

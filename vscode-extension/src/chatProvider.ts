@@ -31,6 +31,30 @@ type AuthBroadcastOverrides = {
   reconnecting?: boolean;
 };
 
+type PersistedChatMessage = {
+  role: 'user' | 'ai';
+  text: string;
+  createdAt: string;
+};
+
+type PersistedChatSession = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  pinned: boolean;
+  messages: PersistedChatMessage[];
+  backendConversationId?: string;
+};
+
+type PersistedChatState = {
+  chatSessions: PersistedChatSession[];
+  activeSessionId: string;
+};
+
+const CHAT_STATE_STORAGE_KEY_PREFIX = 'codeAlchemist.chatState.byUser.v1';
+const CHAT_STATE_MAX_SESSIONS = 30;
+
 const SIDEBAR_MODEL_OPTIONS: SidebarModelOption[] = [
   { value: 'auto', label: 'Auto (Smart Model)' },
   { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite (Preview)' },
@@ -163,6 +187,10 @@ async function readFileContentIfExists(filePath: string): Promise<{ exists: bool
   }
 }
 
+function createLocalSessionId(): string {
+  return `session-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
 export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'code-alchemist-chat';
 
@@ -173,6 +201,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private _trustMap: Map<string, string> = new Map(); // path -> trust_id
   private _activeAbortController?: AbortController;
   private _currentSessionId: string | undefined;
+  private _currentUserIdentity: string = '';
   private _isAuthenticated: boolean = false;
   private _authError: string = '';
   private _balance: number = 0;
@@ -190,6 +219,140 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
   private _generateRequestId(): string {
     return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7);
+  }
+
+  private _normalizeUserIdentity(value?: string): string {
+    return (value || '').trim().toLowerCase();
+  }
+
+  private _getChatStateStorageKey(userIdentity: string): string {
+    const normalized = this._normalizeUserIdentity(userIdentity);
+    const encoded = Buffer.from(normalized, 'utf8').toString('base64url');
+    return `${CHAT_STATE_STORAGE_KEY_PREFIX}.${encoded}`;
+  }
+
+  private _createDefaultChatState(): PersistedChatState {
+    const now = new Date().toISOString();
+    const session: PersistedChatSession = {
+      id: createLocalSessionId(),
+      title: 'Yeni Sohbet',
+      createdAt: now,
+      updatedAt: now,
+      pinned: false,
+      messages: [],
+    };
+
+    return {
+      chatSessions: [session],
+      activeSessionId: session.id,
+    };
+  }
+
+  private _sanitizePersistedChatState(raw: unknown): PersistedChatState {
+    const source = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    const sessions = Array.isArray(source.chatSessions) ? source.chatSessions : [];
+    const normalizedSessions: PersistedChatSession[] = sessions
+      .map((entry) => {
+        const candidate = (entry && typeof entry === 'object') ? entry as Record<string, unknown> : {};
+        const messages = Array.isArray(candidate.messages) ? candidate.messages : [];
+        const normalizedMessages: PersistedChatMessage[] = messages
+          .map((message) => {
+            const item = (message && typeof message === 'object') ? message as Record<string, unknown> : {};
+            const role = item.role === 'user' ? 'user' : item.role === 'ai' ? 'ai' : '';
+            const text = typeof item.text === 'string' ? item.text : '';
+            const createdAt = typeof item.createdAt === 'string' && item.createdAt.trim()
+              ? item.createdAt
+              : new Date().toISOString();
+
+            if (!role) {
+              return null;
+            }
+
+            return { role, text, createdAt };
+          })
+          .filter((message): message is PersistedChatMessage => Boolean(message));
+
+        const id = typeof candidate.id === 'string' && candidate.id.trim()
+          ? candidate.id
+          : createLocalSessionId();
+
+        return {
+          id,
+          title: typeof candidate.title === 'string' && candidate.title.trim() ? candidate.title : 'Yeni Sohbet',
+          createdAt: typeof candidate.createdAt === 'string' && candidate.createdAt.trim()
+            ? candidate.createdAt
+            : new Date().toISOString(),
+          updatedAt: typeof candidate.updatedAt === 'string' && candidate.updatedAt.trim()
+            ? candidate.updatedAt
+            : new Date().toISOString(),
+          pinned: Boolean(candidate.pinned),
+          messages: normalizedMessages,
+          backendConversationId: typeof candidate.backendConversationId === 'string' && candidate.backendConversationId.trim()
+            ? candidate.backendConversationId
+            : undefined,
+        };
+      })
+      .filter((session) => Boolean(session))
+      .slice(0, CHAT_STATE_MAX_SESSIONS);
+
+    if (normalizedSessions.length === 0) {
+      return this._createDefaultChatState();
+    }
+
+    const activeSessionId = typeof source.activeSessionId === 'string' && source.activeSessionId.trim()
+      ? source.activeSessionId
+      : normalizedSessions[0].id;
+
+    return {
+      chatSessions: normalizedSessions,
+      activeSessionId: normalizedSessions.some((session) => session.id === activeSessionId)
+        ? activeSessionId
+        : normalizedSessions[0].id,
+    };
+  }
+
+  private async _readPersistedChatState(userIdentity: string): Promise<PersistedChatState> {
+    const key = this._getChatStateStorageKey(userIdentity);
+    const raw = this._context.globalState.get<unknown>(key);
+    return this._sanitizePersistedChatState(raw);
+  }
+
+  private async _writePersistedChatState(userIdentity: string, raw: unknown): Promise<void> {
+    const normalized = this._normalizeUserIdentity(userIdentity);
+    if (!normalized) {
+      return;
+    }
+
+    const state = this._sanitizePersistedChatState(raw);
+    const key = this._getChatStateStorageKey(normalized);
+    await this._context.globalState.update(key, state);
+  }
+
+  private async _broadcastPersistedChatState(userIdentity?: string): Promise<void> {
+    if (!this._view) {
+      return;
+    }
+
+    const normalized = this._normalizeUserIdentity(userIdentity || this._currentUserIdentity);
+    if (!normalized) {
+      return;
+    }
+
+    const state = await this._readPersistedChatState(normalized);
+    await this._view.webview.postMessage({
+      command: 'LOAD_PERSISTED_STATE',
+      userKey: normalized,
+      state,
+    });
+  }
+
+  private async _handlePersistChatState(state: unknown): Promise<void> {
+    const normalized = this._normalizeUserIdentity(this._currentUserIdentity);
+    if (!normalized) {
+      return;
+    }
+
+    await this._writePersistedChatState(normalized, state);
   }
 
   private _broadcastSnapshot() {
@@ -296,7 +459,10 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
           });
           break;
         case 'ask':
-          await this._handleAsk(data.text, data.model);
+          await this._handleAsk(data.text, data.model, data.sessionId, data.conversationId);
+          break;
+        case 'persistChatState':
+          await this._handlePersistChatState(data.state);
           break;
         case 'stopAsk':
           this._handleStopAsk();
@@ -346,6 +512,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     this._balance = 0;
     this._purchaseUrl = '';
     this._authError = message;
+    this._currentUserIdentity = '';
   }
 
   private async _primeLocalAuthState(): Promise<void> {
@@ -398,7 +565,6 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       this._authError = '';
     }
     await this._broadcastAuthStatus();
-    void this._syncHistory();
 
     const cfg = vscode.workspace.getConfiguration('codeAlchemist');
     const endpoint = (cfg.get<string>('endpoint') || '').trim();
@@ -428,6 +594,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       }
 
       if (status.status === 'ok') {
+        this._currentUserIdentity = this._normalizeUserIdentity(status.user);
         this._balance = status.balance ?? 0;
         this._purchaseUrl = status.purchase_url ?? '';
         this._isAuthenticated = true;
@@ -436,6 +603,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         this._isAuthReconnecting = false;
         this._output.appendLine(`[Auth] Updated local state: user=${status.user}, balance=${this._balance}`);
         await this._broadcastAuthStatus();
+        await this._broadcastPersistedChatState(this._currentUserIdentity);
         return;
       }
 
@@ -465,6 +633,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     this._setLoggedOutAuthState('Logged out.');
     this._isAuthVerifying = false;
     this._isAuthReconnecting = false;
+    this._currentSessionId = undefined;
     
     // Purge UI state in webview
     if (this._view) {
@@ -531,6 +700,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       error: overrides.error ?? this._authError,
       isVerifying: overrides.isVerifying ?? this._isAuthVerifying,
       reconnecting: overrides.reconnecting ?? this._isAuthReconnecting,
+      userKey: this._currentUserIdentity,
       timestamp: Date.now()
     };
 
@@ -566,7 +736,12 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _handleAsk(text: string, modelOverride?: string) {
+  private async _handleAsk(
+    text: string,
+    modelOverride?: string,
+    sessionId?: string,
+    conversationId?: string,
+  ) {
     if (!this._view) return;
 
     if (this._isAskInFlight) {
@@ -661,7 +836,12 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         workspace_root: wsContext.workspaceRoot || '',
         open_files: wsContext.openFiles || [],
         workspace_files: wsContext.workspaceFiles,
-        conversation_id: this._currentSessionId,
+        conversation_id: typeof conversationId === 'string' && conversationId.trim()
+          ? conversationId.trim()
+          : this._currentSessionId,
+        session_id: typeof sessionId === 'string' && sessionId.trim()
+          ? sessionId.trim()
+          : undefined,
         request_id: this._activeRequestId,
         client_context: {
           source: 'vscode-extension-sidebar',
@@ -730,6 +910,13 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       // 📜 Update Session ID for continuous conversation
       if (result.raw?.conversation_id) {
         this._currentSessionId = String(result.raw.conversation_id);
+        if (this._view && typeof sessionId === 'string' && sessionId.trim()) {
+          this._view.webview.postMessage({
+            command: 'SESSION_LINKED',
+            sessionId: sessionId.trim(),
+            conversationId: this._currentSessionId,
+          });
+        }
       }
 
       // Handle Trace Steps (Render timeline in sidebar)

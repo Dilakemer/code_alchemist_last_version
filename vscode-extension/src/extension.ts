@@ -515,8 +515,16 @@ export function activate(context: vscode.ExtensionContext) {
   const chatProvider = new CodeAlchemistChatProvider(context.extensionUri, context, output);
   const chatProviderRight = new CodeAlchemistChatProvider(context.extensionUri, context, output);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(CodeAlchemistChatProvider.viewType, chatProvider),
-    vscode.window.registerWebviewViewProvider('code-alchemist-chat-right', chatProviderRight),
+    vscode.window.registerWebviewViewProvider(CodeAlchemistChatProvider.viewType, chatProvider, {
+      webviewOptions: {
+        retainContextWhenHidden: true
+      }
+    }),
+    vscode.window.registerWebviewViewProvider('code-alchemist-chat-right', chatProviderRight, {
+      webviewOptions: {
+        retainContextWhenHidden: true
+      }
+    }),
   );
 
   // ── Diff Preview Provider ───────────────────────────────────────

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import FollowButton from './FollowButton';
 import GamificationPanel from './GamificationPanel';
 import ThemeStore from './ThemeStore';
+import { useAccountDeletion } from '../hooks/useAccountDeletion';
 
 const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, onPostClick, onLogout, onUserUpdate, onShowAlert, onUserClick, onBack, canGoBack, token, onThemeChange }) => {
     const [profileData, setProfileData] = useState(null);
@@ -20,6 +21,15 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
     const [message, setMessage] = useState({ type: '', text: '' });
     const [imageLoading, setImageLoading] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
+    
+    const { deleteAccount, isDeleting } = useAccountDeletion({
+        apiBase,
+        authHeaders,
+        onShowAlert,
+        onLogout,
+        onClose
+    });
+
     const fileInputRef = useRef(null);
 
     // Followers/Following list states
@@ -774,17 +784,13 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                                     <div className="flex gap-3">
                                                         <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 bg-white/5 text-white py-3 rounded-xl font-bold">Vazgeç</button>
                                                         <button 
+                                                            disabled={isDeleting || !deletePassword}
                                                             onClick={async () => {
-                                                                const res = await fetch(`${apiBase}/api/auth/delete-account`, {
-                                                                    method: 'DELETE',
-                                                                    headers: { 'Content-Type': 'application/json', ...authHeaders },
-                                                                    body: JSON.stringify({ password: deletePassword })
-                                                                });
-                                                                if (res.ok) { onLogout(); onClose(); }
+                                                                await deleteAccount(deletePassword);
                                                             }}
-                                                            className="flex-1 bg-red-600 hover:bg-red-500 text-white py-3 rounded-xl font-bold"
+                                                            className={`flex-1 ${isDeleting ? 'bg-red-800' : 'bg-red-600 hover:bg-red-500'} text-white py-3 rounded-xl font-bold transition-all`}
                                                         >
-                                                            Hesabımı Sil
+                                                            {isDeleting ? 'Siliniyor...' : 'Hesabımı Sil'}
                                                         </button>
                                                     </div>
                                                 </div>

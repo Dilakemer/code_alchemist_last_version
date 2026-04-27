@@ -21,8 +21,10 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
   const currentCoins = Number.isFinite(userCoins) ? userCoins : 0;
 
   useEffect(() => {
-    fetchThemes();
-  }, []);
+    if (token) {
+      fetchThemes();
+    }
+  }, [token]);
 
   // Reset on logout
   useEffect(() => {
@@ -33,11 +35,19 @@ const ThemeStore = ({ token, userXP, userCoins, onThemeChange, onClose, onRefres
   }, [token]);
 
   const fetchThemes = async () => {
+    if (!token) return;
+
     try {
       setLoading(true);
       const res = await fetch(`${API_BASE}/api/themes`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+
+      if (res.status === 401) {
+        console.warn('Theme access unauthorized. Session might be expired.');
+        return;
+      }
+
       if (!res.ok) throw new Error('Failed to fetch themes');
       const data = await res.json();
       setActiveTheme(data.active_theme);

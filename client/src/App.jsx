@@ -86,10 +86,16 @@ function App() {
 
   // Status Modal State
   const [statusMessage, setStatusMessage] = useState(null);
+  const [statusType, setStatusType] = useState('info'); // 'info' | 'success' | 'error'
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [onAlertConfirm, setOnAlertConfirm] = useState(null); // Will store { fn: callback }
 
-  const handleShowAlert = useCallback((msg) => {
+  const handleShowAlert = useCallback((msg, type = 'info', onConfirm = null) => {
+    console.log(`[Alert] Showing: [${type}] ${msg}`);
     setStatusMessage(msg);
+    setStatusType(type);
+    // Use an object wrapper to prevent React from executing the function during state updates
+    setOnAlertConfirm(onConfirm ? { fn: onConfirm } : null);
     setIsStatusModalOpen(true);
   }, []);
 
@@ -725,41 +731,55 @@ function App() {
     }
   };
 
+  // 🔐 Bootstrap: Validate token and user session on mount/token change
   useEffect(() => {
     const bootstrap = async () => {
-      if (token) {
-        try {
-          const res = await fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
-          if (res.ok) {
-            const json = await res.json();
-            setUser(json.user);
-            localStorage.setItem('codebrain_user', JSON.stringify(json.user));
-          } else {
-            console.warn("Token invalid, logging out");
+      if (!token) return;
+      
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/me`, { 
+          headers: { Authorization: `Bearer ${token}` } 
+        });
+        
+        if (res.ok) {
+          const json = await res.json();
+          setUser(json.user);
+          localStorage.setItem('codebrain_user', JSON.stringify(json.user));
+        } else {
+          // Account deletion safety
+          if (localStorage.getItem('is_deleting_account') === 'true') {
+            console.log("Deletion in progress, skipping bootstrap logout");
+            return;
+          }
+          
+          const errTxt = await res.text();
+          if (res.status === 401 || errTxt.includes("not found")) {
+            console.warn("Session invalid, performing logout");
             setToken(null);
             setUser(null);
             localStorage.removeItem('codebrain_token');
             localStorage.removeItem('codebrain_user');
           }
-        } catch (e) {
-          console.error("Auth check failed", e);
         }
+      } catch (e) {
+        console.error("Bootstrap auth check failed", e);
       }
-      fetchConversations();
-      fetchCommunityItems();
     };
+    
     bootstrap();
-  }, [token, fetchConversations, fetchCommunityItems]); // Run on mount and when token/funcs change
+  }, [token]);
 
-  const [notifications, setNotifications] = useState([]);
-
+  // 📥 Initial Data Fetching: Load user context when authenticated
   useEffect(() => {
     if (token) {
       fetchConversations();
-      fetchNotifications(); // Initial fetch
+      fetchCommunityItems();
+      fetchNotifications();
       fetchProjects();
     }
-  }, [token, fetchConversations, fetchNotifications, fetchProjects]);
+  }, [token, fetchConversations, fetchCommunityItems, fetchNotifications, fetchProjects]);
+
+  const [notifications, setNotifications] = useState([]);
 
   const refreshUserInfo = async () => {
     if (!token) return;
@@ -1625,10 +1645,12 @@ function App() {
     if (shouldShowOnboarding()) setShowOnboarding(true);
   };
 
-  const handleLogout = async () => {
+  const handleLogout = async (isDeletion = false) => {
+    console.trace(`Logout initiated. Is deletion: ${isDeletion}`);
     try {
-      // Reset theme on backend before logout
-      if (token) {
+      // Reset theme on backend before logout (only if NOT a deletion flow)
+      // We check for isDeletion strictly to avoid accidental triggers
+      if (token && isDeletion !== true) {
         const defaultTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
         await fetch(`${API_BASE}/api/themes`, {
           method: 'POST',
@@ -1652,11 +1674,26 @@ function App() {
       document.documentElement.setAttribute('data-theme', defaultTheme);
       setConversations([]);
       handleNewChat();
+      setShowLandingPage(true);
     }
   };
 
   return (
     <div className="flex h-screen bg-black text-gray-100 font-sans selection:bg-fuchsia-500/30 overflow-hidden">
+      <StatusModal
+        isOpen={isStatusModalOpen}
+        onClose={() => {
+          setIsStatusModalOpen(false);
+          if (onAlertConfirm && onAlertConfirm.fn) {
+            onAlertConfirm.fn();
+            setOnAlertConfirm(null);
+          }
+          setStatusMessage(null);
+          setStatusType('info');
+        }}
+        message={statusMessage}
+        type={statusType}
+      />
 
       {/* Onboarding Tour (first visit) */}
       {showOnboarding && (
@@ -2868,11 +2905,6 @@ function App() {
         onSuccess={handleAuthSuccess}
       />
 
-      <StatusModal
-        isOpen={isStatusModalOpen}
-        onClose={() => setIsStatusModalOpen(false)}
-        message={statusMessage}
-      />
 
       {showCostDashboard && (
         <ModelCostDashboard 
@@ -3285,7 +3317,6 @@ function App() {
           </div>
         ))}
       </div>
-
     </div>
   );
 }

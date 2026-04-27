@@ -7,12 +7,14 @@ services:
       dockerfile: server/Dockerfile
     ports:
       - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
     env_file:
       - .env
     volumes:
       - ./server:/app
       - ./server/instance:/app/instance
-      - ./server/static:/app/static
+#      - ./server/static:/app/static
 
   frontend:
     build: ./client
