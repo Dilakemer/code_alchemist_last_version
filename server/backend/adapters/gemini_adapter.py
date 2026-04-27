@@ -75,7 +75,13 @@ class GeminiAdapter(BaseAdapter):
             text = getattr(part, "text", None)
             if text:
                 chunks.append(str(text))
-        return "".join(chunks).strip()
+        
+        full_text = "".join(chunks).strip()
+        # Clean up any internal "thinking" blocks that might leak from the model
+        import re
+        full_text = re.sub(r'<thought>.*?</thought>', '', full_text, flags=re.DOTALL)
+        full_text = re.sub(r'(?i)^thinking:.*\n?', '', full_text, flags=re.MULTILINE)
+        return full_text.strip()
 
     @staticmethod
     def _safe_args(raw_args: Any) -> Dict[str, Any]:

@@ -107,7 +107,9 @@ def _build_system_prompt(
         "- If the user includes \"Terminal Komutu\" or \"Kodu arka planda değil, VS Code'un entegre terminalini açarak...\", set `background: false` so it shows live in their integrated terminal.\n"
         "- If the user includes \"İnteraktif\" or \"İşlemi başlatmadan önce... benim 'onay veriyorum' dememi bekle\", DO NOT execute the command immediately. Instead, present the command to the user as a normal message and ask for their approval. Only call the tool after they say 'onay veriyorum'.\n\n"
         "Eğer kullanıcı mesajı yukarıdaki \"NORMAL YANIT\" kategorisine giriyorsa,\n"
-        "hiçbir tool çağırma, hiçbir adım atmadan DOĞRUDAN yanıt ver."
+        "hiçbir tool çağırma, hiçbir adım atmadan DOĞRUDAN yanıt ver.\n\n"
+        "**CRITICAL:** Never output internal analysis, background thinking, or reasoning steps like <thought>, Thinking:, etc. "
+        "Provide ONLY the final response."
     ).strip()
 
 

@@ -9,7 +9,7 @@ const options = [
   { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite (Preview)' },
   { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (Fast)' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (New)' },
-  { value: 'gemma-4-26b-it', label: 'Gemma 4 26B' },
+  { value: 'gemma-4-26b-a4b-it', label: 'Gemma 4 26B' },
   { value: 'gemma-4-31b-it', label: 'Gemma 4 31B' },
 
   // OpenAI

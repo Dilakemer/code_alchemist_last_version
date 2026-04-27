@@ -17,32 +17,36 @@ const ComparisonTable = () => (
         </thead>
         <tbody className="text-sm text-gray-300">
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-            <td className="p-6 font-medium">Model Seçimi</td>
-            <td className="p-6">Tek Model (GPT-4o)</td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">Hibrit (5+ Model)</td>
+            <td className="p-6 font-medium">Model seçimi</td>
+            <td className="p-6">
+              <div className="text-white font-medium mb-1">Çoklu model</div>
+              <div className="text-gray-500 text-xs font-normal">GPT-4o, Claude, Gemini vb.</div>
+            </td>
+            <td className="p-6 bg-indigo-500/5 font-bold text-white">Hibrit (5+ model)</td>
           </tr>
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
             <td className="p-6 font-medium">Karşılaştırma (Compare)</td>
             <td className="p-6 text-gray-500 text-xs">Desteklenmiyor</td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">Gerçek Zamanlı Karşılaştırma</td>
+            <td className="p-6 bg-indigo-500/5 font-bold text-white">Gerçek zamanlı karşılaştırma</td>
           </tr>
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
             <td className="p-6 font-medium">Fiyatlandırma</td>
-            <td className="p-6">$10/ay (Sabit)</td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">Token Bazlı (Kullandığın Kadar)</td>
+            <td className="p-6">
+              <div className="text-white font-medium mb-1">Ücretsiz / $10 / $39 / ay</div>
+              <div className="text-gray-500 text-xs font-normal">Katmanlı; premium istek aşımında +$0.04/istek</div>
+            </td>
+            <td className="p-6 bg-indigo-500/5 font-bold text-white">Token bazlı (kullandığın kadar)</td>
           </tr>
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-            <td className="p-6 font-medium">Yerel Ödeme (TRY)</td>
+            <td className="p-6 font-medium">Yerel ödeme (TRY)</td>
             <td className="p-6 text-gray-500 text-xs">Desteklenmiyor</td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">iyzico / TL Desteği</td>
-          </tr>
-          <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-            <td className="p-6 font-medium">Otomasyon</td>
-            <td className="p-6 text-gray-500 text-xs">Yok</td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">n8n Entegrasyonu</td>
+            <td className="p-6 bg-indigo-500/5 font-bold text-white">iyzico / TL desteği</td>
           </tr>
         </tbody>
       </table>
+    </div>
+    <div className="p-4 border-t border-white/5 bg-white/[0.01]">
+      <p className="text-[10px] text-gray-600 font-medium">Kaynak: GitHub Docs & GitHub Blog (Nisan 2026)</p>
     </div>
   </div>
 );
@@ -65,7 +69,7 @@ const DemoModal = ({ onClose }) => (
           Çoklu model analizi, gerçek zamanlı karşılaştırma ve akıllı kod yamalarını keşfedin.
         </p>
         <div className="aspect-video bg-black rounded-2xl border border-white/10 overflow-hidden shadow-2xl mb-6 relative group/video">
-          <video 
+          <video
             className="w-full h-full object-cover"
             controls
             autoPlay
@@ -96,7 +100,7 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
   const features = [
     {
       title: "Zekayı Serbest Bırakın",
-      desc: "GPT-4o, Claude 3.5 ve Gemini'yi aynı anda sorgulayın. Modeller arasındaki farkı değil, en iyi sonucu görün.",
+      desc: "GPT-4o, Claude 4.5 ve Gemini'yi aynı anda sorgulayın. Modeller arasındaki farkı değil, en iyi sonucu görün.",
       icon: (
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 4L4 8L12 12L20 8L12 4Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -118,7 +122,7 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
     },
     {
       title: "Evrensel Entegrasyon",
-      desc: "n8n, GitHub ve Webhook desteği ile AI yanıtlarını iş akışınızın doğal bir parçası haline getirin.",
+      desc: "GitHub ve Webhook desteği ile AI yanıtlarını iş akışınızın doğal bir parçası haline getirin.",
       icon: (
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
