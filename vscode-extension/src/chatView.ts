@@ -1824,13 +1824,41 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         }
 
         function addMessage(text, role, shouldPersist = true) {
+            // AI yanıtı ise, sistem mesajı veya prompt izi içeren satırları temizle
+            if (role === 'ai') {
+                const lines = text.split(/\r?\n/);
+                const filtered = lines.filter(line => {
+                    const l = line.trim();
+                    if (
+                        l.startsWith('The user') ||
+                        l.startsWith('Acknowledge') ||
+                        l.startsWith('This could be a mistake') ||
+                        l.startsWith('Offer assistance') ||
+                        l.startsWith("User's first input") ||
+                        l.startsWith("Assistant's first response") ||
+                        l.startsWith("User's second input") ||
+                        l.startsWith("Assistant's second response") ||
+                        l.startsWith("User's third input") ||
+                        l.startsWith('This could be') ||
+                        l.startsWith('Acknowledge') ||
+                        l.startsWith('Is there anything else') ||
+                        l.startsWith('Hello again') ||
+                        l.startsWith('Hello! Hello again') ||
+                        l.startsWith('Hello! Welcome back')
+                    ) return false;
+                    return true;
+                });
+                text = filtered.join('\n').trim();
+            }
             const msgDiv = document.createElement('div');
             msgDiv.className = 'message ' + role;
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble markdown-body';
-            if (role === 'user') bubble.textContent = text;
-            else {
-                bubble.innerHTML = md.render(text);
+            if (role === 'user') {
+                bubble.textContent = text;
+            } else {
+                // AI yanıtı düz metin olarak gösterilsin, markdown veya stil işaretleri olmadan
+                bubble.textContent = text;
                 appState.currentFullText = text;
                 appState.currentAiMessageElement = msgDiv;
                 appState.currentAiBubble = bubble;

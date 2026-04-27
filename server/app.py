@@ -111,10 +111,106 @@ def _get_iyzico_frontend_base_url(origin: str | None = None) -> str:
     return (origin or os.getenv('FRONTEND_URL') or os.getenv('APP_FRONTEND_URL') or default_url).rstrip('/')
 
 
-def _extract_gemini_text(response_obj):
+def _clean_gemma_output(text: str, question: str = None) -> str:
+    import re
+    if not text:
+        return ""
+
+    # 1. Block-based extraction (The most robust for Gemma)
+    # If the model used <answer> or [RESPONSE] tags, we ONLY take what's inside.
+    answer_match = re.search(r'<(answer|response)>(.*?)</\1>', text, re.DOTALL | re.IGNORECASE)
+    if answer_match:
+        return answer_match.group(2).strip()
+    
+    # Heuristic: Find the LAST quoted line that looks like a response
+    # Often Gemma outputs: * "Selam! How can I help?" at the end of its analysis.
+    quotes = re.findall(r'^\s*(\*|\-)?\s*["\'](.+?)["\']\s*$', text, re.MULTILINE)
+    if quotes:
+        # Take the last one, it's usually the final draft
+        return quotes[-1][1].strip()
+    
+    # 2. Block tags removal (legacy)
+    text = re.sub(r'<(think|thought|thinking|reasoning|analysis)>.*?</\1>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<(think|thought|thinking|reasoning|analysis)>.*', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove the tags themselves if they are dangling
+    text = re.sub(r'</?(answer|think|thought|thinking|reasoning|analysis)>', '', text, flags=re.IGNORECASE)
+
+    # 3. Individual label lines (Pure metadata)
+    # This surgical regex catches: "* **Label:** content" and replaces with "content"
+    # If content is empty, the line effectively becomes empty.
+    # Added more characters to handle "1-2 short sentences?", "Natural?" etc.
+    label_pattern = r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?([a-z0-9\/\?\(\)\-\+ ]{2,50}):(\*\*|\*)?\s*(.*)'
+    
+    # Common words found in Gemma's echoed instructions/checklists
+    forbidden_keywords = [
+        'metadata', 'persona', 'thinking process', 'reasoning steps', 
+        'short sentences', 'direct answer', 'echoing instructions',
+        'helpful ai assistant', 'user profile', 'expertise level',
+        'natural conversation', 'internal analysis', 'thinking block'
+    ]
+    
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        lower_line = line.lower()
+        # Keyword filtering: if the line looks like an echoed instruction
+        if any(kw in lower_line for kw in forbidden_keywords):
+            continue
+            
+        # Echo filtering: if the line looks like an echo of the user's question
+        if question and question.lower().strip() in lower_line:
+            # But allow it if the actual answer IS the question (rare)
+            if len(lower_line) > len(question) + 10: 
+                continue
+
+        # Try the generic label pattern
+        match = re.match(label_pattern, line)
+        if match:
+            # We found a label. Keep only the content after it.
+            # If the content is just "Yes", "No", "True", "False" (common in Gemma junk), discard the whole line.
+            content = match.group(5).strip()
+            if content.lower() in ['yes', 'no', 'true', 'false', 'yes.', 'no.', 'turkish', 'english', 'natural']:
+                continue
+            else:
+                cleaned_lines.append(content)
+        else:
+            # Not a label line, keep as is
+            cleaned_lines.append(line)
+    
+    text = '\n'.join(cleaned_lines)
+
+    # Legacy specific patterns for multi-line or complex cases
+    line_patterns = [
+        r'(?i)^\s*#+\s*thinking.*',
+        r'(?i)^\s*#+\s*thought.*',
+        r'(?i)^\s*#+\s*reasoning.*',
+        r'(?i)^\s*#+\s*plan.*',
+        r'(?i)^\s*#+\s*analysis.*',
+        r'(?i)^\s*#+\s*strategy.*',
+        r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no internal (analysis|reasoning|thinking).*:?(\*\*|\*)?.*',
+        r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no (reasoning|thinking) blocks?.*',
+        r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no markdown labels?.*',
+        r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no image generation.*',
+        r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?confidence score:?(\*\*|\*)?.*',
+    ]
+    for pattern in line_patterns:
+        text = re.sub(pattern, '', text, flags=re.MULTILINE)
+
+    # 4. Final Polish: deduplication and quote stripping
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
+    # Deduplicate back-to-back sentences (common in some model outputs)
+    text = re.sub(r'^"(.+?)"\s+\1\s*$', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'^"(.+?)"\s+"\1"\s*$', r'\1', text, flags=re.DOTALL)
+    # Strip surrounding quotes if the whole reply is quoted
+    text = re.sub(r'^"(.+)"$', r'\1', text, flags=re.DOTALL)
+    
+    return text.strip()
+
+def _extract_gemini_text(response_obj, question: str = None):
     text = getattr(response_obj, 'text', None)
     if isinstance(text, str) and text:
-        return text
+        return _clean_gemma_output(text, question)
 
     # Best-effort fallback for non-text response shapes.
     candidates = getattr(response_obj, 'candidates', None)
@@ -127,7 +223,7 @@ def _extract_gemini_text(response_obj):
                 if ptext:
                     chunks.append(ptext)
             if chunks:
-                return ''.join(chunks)
+                return _clean_gemma_output(''.join(chunks), question)
 
     return ''
 
@@ -137,7 +233,7 @@ class _GeminiCompatModel:
         self._client = client
         self._model_name = _normalize_gemini_model_name(model_name)
 
-    def generate_content(self, contents, stream=False, request_options=None):
+    def generate_content(self, contents, stream=False, request_options=None, question=None):
         # request_options is accepted for backward compatibility with old SDK call sites.
         # It is assumed to be in seconds and is converted to milliseconds with a 10s floor.
         timeout_sec = (request_options or {}).get('timeout') if isinstance(request_options, dict) else None
@@ -152,8 +248,60 @@ class _GeminiCompatModel:
                     contents=contents,
                     config=config,
                 )
+                
+                buffer = ""
+                in_answer_mode = False
+                yielded_any = False
+                full_raw_for_fallback = ""
+                
                 for item in stream_iter:
-                    yield SimpleNamespace(text=_extract_gemini_text(item))
+                    # Get raw text
+                    raw_chunk = ""
+                    candidates = getattr(item, 'candidates', None)
+                    if candidates:
+                        parts = getattr(getattr(candidates[0], 'content', None), 'parts', None)
+                        if parts:
+                            raw_chunk = "".join([getattr(p, 'text', '') for p in parts])
+                    else:
+                        raw_chunk = getattr(item, 'text', '')
+
+                    if not raw_chunk:
+                        continue
+                    
+                    full_raw_for_fallback += raw_chunk
+
+                    # Aggressive <answer> tag filtering
+                    chunk_lower = raw_chunk.lower()
+                    
+                    if not in_answer_mode:
+                        if '<answer>' in chunk_lower:
+                            # Start yielding from after the tag
+                            in_answer_mode = True
+                            parts = re.split(r'<answer>', raw_chunk, flags=re.IGNORECASE)
+                            raw_chunk = parts[1] if len(parts) > 1 else ""
+                        else:
+                            # Still haven't found the answer tag, skip this chunk
+                            continue
+                    
+                    if in_answer_mode:
+                        if '</answer>' in chunk_lower:
+                            # Final part of the answer
+                            parts = re.split(r'</answer>', raw_chunk, flags=re.IGNORECASE)
+                            final_part = parts[0]
+                            if final_part:
+                                yield SimpleNamespace(text=_clean_gemma_output(final_part, question))
+                                yielded_any = True
+                            break # We are done
+                        else:
+                            # Mid-answer content
+                            if raw_chunk:
+                                yield SimpleNamespace(text=_clean_gemma_output(raw_chunk, question))
+                                yielded_any = True
+                
+                # Fallback if no output was yielded (model ignored <answer> tags)
+                if not yielded_any and full_raw_for_fallback:
+                    yield SimpleNamespace(text=_clean_gemma_output(full_raw_for_fallback, question))
+
 
             return _iter_stream()
 
@@ -162,16 +310,23 @@ class _GeminiCompatModel:
             contents=contents,
             config=config,
         )
-        text = _extract_gemini_text(response)
+        text = _extract_gemini_text(response, question)
         return SimpleNamespace(
             text=text,
             content=[SimpleNamespace(text=text)] if text else []
         )
 
 
+
 class _GeminiCompat:
     def __init__(self):
         self._client = None
+
+    @property
+    def models(self):
+        if not self._client:
+            raise RuntimeError('Gemini client is not configured')
+        return self._client.models
 
     def configure(self, api_key=None):
         if not api_key:
@@ -1357,15 +1512,11 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         elif prefs.get('response_style') == 'detailed':
             style_prompt = "Provide detailed and comprehensive explanations. "
 
-    # User Persona info
     persona_info = ""
     if prefs:
         persona = prefs.get('persona', 'General User')
         expertise = prefs.get('expertise', 'Intermediate')
-        interests = ", ".join(prefs.get('interests', []))
-        persona_info = f"User Profile: {persona} (Expertise: {expertise}). "
-        if interests:
-            persona_info += f"User is interested in: {interests}. "
+        persona_info = f"I am a {persona} with {expertise} expertise level. "
 
     # Model Seçimi
     if requested_model and ('gemini' in requested_model or 'gemma' in requested_model):
@@ -1407,43 +1558,47 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         print(f"--- Model Zinciri: {fallback_chain} ---")
         
         system_instruction = (
-            "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
-            f"{persona_info}"
-            f"{style_prompt}"
-            "Communicate naturally in the user's language. If they ask about technical topics, provide detailed help and code examples. "
-            "For greetings or small talk, respond in only 1-2 short sentences. "
-            "Never output reasoning steps, thinking blocks, or internal analysis labels."
+            "You are a helpful assistant. Respond directly and naturally. "
+            "No internal analysis, no labels, no echoing instructions. Just the answer."
         )
-        
         if github_context:
-            system_instruction += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
+            system_instruction += f"\n\nContext from repository: {github_context}"
     else:
         # Varsayılan (Fallback zinciri ile)
         fallback_chain = [GEMINI_MODEL, 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
+        system_instruction = (
+            "You are a helpful assistant. Respond directly and naturally. "
+            "No internal analysis, no labels, no echoing instructions. Just the answer."
+        )
+        if github_context:
+            system_instruction += f"\n\nContext from repository: {github_context}"
 
-    system_prompt = (
-        "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
-        f"{persona_info}"
-        f"{style_prompt}"
-        "Communicate naturally in the user's language. If they ask about technical topics, provide detailed help and code examples. "
-        "For greetings or small talk, respond in only 1-2 short sentences. "
-        "Never output reasoning steps, thinking blocks, or internal analysis labels. "
-        "You cannot generate images; if asked, explain you are a text model."
-    )
-
-    if github_context:
-        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
+    # Use the same prompt as system instruction if not in specialized mode
+    system_prompt = system_instruction
     
-    prompt_parts = [system_prompt]
+    # prompt_parts = [system_prompt]  # REMOVED: Redundant as it's in system_instruction
+    prompt_parts = []
+    
 
+    # Eğer history_context yoksa, prompta asla örnek diyalog veya geçmiş başlığı eklenmesin
+    model_name_lower = (requested_model or "").lower()
     if history_context:
+        # Sadece geçmiş varsa few-shot ve başlık ekle
+        if 'gemma' in model_name_lower:
+            few_shot = [
+                "User: Selam",
+                "Assistant: Selam! İyiyim, teşekkür ederim. Siz nasılsınız? Size nasıl yardımcı olabilirim?",
+                "User: Python'da liste nasıl sıralanır?",
+                "Assistant: Python'da bir listeyi `sort()` metodu veya `sorted()` fonksiyonu ile sıralayabilirsiniz. Örnek: `liste.sort()`.",
+            ]
+            prompt_parts.extend(few_shot)
+
         filtered_history = []
         for turn in history_context:
             u_text = turn.get('user', '').strip()
             a_text = turn.get('ai', '').strip()
             if u_text or a_text:
                 filtered_history.append((u_text, a_text))
-        
         if filtered_history:
             prompt_parts.append("--- Previous Conversation ---")
             for u_text, a_text in filtered_history:
@@ -1595,7 +1750,8 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         
         try:
             print(f"Gemini Deneniyor: {current_model_id}")
-            model = genai.GenerativeModel(current_model_id)
+            # model = genai.GenerativeModel(current_model_id)
+            model = _GeminiCompatModel(genai, current_model_id)
             
             # Remove "models/" prefix for clean comparison
             clean_first = fallback_chain[0].replace('models/', '')
@@ -1604,9 +1760,10 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             if clean_current != clean_first and model_name != fallback_chain[0]:
                 yield f"\n\n*> [System]: Previous model failed, trying **{clean_current}**...*\n\n"
 
-            response = model.generate_content(prompt_parts, stream=True)
+            # Use the compat model which has the streaming filter
+            response_iter = model.generate_content(prompt_parts, stream=True, question=question)
             
-            for chunk in response:
+            for chunk in response_iter:
                 if chunk.text:
                     yield chunk.text
             
@@ -9697,8 +9854,10 @@ def external_ask():
         )
 
     # Progress callback for tool execution (optional)
-    on_event = None 
-    
+    on_event = None
+
+
+
     # Define a deduction flag and balance tracker
     deduction_occurred = False
     new_balance = _vsc_balance
@@ -9728,6 +9887,179 @@ def external_ask():
         except Exception as e:
             print(f"[TOKEN-CALLBACK] Error during deduction: {e}")
 
+    # ── Determine if client wants streaming ────────────────────────────────
+    if has_stream_flag:
+        wants_stream = bool(stream_flag)
+    else:
+        wants_stream = (not agent_mode) and ('text/event-stream' in (request.headers.get('Accept') or '').lower())
+
+    # ── Non-agent fast streaming path ──────────────────────────────────────
+    # Skip run_agent_turn() entirely; stream directly from the provider.
+    # This gives the first token as fast as the model can produce it.
+    if wants_stream and not agent_mode:
+        def _build_vsc_system_prompt():
+            lang_hint = _build_language_hint_simple(question, prefs)
+            persona_info = ""
+            if prefs:
+                persona = prefs.get('persona', 'General User')
+                expertise = prefs.get('expertise', 'Intermediate')
+                persona_info = f"User profile: {persona} (expertise: {expertise}). "
+            return (
+                "You are a senior software engineering assistant integrated into VS Code. "
+                f"{persona_info}"
+                f"{lang_hint} "
+                "Be concise and practical. For code questions provide working examples. "
+                "Never output internal reasoning labels or metadata."
+            )
+
+        def _build_vsc_messages():
+            msgs = []
+            for turn in (history_context or []):
+                u = (turn.get('user') or '').strip()
+                a = (turn.get('ai') or '').strip()
+                if u: msgs.append({'role': 'user', 'content': u})
+                if a: msgs.append({'role': 'assistant', 'content': a})
+            user_msg = (question or '').strip() or 'Hello'
+            if code and code.strip():
+                user_msg += f"\n\nRelated code:\n```\n{code.strip()}\n```"
+            msgs.append({'role': 'user', 'content': user_msg})
+            return msgs
+
+        def _gemini_stream_vsc(sys_prompt, msgs):
+            """Yield raw text chunks from Gemini generate_content_stream."""
+            gc = getattr(genai, '_client', None)
+            if not gc:
+                yield 'Error: Gemini client not configured.'
+                return
+            from google.genai import types as _gt
+            _contents = []
+            for m in msgs:
+                role = 'model' if m['role'] == 'assistant' else 'user'
+                _contents.append(_gt.Content(role=role, parts=[_gt.Part.from_text(text=m['content'])]))
+            _cfg = _gt.GenerateContentConfig(
+                system_instruction=sys_prompt or None,
+                temperature=0.2,
+                max_output_tokens=2048,
+                http_options=_gt.HttpOptions(timeout=to_gemini_timeout(120)),
+            )
+            try:
+                for item in gc.models.generate_content_stream(
+                    model=provider_model, contents=_contents, config=_cfg
+                ):
+                    t = getattr(item, 'text', None) or ''
+                    if t:
+                        yield t
+            except Exception as exc:
+                yield f'\n[Gemini error: {exc}]'
+
+        def _claude_stream_vsc(sys_prompt, msgs):
+            """Yield raw text chunks from Claude streaming."""
+            if not claude_client:
+                yield 'Error: Anthropic client not configured.'
+                return
+            try:
+                with claude_client.messages.stream(
+                    model=provider_model,
+                    max_tokens=2048,
+                    system=sys_prompt,
+                    messages=msgs,
+                ) as s:
+                    for text in s.text_stream:
+                        yield text
+            except Exception as exc:
+                yield f'\n[Claude error: {exc}]'
+
+        def _openai_stream_vsc(sys_prompt, msgs):
+            """Yield raw text chunks from OpenAI streaming."""
+            if not openai_client:
+                yield 'Error: OpenAI client not configured.'
+                return
+            try:
+                all_msgs = [{'role': 'system', 'content': sys_prompt}] + msgs
+                resp = openai_client.chat.completions.create(
+                    model=provider_model,
+                    messages=all_msgs,
+                    temperature=0.2,
+                    max_completion_tokens=2048,
+                    stream=True,
+                )
+                for chunk in resp:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    t = getattr(delta, 'content', None) or ''
+                    if t:
+                        yield t
+            except Exception as exc:
+                yield f'\n[OpenAI error: {exc}]'
+
+        def _get_chunk_generator(sys_prompt, msgs):
+            if provider_key == 'gemini':
+                return _gemini_stream_vsc(sys_prompt, msgs)
+            if provider_key == 'anthropic':
+                return _claude_stream_vsc(sys_prompt, msgs)
+            if provider_key == 'openai':
+                return _openai_stream_vsc(sys_prompt, msgs)
+            return iter(['Unsupported provider: ' + provider_key])
+
+        def _build_language_hint_simple(q, p):
+            lang = (p or {}).get('preferred_language')
+            if lang:
+                return f'Always respond in {lang}.'
+            import re as _re
+            if _re.search(r'[\u00e7\u011f\u0131\u00f6\u015f\u00fc]', q or ''):
+                return 'Respond in Turkish.'
+            return 'Respond in the same language as the user.'
+
+        def generate_stream_native():
+            sys_prompt = _build_vsc_system_prompt()
+            msgs = _build_vsc_messages()
+
+            # Deduct tokens at stream start
+            trigger_token_deduction()
+
+            meta = {
+                'meta': True,
+                'agent_mode': False,
+                'selected_model': provider_model,
+                'agent_provider': provider_key,
+                'conversation_id': _conv.id if _conv else None,
+                'balance': new_balance,
+            }
+            yield f"data: {json.dumps(meta)}\n\n"
+
+            full_text = ''
+            try:
+                for chunk in _get_chunk_generator(sys_prompt, msgs):
+                    if chunk:
+                        full_text += chunk
+                        yield f"data: {json.dumps({'text': chunk})}\n\n"
+            except Exception as exc:
+                yield f"data: {json.dumps({'text': f'[Stream error: {exc}]'})}\n\n"
+
+            # Persist history after stream completes
+            try:
+                with app.app_context():
+                    db.session.rollback()
+                    _fresh_conv = db.session.get(Conversation, _conv.id) if _conv else None
+                    if _fresh_conv:
+                        _hist = History(
+                            conversation_id=_fresh_conv.id,
+                            user_question=question,
+                            ai_response=full_text,
+                            selected_model=provider_model,
+                            timestamp=_utcnow()
+                        )
+                        db.session.add(_hist)
+                        db.session.commit()
+            except Exception as _he:
+                print(f'[HISTORY] Stream save error: {_he}')
+
+            yield f"data: {json.dumps({'done': True, 'steps': 0, 'agent_trace': [], 'agent_changed_files': []})}\n\n"
+            yield 'data: [DONE]\n\n'
+
+        return Response(stream_with_context(generate_stream_native()), mimetype='text/event-stream')
+
+    # ── Agent path (or non-streaming fallback) ─────────────────────────────
+    # For agent mode OR when client does not want streaming, use run_agent_turn().
     try:
         agent_result = run_agent_turn(
             provider=provider_key,
@@ -9748,12 +10080,9 @@ def external_ask():
     except AgentAbortException:
         print(f"[ASK] Request {request_id} ABORTED by user. Ensuring final balance sync.")
         CANCELLED_REQUESTS.pop(request_id, None)
-        
-        # Sync balance even on abort (deduction might have happened if it reached first LLM call)
         db.session.rollback()
         _fresh_user = db.session.get(User, user_id)
         current_balance = get_or_create_token_balance(_fresh_user).balance if _fresh_user else _vsc_balance
-        
         return jsonify({
             'error': 'Request cancelled by user',
             'error_code': 'request_cancelled',
@@ -9764,7 +10093,6 @@ def external_ask():
         db.session.rollback()
         _fresh_user = db.session.get(User, user_id)
         current_balance = get_or_create_token_balance(_fresh_user).balance if _fresh_user else _vsc_balance
-        
         return jsonify({
             'error': f'Agent error: {str(e)}',
             'error_code': 'agent_error',
@@ -9783,35 +10111,23 @@ def external_ask():
     session_state['updated_at'] = _utcnow().isoformat()
     _external_conversation_state[session_state_key] = session_state
 
-    # 💰 TOKEN EKONOMİSİ — Final sync (ensure deduction happened)
+    # 💰 TOKEN — Final sync
     if not deduction_occurred and _vsc_user:
-        # If the turn finished successfully but NO LLM calls were made (rare for agent), 
-        # we might still want to deduct if significant work was done.
-        # For now, we only deduct if the callback triggered.
         db.session.rollback()
         charge_user = db.session.get(User, user_id)
         if charge_user:
-            print(f"[TOKEN] Starting deduction for user {charge_user.id} using model {provider_model}. RequestId: {request_id}")
             success, new_balance = deduct_tokens(
-                charge_user,
-                provider_model,
+                charge_user, provider_model,
                 description=f"VSC Agent: {question[:30]}...",
                 reference_id=None
             )
-            print(f"[TOKEN] Deduction result: success={success}, balance={new_balance}")
-            # Cleanup cancellation flag if it exists
             CANCELLED_REQUESTS.pop(request_id, None)
-        else:
-            print(f"[TOKEN] CRITICAL: Could not re-fetch user {_vsc_user.id} for token deduction.")
 
-    # 📜 HISTORY PERSISTENCE — Dahili veritabanına kaydet (Cross-device sync ve ayrıştırma için)
+    # 📜 HISTORY PERSISTENCE
     try:
-        # Mevcut konuşmayı bul veya yeni oluştur
-        # Not: Eklenti tarafı rastgele string ID ("sess-xyz") gönderir, bunu title olarak kullanıyoruz.
         if _conv and project_for_agent and not _conv.project_id:
             _conv.project_id = project_for_agent.id
             db.session.add(_conv)
-        
         if not _conv:
             _conv = Conversation(
                 user_id=user_id,
@@ -9819,8 +10135,7 @@ def external_ask():
                 project_id=project_for_agent.id if project_for_agent else None
             )
             db.session.add(_conv)
-            db.session.flush() # ID alabilmek için
-        
+            db.session.flush()
         _hist = History(
             conversation_id=_conv.id,
             user_question=question,
@@ -9833,38 +10148,25 @@ def external_ask():
     except Exception as _e:
         db.session.rollback()
         print(f"[HISTORY] Error saving turn for user {user_id}: {_e}")
-    
-    if has_stream_flag:
-        wants_stream = bool(stream_flag)
-    else:
-        # Default to non-streaming for agent mode to avoid SSE/tool-loop UI deadlocks.
-        wants_stream = (not agent_mode) and ('text/event-stream' in (request.headers.get('Accept') or '').lower())
-    
-    if wants_stream:
-        def generate():
+
+    # Agent mode always returns SSE (meta + done, no streaming text)
+    if agent_mode:
+        def generate_agent():
             try:
                 meta = {
                     'meta': True,
-                    'agent_mode': bool(agent_mode),
+                    'agent_mode': True,
                     'selected_model': provider_model,
                     'agent_provider': provider_key,
                     'agent_project_id': project_for_agent.id if project_for_agent else None,
-                    'agent_workspace_file_count': len(workspace_files or []),
                     'agent_tool_capable': bool(agent_result.tool_capable),
-                    'active_file': session_state.get('active_file') if isinstance(session_state, dict) else None,
                     'balance': new_balance,
                     'conversation_id': _conv.id if _conv else None,
                 }
                 yield f"data: {json.dumps(meta)}\n\n"
-
-                final_text = (agent_result.text or '').strip()
-                if not final_text:
-                    final_text = "I processed the request but no text response was generated."
-                    print(f"[STREAM] Warning: agent_result.text was empty for user {user_id}")
-
+                final_text = (agent_result.text or '').strip() or 'No response generated.'
                 for chunk in stream_text_chunks(final_text):
                     yield f"data: {json.dumps({'text': chunk})}\n\n"
-                
                 done_payload = {
                     'done': True,
                     'steps': len(clipped_agent_meta['trace'] or []),
@@ -9876,33 +10178,31 @@ def external_ask():
                     'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
                 }
                 yield f"data: {json.dumps(done_payload)}\n\n"
-                yield "data: [DONE]\n\n"
+                yield 'data: [DONE]\n\n'
             except Exception as e:
-                print(f"[STREAM] CRITICAL ERROR during generation: {e}")
-                err_msg = json.dumps({'text': '\n[Backend Error during streaming. Please check server logs.]'})
-                yield f"data: {err_msg}\n\n"
-                yield "data: [DONE]\n\n"
+                yield f"data: {json.dumps({'text': '[Backend error]'})}\n\n"
+                yield 'data: [DONE]\n\n'
+        return Response(stream_with_context(generate_agent()), mimetype='text/event-stream')
 
-        return Response(stream_with_context(generate()), mimetype='text/event-stream')
-    else:
-        return jsonify({
-            'answer': agent_result.text,
-            'steps': len(clipped_agent_meta['trace'] or []),
-            'agent_mode': bool(agent_mode),
-            'selected_model': provider_model,
-            'agent_provider': provider_key,
-            'agent_project_id': project_for_agent.id if project_for_agent else None,
-            'agent_tool_capable': bool(agent_result.tool_capable),
-            'active_file': session_state.get('active_file') if isinstance(session_state, dict) else None,
-            'agent_trace': clipped_agent_meta['trace'],
-            'agent_changed_files': clipped_agent_meta['changed_files'],
-            'agent_trace_total': clipped_agent_meta['trace_total'],
-            'agent_changed_total': clipped_agent_meta['changed_total'],
-            'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
-            'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
-            'balance': new_balance,
-            'conversation_id': _conv.id if _conv else None,
-        })
+    # Non-streaming JSON fallback
+    return jsonify({
+        'answer': agent_result.text,
+        'steps': len(clipped_agent_meta['trace'] or []),
+        'agent_mode': bool(agent_mode),
+        'selected_model': provider_model,
+        'agent_provider': provider_key,
+        'agent_project_id': project_for_agent.id if project_for_agent else None,
+        'agent_tool_capable': bool(agent_result.tool_capable),
+        'active_file': session_state.get('active_file') if isinstance(session_state, dict) else None,
+        'agent_trace': clipped_agent_meta['trace'],
+        'agent_changed_files': clipped_agent_meta['changed_files'],
+        'agent_trace_total': clipped_agent_meta['trace_total'],
+        'agent_changed_total': clipped_agent_meta['changed_total'],
+        'agent_trace_truncated': clipped_agent_meta['trace_truncated'],
+        'agent_changed_truncated': clipped_agent_meta['changed_truncated'],
+        'balance': new_balance,
+        'conversation_id': _conv.id if _conv else None,
+    })
 
 @app.route('/v1/history', methods=['GET'])
 def get_vscode_history():

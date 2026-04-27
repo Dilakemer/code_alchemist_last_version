@@ -64,6 +64,105 @@ class GeminiAdapter(BaseAdapter):
 
     # ── Private helpers ───────────────────────────────────────────────────
 
+    @staticmethod
+    def _clean_model_output(text: str) -> str:
+        """Remove internal reasoning labels and metadata that Gemma/Gemini models
+        sometimes echo back verbatim into their responses."""
+        import re
+
+        # --- Think/Thought/Reasoning block removal ---
+        # Gemma 3 uses <think>...</think>; older variants use <thought>, <thinking>, <reasoning>
+        _THINK_TAGS = [
+            (r'<think>', r'</think>'),
+            (r'<thought>', r'</thought>'),
+            (r'<thinking>', r'</thinking>'),
+            (r'<reasoning>', r'</reasoning>'),
+        ]
+        for open_tag, close_tag in _THINK_TAGS:
+            text = re.sub(
+                open_tag + r'.*?' + close_tag,
+                '',
+                text,
+                flags=re.DOTALL | re.IGNORECASE,
+            )
+
+        # Remove whole sections that look like internal checklists / metadata blocks.
+        block_headers = (
+            r'Constraint Checklist.*?(?=\n\n|\Z)'
+            r'|\*\* Constraint Checklist.*?(?=\n\n|\Z)'
+        )
+        text = re.sub(block_headers, '', text, flags=re.DOTALL | re.IGNORECASE)
+
+        # Remove individual label lines (lines that are pure metadata, not prose)
+        # This surgical regex catches: "* **Label:** content" and replaces with "content"
+        # Added more characters to handle "1-2 short sentences?", "Natural?" etc.
+        label_pattern = r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?([a-z0-9\/\?\(\)\-\+ ]{2,50}):(\*\*|\*)?\s*(.*)'
+        
+        # Common words found in Gemma's echoed instructions/checklists
+        forbidden_keywords = [
+            'metadata', 'persona', 'thinking process', 'reasoning steps', 
+            'short sentences', 'direct answer', 'echoing instructions',
+            'helpful ai assistant', 'user profile', 'expertise level',
+            'natural conversation', 'internal analysis', 'thinking block'
+        ]
+        
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            lower_line = line.lower()
+            
+            # Keyword filtering: if the line looks like an echoed instruction
+            if any(kw in lower_line for kw in forbidden_keywords):
+                continue
+
+            # Try the generic label pattern
+            match = re.match(label_pattern, line)
+            if match:
+                # We found a label. Keep only the content after it.
+                # If the content is just "Yes", "No", "True", "False" (common in Gemma junk), discard the whole line.
+                content = match.group(5).strip()
+                if content.lower() in ['yes', 'no', 'true', 'false', 'yes.', 'no.', 'turkish', 'english', 'natural']:
+                    continue
+                else:
+                    cleaned_lines.append(content)
+            else:
+                # Not a label line, keep as is
+                cleaned_lines.append(line)
+        
+        text = '\n'.join(cleaned_lines)
+
+        line_patterns = [
+            r'(?i)^\s*#+\s*thinking.*',
+            r'(?i)^\s*#+\s*thought.*',
+            r'(?i)^\s*#+\s*reasoning.*',
+            r'(?i)^\s*#+\s*plan.*',
+            r'(?i)^\s*#+\s*analysis.*',
+            r'(?i)^\s*#+\s*strategy.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no internal (analysis|reasoning|thinking).*:?(\*\*|\*)?.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no (reasoning|thinking) blocks?.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no markdown labels?.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?no image generation.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?confidence score:?(\*\*|\*)?.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?(expertise|user expertise):?(\*\*|\*)?.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?system:?(\*\*|\*)?.*',
+            r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?assistant:?(\*\*|\*)?.*',
+        ]
+        for pattern in line_patterns:
+            text = re.sub(pattern, '', text, flags=re.MULTILINE)
+
+        # Collapse runs of blank lines left by the removals above
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = text.strip()
+
+        # De-duplicate: if the same sentence appears twice back-to-back
+        # (e.g. "Selam! ..." "Selam! ..."), keep only the first occurrence.
+        text = re.sub(r'^"(.+?)"\s+\1\s*$', r'\1', text, flags=re.DOTALL)
+        text = re.sub(r'^"(.+?)"\s+"\1"\s*$', r'\1', text, flags=re.DOTALL)
+        # Also strip surrounding quotes if the whole reply is quoted
+        text = re.sub(r'^"(.+)"$', r'\1', text, flags=re.DOTALL)
+
+        return text.strip()
+
     def _extract_text(self, response: Any) -> str:
         chunks: List[str] = []
         candidates = list(getattr(response, "candidates", None) or [])
@@ -75,39 +174,8 @@ class GeminiAdapter(BaseAdapter):
             text = getattr(part, "text", None)
             if text:
                 chunks.append(str(text))
-        
-        full_text = "".join(chunks).strip()
-        
-        # Clean up internal "thinking" or "instruction check" blocks
-        import re
-        # Remove <thought> tags
-        full_text = re.sub(r'<thought>.*?</thought>', '', full_text, flags=re.DOTALL)
-        
-        # Remove common analysis labels that some models echo back
-        patterns_to_strip = [
-            r'(?i)^thinking:.*\n?',
-            r'(?i)^user says:.*\n?',
-            r'(?i)^instruction check:.*\n?',
-            r'(?i)^role:.*\n?',
-            r'(?i)^communication style:.*\n?',
-            r'(?i)^language:.*\n?',
-            r'(?i)^greetings/small talk rule:.*\n?',
-            r'(?i)^no internal analysis/instruction labels.*\n?',
-            r'(?i)^image generation rule:.*\n?',
-            r'(?i)^target language:.*\n?',
-            r'(?i)^tone:.*\n?',
-            r'(?i)^content:.*\n?',
-            r'(?i)^length:.*\n?',
-            r'(?i)^same language\?.*\n?',
-            r'(?i)^natural style\?.*\n?',
-            r'(?i)^1-2 short sentences\?.*\n?',
-            r'(?i)^no markdown labels\?.*\n?'
-        ]
-        
-        for pattern in patterns_to_strip:
-            full_text = re.sub(pattern, '', full_text, flags=re.MULTILINE)
-            
-        return full_text.strip()
+
+        return self._clean_model_output("".join(chunks))
 
     @staticmethod
     def _safe_args(raw_args: Any) -> Dict[str, Any]:
@@ -314,6 +382,15 @@ class GeminiAdapter(BaseAdapter):
         config: AdapterConfig,
         system_prompt: str = "",
     ) -> AsyncIterator[str]:
+        """Stream response token-by-token using asyncio.Queue.
+
+        A background thread iterates the synchronous SDK stream and pushes each
+        raw text chunk into a queue.  The async side drains the queue and yields
+        each chunk to the caller immediately — without waiting for the full
+        response.  A lightweight cleaning pass is applied to each chunk to strip
+        the most common single-line metadata labels.  A final, full-text cleaning
+        pass deduplicates and removes any multi-line / cross-chunk artefacts.
+        """
         import asyncio
 
         types = self._types
@@ -328,24 +405,125 @@ class GeminiAdapter(BaseAdapter):
         )
 
         loop = asyncio.get_event_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        _SENTINEL = object()
 
-        def _iter():
-            return self._client.models.generate_content_stream(
-                model=config.model,
-                contents=contents,
-                config=gen_config,
-            )
+        def _produce():
+            """Run in thread-pool; push each SDK chunk into the queue."""
+            try:
+                stream_iter = self._client.models.generate_content_stream(
+                    model=config.model,
+                    contents=contents,
+                    config=gen_config,
+                )
+                for item in stream_iter:
+                    text = getattr(item, "text", None) or ""
+                    if not text:
+                        # Try deeper extraction (e.g. Gemma candidates)
+                        text = ""
+                        candidates = list(getattr(item, "candidates", None) or [])
+                        if candidates:
+                            content = getattr(candidates[0], "content", None)
+                            for part in list(getattr(content, "parts", None) or []):
+                                pt = getattr(part, "text", None)
+                                if pt:
+                                    text += pt
+                    if text:
+                        loop.call_soon_threadsafe(queue.put_nowait, text)
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, exc)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
 
-        stream_iter = await loop.run_in_executor(None, _iter)
+        # Start producer in thread pool (non-blocking for async side)
+        loop.run_in_executor(None, _produce)
 
-        def _collect():
-            chunks = []
-            for item in stream_iter:
-                text = getattr(item, "text", None) or self._extract_text(item)
-                if text:
-                    chunks.append(text)
-            return chunks
+        # ── Streaming think-block filter ──────────────────────────────────
+        # Gemma models emit <think>…</think> blocks mid-stream.  We buffer
+        # chunks while inside a think block and never yield them to the caller.
+        # A chunk may contain BOTH think content AND real text (e.g. the closing
+        # </think> tag followed by the actual response), so we split carefully.
+        #
+        # State machine:
+        #   _in_think=True  → we are inside a think block; suppress output
+        #   _in_think=False → normal output; yield immediately
+        #
+        # We also keep `accumulated` for the post-stream full-text clean pass.
+        _OPEN_TAGS  = ['<think>', '<thought>', '<thinking>', '<reasoning>']
+        _CLOSE_TAGS = ['</think>', '</thought>', '</thinking>', '</reasoning>']
 
-        chunks = await loop.run_in_executor(None, _collect)
-        for chunk in chunks:
-            yield chunk
+        _in_think = False
+        accumulated: List[str] = []
+
+        while True:
+            item = await queue.get()
+            if item is _SENTINEL:
+                break
+            if isinstance(item, Exception):
+                raise item
+
+            # Fast-path: no think-related markers → yield immediately
+            chunk_lower = item.lower()
+            has_open  = any(t in chunk_lower for t in _OPEN_TAGS)
+            has_close = any(t in chunk_lower for t in _CLOSE_TAGS)
+
+            if not _in_think and not has_open:
+                accumulated.append(item)
+                yield item
+                continue
+
+            # Slow-path: parse the chunk character-by-character to find
+            # think block boundaries and extract only the real-text parts.
+            remaining = item
+            visible_parts: List[str] = []
+
+            while remaining:
+                if _in_think:
+                    # Look for the earliest closing tag
+                    close_idx = -1
+                    close_len = 0
+                    for ctag in _CLOSE_TAGS:
+                        idx = remaining.lower().find(ctag)
+                        if idx != -1 and (close_idx == -1 or idx < close_idx):
+                            close_idx = idx
+                            close_len = len(ctag)
+                    if close_idx == -1:
+                        # Still inside think block; discard the whole remainder
+                        remaining = ''
+                    else:
+                        # Exit think block; discard up to and including close tag
+                        remaining = remaining[close_idx + close_len:]
+                        _in_think = False
+                else:
+                    # Look for the earliest opening tag
+                    open_idx = -1
+                    open_len = 0
+                    for otag in _OPEN_TAGS:
+                        idx = remaining.lower().find(otag)
+                        if idx != -1 and (open_idx == -1 or idx < open_idx):
+                            open_idx = idx
+                            open_len = len(otag)
+                    if open_idx == -1:
+                        # No think block in this remainder; keep it all
+                        visible_parts.append(remaining)
+                        remaining = ''
+                    else:
+                        # Emit text before the opening tag, then enter think mode
+                        visible_parts.append(remaining[:open_idx])
+                        remaining = remaining[open_idx + open_len:]
+                        _in_think = True
+
+            if visible_parts:
+                visible_text = ''.join(visible_parts)
+                if visible_text:
+                    accumulated.append(visible_text)
+                    yield visible_text
+
+        # Post-stream: apply full cleaning to catch any remaining cross-chunk
+        # artefacts (metadata labels, duplicate sentences, etc.).
+        if accumulated:
+            full_raw = ''.join(accumulated)
+            full_cleaned = self._clean_model_output(full_raw)
+            if full_cleaned != full_raw.strip():
+                if os.getenv('GEMINI_ADAPTER_DEBUG', '').strip() == '1':
+                    print('[GeminiAdapter] post-stream clean applied (cross-chunk artefact removed)')

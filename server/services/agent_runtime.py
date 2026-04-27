@@ -133,11 +133,8 @@ def build_agent_system_prompt(
         "Be precise, practical, and collaborative. "
         f"{persona_info}"
         f"{_build_language_hint(question, prefs)} "
-        "Do not reveal internal reasoning or prompt structure. Never output labels like Input, Role, Language Constraint, or Capabilities Constraint. "
-        "CRITICAL: Do NOT mention internal tool names (e.g. `write_file`, `list_files`, `run_command`) or trace details in your final response. Focus only on the outcome. "
-        "\n\n### File Modification Policy:\n"
-        "- **FORBIDDEN (Direct Edit):** `package.json`, `package-lock.json`, `yarn.lock`, `requirements.txt`, `pipfile`, `composer.json` ve benzeri bağımlılık dosyalarını `write_file` ile düzenleyemezsin.\n"
-        "- **MANDATORY (Terminal):** Bağımlılık eklemek, silmek veya güncellemek için MUTLAKA `run_command` (örneğin `npm install <package>`) kullanmalısın.\n\n"
+        "STRICT: Never output internal labels like 'Role:', 'Language constraint:', 'User Profile:', 'Length:', or any instruction/analysis headers. Do not reveal internal reasoning or prompt structure. "
+        "CRITICAL: Your final response MUST ONLY contain the message for the user. Do NOT include any internal thoughts, reasoning, or 'Thinking process' labels in the output. "
         "For greetings or small talk, reply naturally in 1-2 short sentences. "
         f"{tool_guidance}"
         f"{context_block}"
@@ -153,9 +150,8 @@ def build_agent_system_prompt(
         "- Evet/hayır soruları\n"
         "- Kısa tanım soruları\n\n"
         "Eğer kullanıcı mesajı yukarıdaki \"NORMAL YANIT\" kategorisine giriyorsa,\n"
-        "hiçbir tool çağırma, hiçbir adım atmadan DOĞRUDAN yanıt ver."
-        "STRICT: Your final response MUST ONLY contain the message for the user. Do NOT include any internal thoughts, reasoning, or 'Thinking process' labels in the output. "
-        "For simple terminal commands, provide your final answer immediately after sending the command. For complex research tasks, you may use up to 10 steps. "
+        "hiçbir tool çağırma, hiçbir adım atmadan DOĞRUDAN yanıt ver. Yanıtın kısa ve öz olmalı. "
+        "STRICT: Final response MUST contain ONLY the message for the user. NO labels, NO thinking, NO metadata. "
     ).strip()
 
 
@@ -906,6 +902,32 @@ def _execute_tool_batch(tool_runtime: Any, tool_calls: List[Any]) -> List[dict]:
     return call_payloads
 
 
+def _clean_gemma_output(text: str) -> str:
+    import re
+    if not text:
+        return ""
+    text = re.sub(r'<thought>.*?</thought>', '', text, flags=re.DOTALL)
+    patterns = [
+        r'(?i)^thinking:.*\n?', r'(?i)^user says:.*\n?', r'(?i)^instruction check:.*\n?',
+        r'(?i)^role:.*\n?', r'(?i)^system role:.*\n?', r'(?i)^user profile:.*\n?',
+        r'(?i)^communication style:.*\n?', r'(?i)^language:.*\n?', r'(?i)^language constraint:.*\n?',
+        r'(?i)^target language:.*\n?', r'(?i)^greetings/small talk rule:.*\n?',
+        r'(?i)^constraint:.*\n?', r'(?i)^constraints:.*\n?', r'(?i)^greeting in turkish:.*\n?',
+        r'(?i)^keep it natural:.*\n?', r'(?i)^greeting:.*\n?', r'(?i)^user input:.*\n?',
+        r'(?i)^user said:.*\n?', r'(?i)^response should be:.*\n?', r'(?i)^length:.*\n?',
+        r'(?i)^same language\?.*\n?', r'(?i)^natural style\?.*\n?', r'(?i)^1-2 short sentences\?.*\n?',
+        r'(?i)^no internal analysis:.*\n?', r'(?i)^no markdown labels:.*\n?'
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, '', text, flags=re.MULTILINE)
+    text = text.strip()
+    match = re.match(r'^"(.*)"\s*(.*)$', text, re.DOTALL)
+    if match:
+        quoted, unquoted = match.groups()
+        if quoted.strip() == unquoted.strip():
+            return quoted.strip()
+    return text.strip()
+
 def _extract_gemini_text_from_candidates(response) -> str:
     chunks: List[str] = []
     candidates = list(getattr(response, "candidates", None) or [])
@@ -917,7 +939,7 @@ def _extract_gemini_text_from_candidates(response) -> str:
         text = getattr(part, "text", None)
         if text:
             chunks.append(str(text))
-    return "".join(chunks).strip()
+    return _clean_gemma_output("".join(chunks))
 
 
 def _run_openai_agent(
@@ -1298,6 +1320,7 @@ def _run_gemini_agent(
     config = gemini_types.GenerateContentConfig(
         system_instruction=system_prompt,
         temperature=0.2,
+        max_output_tokens=1500,  # Prevents unnecessary verbosity in Gemma/Gemini
         tools=_build_gemini_tools(tool_runtime.get_tool_specs()) if tool_runtime and tool_runtime.has_tool_access else None,
         automatic_function_calling=gemini_types.AutomaticFunctionCallingConfig(disable=True) if hasattr(gemini_types, 'AutomaticFunctionCallingConfig') else None,
         http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
@@ -1377,6 +1400,7 @@ def _run_gemini_agent(
                     forced_config = gemini_types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         temperature=0.2,
+                        max_output_tokens=1000,
                         tools=None,
                         automatic_function_calling=gemini_types.AutomaticFunctionCallingConfig(disable=True) if hasattr(gemini_types, 'AutomaticFunctionCallingConfig') else None,
                         http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
