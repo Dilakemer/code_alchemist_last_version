@@ -1410,12 +1410,9 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
             f"{persona_info}"
             f"{style_prompt}"
-            "If the user asks a question about code, software, or a technical topic, "
-            "provide detailed technical assistance and give code examples if necessary. "
-            "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
-            "For greetings or small talk, respond naturally in 1-2 short sentences only. "
-            "Never output internal analysis, background thinking, or instruction labels like <thought>, Thinking:, Input, Role, etc. "
-            "CRITICAL: Provide ONLY the final response without any reasoning steps or internal dialogue."
+            "Communicate naturally in the user's language. If they ask about technical topics, provide detailed help and code examples. "
+            "For greetings or small talk, respond in only 1-2 short sentences. "
+            "Never output reasoning steps, thinking blocks, or internal analysis labels."
         )
         
         if github_context:
@@ -1428,13 +1425,10 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
         f"{persona_info}"
         f"{style_prompt}"
-        "If the user asks a question about code, software, or a technical topic, "
-        "provide detailed technical assistance and give code examples if necessary. "
-        "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
-        "For greetings or small talk, respond naturally in 1-2 short sentences only. "
-        "Never output internal analysis, background thinking, or instruction labels like <thought>, Thinking:, Input, Role, etc. "
-        "CRITICAL: Provide ONLY the final response without any reasoning steps or internal dialogue. "
-        "CRITICAL: You CANNOT generate images directly. DO NOT output markdown image links (e.g. ![](/static/...)) unless the system has provided them. If the user asks for an image and you are responding as text, explain that you are a text model or ask them to be more specific to trigger the image generator."
+        "Communicate naturally in the user's language. If they ask about technical topics, provide detailed help and code examples. "
+        "For greetings or small talk, respond in only 1-2 short sentences. "
+        "Never output reasoning steps, thinking blocks, or internal analysis labels. "
+        "You cannot generate images; if asked, explain you are a text model."
     )
 
     if github_context:

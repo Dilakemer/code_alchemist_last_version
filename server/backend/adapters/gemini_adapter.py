@@ -77,10 +77,36 @@ class GeminiAdapter(BaseAdapter):
                 chunks.append(str(text))
         
         full_text = "".join(chunks).strip()
-        # Clean up any internal "thinking" blocks that might leak from the model
+        
+        # Clean up internal "thinking" or "instruction check" blocks
         import re
+        # Remove <thought> tags
         full_text = re.sub(r'<thought>.*?</thought>', '', full_text, flags=re.DOTALL)
-        full_text = re.sub(r'(?i)^thinking:.*\n?', '', full_text, flags=re.MULTILINE)
+        
+        # Remove common analysis labels that some models echo back
+        patterns_to_strip = [
+            r'(?i)^thinking:.*\n?',
+            r'(?i)^user says:.*\n?',
+            r'(?i)^instruction check:.*\n?',
+            r'(?i)^role:.*\n?',
+            r'(?i)^communication style:.*\n?',
+            r'(?i)^language:.*\n?',
+            r'(?i)^greetings/small talk rule:.*\n?',
+            r'(?i)^no internal analysis/instruction labels.*\n?',
+            r'(?i)^image generation rule:.*\n?',
+            r'(?i)^target language:.*\n?',
+            r'(?i)^tone:.*\n?',
+            r'(?i)^content:.*\n?',
+            r'(?i)^length:.*\n?',
+            r'(?i)^same language\?.*\n?',
+            r'(?i)^natural style\?.*\n?',
+            r'(?i)^1-2 short sentences\?.*\n?',
+            r'(?i)^no markdown labels\?.*\n?'
+        ]
+        
+        for pattern in patterns_to_strip:
+            full_text = re.sub(pattern, '', full_text, flags=re.MULTILINE)
+            
         return full_text.strip()
 
     @staticmethod
