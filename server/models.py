@@ -153,6 +153,7 @@ class Conversation(db.Model, SoftDeleteMixin):
     linked_repo = db.Column(db.String(255), nullable=True)
     repo_branch = db.Column(db.String(100), default='main')
     is_auto_linked = db.Column(db.Boolean, default=False)
+    source = db.Column(db.String(50), default='web', index=True)
     
     user = db.relationship('User', backref=db.backref('conversations', lazy='dynamic'))
 

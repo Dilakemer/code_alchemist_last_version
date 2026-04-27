@@ -4770,7 +4770,7 @@ def ask():
         
         if not conversation:
             # Yeni konuşma başlat
-            conversation = Conversation(user_id=user_id, title=question[:50])
+            conversation = Conversation(user_id=user_id, title=question[:50], source='web')
             
             # If repo was pre-verified and passed here, link it to the new conversation
             if 'repo_param' in locals() and repo_param:
@@ -5204,7 +5204,7 @@ def ask():
                     current_conv = db.session.get(Conversation, conversation.id)
                     if not current_conv:
                         # Should not happen normally
-                        current_conv = Conversation(id=conversation.id, user_id=user_id, title=question[:50])
+                        current_conv = Conversation(id=conversation.id, user_id=user_id, title=question[:50], source='web')
                         db.session.add(current_conv)
 
                     # Özetleme ve kalıcı hafıza çıkarımı
@@ -5363,6 +5363,7 @@ def blend_models():
             conversation = Conversation(
                 user_id=user.id,
                 title=question[:50] + ('...' if len(question) > 50 else ''),
+                source='web',
                 created_at=datetime.datetime.now()
             )
 
@@ -5602,6 +5603,9 @@ def list_conversations():
             # Default list should show only general chats.
             # Project-linked conversations are shown only in Project Workspace.
             query = query.filter(Conversation.project_id.is_(None))
+            
+        # Filter by source (exclude VS Code chats from Web UI)
+        query = query.filter(Conversation.source != 'vscode')
 
         # Exclude community posts and include archive filter logic if needed
         convs = query.filter(Conversation.is_deleted == False)\
@@ -5626,6 +5630,7 @@ def create_conversation():
         user_id=user.id,
         title=title,
         project_id=project_id,
+        source='web',
         created_at=datetime.datetime.now()
     )
     db.session.add(conversation)
@@ -7055,7 +7060,7 @@ def create_community_post():
         return jsonify({'error': 'Title/Question required.'}), 400
 
     # 1. Create Conversation
-    conversation = Conversation(user_id=user.id, title=title[:50])
+    conversation = Conversation(user_id=user.id, title=title[:50], source='web')
     db.session.add(conversation)
     db.session.commit()
 
@@ -9757,7 +9762,8 @@ def external_ask():
         _conv = Conversation(
             user_id=user_id,
             title=conversation_title,
-            project_id=payload_project_id if payload_project_id else None
+            project_id=payload_project_id if payload_project_id else None,
+            source='vscode'
         )
         db.session.add(_conv)
         db.session.commit()
@@ -10132,7 +10138,8 @@ def external_ask():
             _conv = Conversation(
                 user_id=user_id,
                 title=str(conversation_id) if conversation_id else f"Chat {_utcnow().strftime('%Y-%m-%d %H:%M')}",
-                project_id=project_for_agent.id if project_for_agent else None
+                project_id=project_for_agent.id if project_for_agent else None,
+                source='vscode'
             )
             db.session.add(_conv)
             db.session.flush()
@@ -10219,10 +10226,10 @@ def get_vscode_history():
         return jsonify({'status': 'unauthorized'}), 401
     
     user_id = key_record.user_id
-    # VS Code sessions typically start with 'session-'
+    # VS Code sessions now identified by source field
     convs = Conversation.query.filter(
         Conversation.user_id == user_id,
-        Conversation.title.like('session-%'),
+        Conversation.source == 'vscode',
         Conversation.is_deleted == False
     ).order_by(Conversation.created_at.desc()).all()
     
