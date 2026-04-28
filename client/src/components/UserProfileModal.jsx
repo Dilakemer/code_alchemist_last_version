@@ -4,7 +4,7 @@ import GamificationPanel from './GamificationPanel';
 import ThemeStore from './ThemeStore';
 import { useAccountDeletion } from '../hooks/useAccountDeletion';
 
-const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, onPostClick, onLogout, onUserUpdate, onShowAlert, onUserClick, onBack, canGoBack, token, onThemeChange }) => {
+const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, onPostClick, onLogout, onUserUpdate, onShowAlert, onUserClick, onBack, canGoBack, token, onThemeChange, includePreviousModules, onIncludePreviousModulesChange, agentModeEnabled, onAgentModeChange }) => {
     const [profileData, setProfileData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'achievements' | 'appearance' | 'account'
@@ -214,6 +214,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
         { id: 'overview', label: 'Genel Bakış' },
         { id: 'achievements', label: 'Başarılar', ownOnly: true },
         { id: 'appearance', label: 'Görünüm', ownOnly: true },
+        { id: 'ai_settings', label: 'AI Ayarları', ownOnly: true },
         { id: 'developer', label: 'Geliştirici', ownOnly: true },
         { id: 'account', label: 'Hesap', ownOnly: true },
     ];
@@ -269,6 +270,13 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
             );
         }
 
+        if (tabId === 'ai_settings') {
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${iconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+            );
+        }
         return (
             <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${iconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <circle cx="12" cy="12" r="7" strokeWidth="1.8" />
@@ -577,6 +585,64 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                                 }
                                             }}
                                         />
+                                    </div>
+                                )}
+
+                                {activeTab === 'ai_settings' && isOwnProfile && (
+                                    <div className="max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                        <div>
+                                            <h3 className="text-xl font-black text-white mb-2">AI & Bağlam Ayarları</h3>
+                                            <p className="text-sm text-slate-400 mb-8">
+                                                AI'nın yanıt verme şeklini ve geçmiş konuşmaları nasıl hatırladığını özelleştirin.
+                                            </p>
+
+                                            <div className="space-y-4">
+                                                {/* Previous Modules Toggle */}
+                                                <div 
+                                                    onClick={() => onIncludePreviousModulesChange && onIncludePreviousModulesChange(!includePreviousModules)}
+                                                    className="flex items-center justify-between p-5 bg-white/[0.02] border border-white/5 rounded-2xl cursor-pointer hover:border-amber-500/30 transition-all group"
+                                                >
+                                                    <div className="flex gap-4 items-center">
+                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${includePreviousModules ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-500'}`}>
+                                                            🧠
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="text-sm font-bold text-slate-200">Önceki Modüller (Hafıza)</h4>
+                                                            <p className="text-[11px] text-slate-500 max-w-[280px]">Farklı sohbetlerdeki kararlarınızı ve bilgileri birbirine bağlar.</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className={`w-12 h-6 rounded-full relative transition-colors duration-300 ${includePreviousModules ? 'bg-amber-500/40' : 'bg-slate-700'}`}>
+                                                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-300 ${includePreviousModules ? 'left-7 shadow-[0_0_12px_rgba(245,158,11,0.6)]' : 'left-1'}`} />
+                                                    </div>
+                                                </div>
+
+                                                {/* Agent Mode Toggle */}
+                                                <div 
+                                                    onClick={() => onAgentModeChange && onAgentModeChange(!agentModeEnabled)}
+                                                    className="flex items-center justify-between p-5 bg-white/[0.02] border border-white/5 rounded-2xl cursor-pointer hover:border-indigo-500/30 transition-all group"
+                                                >
+                                                    <div className="flex gap-4 items-center">
+                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${agentModeEnabled ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-500'}`}>
+                                                            🤖
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="text-sm font-bold text-slate-200">Agent Mode</h4>
+                                                            <p className="text-[11px] text-slate-500 max-w-[280px]">Modelin araçları (dosya okuma, terminal vb.) kullanmasını sağlar.</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className={`w-12 h-6 rounded-full relative transition-colors duration-300 ${agentModeEnabled ? 'bg-indigo-500/40' : 'bg-slate-700'}`}>
+                                                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-300 ${agentModeEnabled ? 'left-7 shadow-[0_0_12px_rgba(99,102,241,0.6)]' : 'left-1'}`} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="mt-10 p-5 rounded-2xl bg-indigo-500/5 border border-indigo-500/10">
+                                                <h5 className="text-xs font-black text-indigo-300 uppercase tracking-widest mb-2">💡 İpucu</h5>
+                                                <p className="text-xs text-slate-400 leading-relaxed">
+                                                    "Önceki Modüller" özelliği, AI'nın sizin stilinizi ve daha önce belirttiğiniz tercihleri hatırlamasına yardımcı olur. Bu, her yeni sohbette kendinizi tekrar tanıtma ihtiyacını azaltır.
+                                                </p>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 

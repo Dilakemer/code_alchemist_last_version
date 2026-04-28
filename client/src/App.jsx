@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ModelSelector from './components/ModelSelector';
 import ChatInterface from './components/ChatInterface';
 import HistoryList from './components/HistoryList';
@@ -55,6 +55,8 @@ function App() {
   const [collabOwner, setCollabOwner] = useState(null);
   const [collabReview, setCollabReview] = useState({ status: 'open', updated_by: null, updated_at: null, comments: [] });
   const [collabReviewLoading, setCollabReviewLoading] = useState(false);
+  const abortControllerRef = useRef(null);
+  const activeRequestIdRef = useRef(null);
   const [collabReviewComment, setCollabReviewComment] = useState('');
   const [showWeeklyReport, setShowWeeklyReport] = useState(false);
   const [weeklyReportData, setWeeklyReportData] = useState(null);
@@ -89,6 +91,25 @@ function App() {
   const [statusType, setStatusType] = useState('info'); // 'info' | 'success' | 'error'
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [onAlertConfirm, setOnAlertConfirm] = useState(null); // Will store { fn: callback }
+
+  const handleStopResponse = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setLoading(false);
+      setIsStreamingAgent(false);
+      
+      // Notify backend to stop generation if possible
+      try {
+        fetch(`${API_BASE}/api/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ request_id: activeRequestIdRef.current })
+        }).catch(() => {});
+      } catch (e) {}
+    }
+  }, [authHeaders]);
+
 
   const handleShowAlert = useCallback((msg, type = 'info', onConfirm = null) => {
     console.log(`[Alert] Showing: [${type}] ${msg}`);
@@ -1108,6 +1129,7 @@ function App() {
 
     // 1. Optimistic UI Update
     const tempId = Date.now();
+    activeRequestIdRef.current = String(tempId);
     const newHistoryItem = {
       id: tempId,
       user_question: effectiveQuestion,
@@ -1213,6 +1235,7 @@ function App() {
         formData.append('include_previous_modules', includePreviousModules ? 'true' : 'false');
 
         formData.append('image', currentImage);
+        formData.append('request_id', String(tempId));
         body = formData;
       } else {
         headers['Content-Type'] = 'application/json';
@@ -1227,13 +1250,19 @@ function App() {
           include_previous_modules: includePreviousModules,
           agent_mode: Boolean(agentModeEnabled && !isBlendMode),
           project_id: semanticProjectId,
+          request_id: String(tempId),
         });
       }
+
+      // Create new AbortController for this request
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: headers,
-        body: body
+        body: body,
+        signal: controller.signal
       });
 
       if (!res.ok) {
@@ -1521,13 +1550,14 @@ function App() {
       const endTime = Date.now();
       const totalDuration = ((endTime - startTime) / 1000).toFixed(2);
       const ttf = (firstChunkTime ? ((firstChunkTime - startTime) / 1000).toFixed(2) : null);
+      const isAbortError = error.name === 'AbortError' || (error.message && error.message.toLowerCase().includes('abort'));
       setChatHistory(prev => prev.map(item =>
         item.id === tempId
           ? {
             ...item,
             ai_response: item.ai_response
-              ? `${item.ai_response}\n\n[Warning: stream interrupted before final metadata.]`
-              : "[An error occurred. Please try again.]",
+              ? (isAbortError ? `${item.ai_response}\n\n[Yanıt durduruldu]` : `${item.ai_response}\n\n[Warning: stream interrupted before final metadata.]`)
+              : (isAbortError ? "[Yanıt durduruldu]" : "[An error occurred. Please try again.]"),
             responseTime: item.responseTime || totalDuration,
             timeToFirstToken: item.timeToFirstToken || ttf,
             routing_reason:
@@ -1677,6 +1707,13 @@ function App() {
       setShowLandingPage(true);
     }
   };
+
+  const currentConversation = useMemo(() => 
+    activeConversationId ? conversations.find(c => c.id === activeConversationId) : null
+  , [activeConversationId, conversations]);
+
+  const resolvedRepo = currentConversation?.linked_repo || preLinkedRepo;
+  const resolvedBranch = currentConversation?.repo_branch || preLinkedBranch || 'main';
 
   return (
     <div className="flex h-screen bg-black text-gray-100 font-sans selection:bg-fuchsia-500/30 overflow-hidden">
@@ -2415,6 +2452,7 @@ function App() {
               user={user}
               onAuthRequired={() => setAuthOpen(true)}
               model={model}
+              onStop={handleStopResponse}
               includePreviousModules={includePreviousModules}
               setIncludePreviousModules={setIncludePreviousModules}
               agentModeEnabled={agentModeEnabled}
@@ -2449,8 +2487,8 @@ function App() {
                 setShareOpen(true);
               }}
               onShowCodeHealth={() => setShowCodeHealth(true)}
-              linkedRepoProp={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.linked_repo : preLinkedRepo}
-              linkedBranchProp={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.repo_branch : preLinkedBranch}
+              linkedRepoProp={resolvedRepo}
+              linkedBranchProp={resolvedBranch}
               activeProject={activeProject}
               onFeedbackDetail={(id) => {
                 setFeedbackHistoryId(id);
@@ -2543,10 +2581,10 @@ function App() {
         }
 
         {/* Architecture Graph Modal */}
-        {showArchData && (activeConversationId && conversations.find(c => c.id === activeConversationId)?.linked_repo || preLinkedRepo) && (
+        {showArchData && resolvedRepo && (
           <GitHubGraph
-            repo={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.linked_repo : preLinkedRepo}
-            branch={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.repo_branch : preLinkedBranch}
+            repo={resolvedRepo}
+            branch={resolvedBranch}
             conversationId={activeConversationId}
             onClose={() => setShowArchData(false)}
             apiBase={API_BASE}
@@ -2555,10 +2593,10 @@ function App() {
         )}
 
         {/* Code Health Dashboard Modal */}
-        {showCodeHealth && (activeConversationId && conversations.find(c => c.id === activeConversationId)?.linked_repo || preLinkedRepo) && (
+        {showCodeHealth && resolvedRepo && (
           <CodeHealthDashboard
-            repo={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.linked_repo : preLinkedRepo}
-            branch={activeConversationId ? conversations.find(c => c.id === activeConversationId)?.repo_branch : preLinkedBranch}
+            repo={resolvedRepo}
+            branch={resolvedBranch}
             onClose={() => setShowCodeHealth(false)}
             apiBase={API_BASE}
             authHeaders={authHeaders}
@@ -2843,6 +2881,16 @@ function App() {
             onShowAlert={handleShowAlert}
             onUserClick={(userId) => {
               handleProfileOpen(userId);
+            }}
+            includePreviousModules={includePreviousModules}
+            onIncludePreviousModulesChange={(val) => {
+              setIncludePreviousModules(val);
+              localStorage.setItem('codebrain_include_previous_modules', val);
+            }}
+            agentModeEnabled={agentModeEnabled}
+            onAgentModeChange={(val) => {
+              setAgentModeEnabled(val);
+              localStorage.setItem('codebrain_agent_mode', val);
             }}
             onBack={handleProfileBack}
             canGoBack={userHistory.length > 0}

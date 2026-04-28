@@ -1590,26 +1590,37 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
         print(f"--- Model Zinciri: {fallback_chain} ---")
         
         system_instruction = (
-            "You are a helpful assistant. Respond directly and naturally. "
-            "No internal analysis, no labels, no echoing instructions. Just the answer."
+            "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
+            "If the user asks a question about code, software, or a technical topic, "
+            "provide detailed technical assistance and give code examples if necessary (in Markdown code block). "
+            "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
+            "Never output internal analysis, background thinking, or instruction labels like <thought>, Thinking:, Input, Role, etc. "
+            "CRITICAL: Provide ONLY the final response without any reasoning steps or internal dialogue. "
+            "If context or memory is provided below, use it to personalize your response naturally."
         )
         if github_context:
-            system_instruction += f"\n\nContext from repository: {github_context}"
+            system_instruction += f"\n\nCONTEXT FROM SYSTEM MEMORY OR REPOSITORY:\n{github_context}"
     else:
         # Varsayılan (Fallback zinciri ile)
         fallback_chain = [GEMINI_MODEL, 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']
         system_instruction = (
-            "You are a helpful assistant. Respond directly and naturally. "
-            "No internal analysis, no labels, no echoing instructions. Just the answer."
+            "You are a helpful AI assistant. Communicate with the user in a natural conversation style. "
+            "If the user asks a question about code, software, or a technical topic, "
+            "provide detailed technical assistance and give code examples if necessary (in Markdown code block). "
+            "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
+            "Never output internal analysis, background thinking, or instruction labels like <thought>, Thinking:, Input, Role, etc. "
+            "CRITICAL: Provide ONLY the final response without any reasoning steps or internal dialogue. "
+            "If context or memory is provided below, use it to personalize your response naturally."
         )
         if github_context:
-            system_instruction += f"\n\nContext from repository: {github_context}"
+            system_instruction += f"\n\nCONTEXT FROM SYSTEM MEMORY OR REPOSITORY:\n{github_context}"
 
-    # Use the same prompt as system instruction if not in specialized mode
+    # Restore the system prompt into prompt_parts to ensure context, memory, and persona are received
     system_prompt = system_instruction
+    if persona_info or style_prompt:
+        system_prompt = f"{persona_info}{style_prompt}\n\n{system_prompt}"
     
-    # prompt_parts = [system_prompt]  # REMOVED: Redundant as it's in system_instruction
-    prompt_parts = []
+    prompt_parts = [system_prompt]
     
 
     # Eğer history_context yoksa, prompta asla örnek diyalog veya geçmiş başlığı eklenmesin
@@ -4906,9 +4917,13 @@ def ask():
 
     memory_context = {'text': '', 'hit_count': 0, 'hits': []}
     if include_previous_modules and user:
+        print(f"[MEMORY] Loading previous context for user {user.id}")
         memory_context = _load_previous_memory_context(user, question, conversation, include_previous_modules=True)
         if memory_context.get('text'):
+            print(f"[MEMORY] Successfully retrieved {memory_context.get('hit_count', 0)} memory hits ({len(memory_context['text'])} chars)")
             github_context = f"{memory_context['text']}\n\n{github_context}".strip() if github_context else memory_context['text']
+        else:
+            print("[MEMORY] No relevant memory context found for this query")
 
     # --- Akıllı Model Routing (Smart Routing) ---
     original_model = model
@@ -5843,6 +5858,7 @@ def restore_conversation(conversation_id):
     # SaaS-Grade Restoration Engine (Async)
     LifecycleOrchestrator.restore_conversation(conversation_id)
     return jsonify({'status': 'restoration_initiated', 'message': 'Sohbet geri yükleniyor...'})
+@app.route('/api/conversations/<int:conversation_id>/history', methods=['POST'])
 @jwt_required()
 def add_history_item(conversation_id):
     """Konuşmaya manuel olarak (generate etmeden) bir geçmiş öğesi ekler."""
@@ -6458,15 +6474,17 @@ def get_code_health():
         
         # Tehlikeli dosya/pattern'leri ara
         dangerous_patterns = {
-            '.env': 10,
+            '.env': 15,
             'secret': 15,
             'password': 15,
-            'api_key': 15,
-            'private': 10,
+            'api_key': 20,
+            'private_key': 20,
             'credentials': 20,
-            '.pem': 15,
+            '.pem': 20,
             '.key': 15,
-            'token': 10
+            'token': 10,
+            'aws_access_key': 25,
+            'database_url': 15
         }
         
         for path in paths:
@@ -6686,267 +6704,6 @@ Example: "Initializing neural scan... Security protocols are holding, but test c
         import traceback
         traceback.print_exc()
         return jsonify({'error': f"Failed to fetch health metrics: {str(e)}"}), 500
-    
-    security_score = 100
-    security_issues = []
-    
-    # Stricter dangerous patterns (regex supported in later logic)
-    # We use a mix of keywords for file discovery and regex for content auditing
-    dangerous_patterns = {
-        '.env': 15,
-        'secret': 15,
-        'password': 15,
-        'api_key': 20,
-        'private_key': 20,
-        'credentials': 20,
-        '.pem': 20,
-        '.key': 15,
-        'token': 10,
-        'aws_access_key': 25,
-        'database_url': 15
-    }
-
-    # Directory exclusions as per architectural decision
-    EXCLUDED_DIRS = {
-        'node_modules', '.git', 'vendor', 'dist', 'build', 
-        '.venv', 'venv', 'env', '__pycache__', 
-        '.vscode', '.idea', '.next', 'target'
-    }
-
-    # API Key Regex Patterns for robust scanning
-    SECURITY_REGEX = {
-        'AWS Access Key': r'(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}',
-        'Google API Key': r'AIza[0-9A-Za-z-_]{35}',
-        'Stripe Secret Key': r'sk_live_[0-9a-zA-Z]{24}',
-        'GitHub Personal Access Token': r'ghp_[0-9a-zA-Z]{36}',
-        'Slack Token': r'xox[baprs]-[0-9a-zA-Z]{10,48}',
-        'Generic Private Key': r'-----BEGIN [A-Z ]+ PRIVATE KEY-----'
-    }
-    
-    for path in paths:
-        # Skip excluded directories
-        path_segments = set(path.split('/'))
-        if path_segments.intersection(EXCLUDED_DIRS):
-            continue
-
-        # 1.1 Filename-based Discovery
-        for pattern, penalty in dangerous_patterns.items():
-            if pattern in path:
-                # .gitignore'da ise sorun yok
-                if 'gitignore' not in path:
-                    security_score = max(0, security_score - penalty)
-                    security_issues.append(f"Found risky keyword '{pattern}' in path: {path}")
-                    break
-        
-        # 1.2 Content-based Auditing (Mock implementation as we only have paths here, 
-        # but in a real scenario we would read the blob content via parser.get_blob_content)
-        # To make it meaningful with just paths, we check if filename looks like a secret
-        if path.endswith('.pem') or path.endswith('.key'):
-             security_issues.append(f"Private key file exposed: {path}")
-             security_score = max(0, security_score - 20)
-    
-    # .gitignore varsa bonus
-    if any('.gitignore' in p for p in paths):
-        security_score = min(100, security_score + 5)
-    
-    # 2. TEST COVERAGE (0-100)
-    test_files = 0
-    code_files = 0
-    
-    code_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go', '.rb', '.php', '.cs', '.cpp', '.c', '.h'}
-    test_patterns = ['test_', '_test.', '.test.', '.spec.', '/test/', '/tests/', '__test__']
-    
-    for path in paths:
-        ext = os.path.splitext(path)[1].lower()
-        if ext in code_extensions:
-            code_files += 1
-            # Test dosyası mı?
-            if any(pattern in path for pattern in test_patterns):
-                test_files += 1
-    
-    # Test coverage hesapla
-    if code_files > 0:
-        test_ratio = test_files / code_files
-        test_coverage = min(100, int(test_ratio * 200))  # %50 test = 100 puan
-    else:
-        test_coverage = 0
-    
-    # Test klasörü varsa bonus
-    if any('/test/' in p or '/tests/' in p for p in paths):
-        test_coverage = min(100, test_coverage + 10)
-    
-    # 3. READABILITY SCORE (0-100)
-    readability_grade = 40  # Base score
-    
-    # README check
-    if any('readme.md' in p for p in paths):
-        readability_grade += 25
-    if any('readme.rst' in p or 'readme.txt' in p for p in paths):
-        readability_grade += 15
-    
-    # Documentation check
-    if any('contributing.md' in p for p in paths):
-        readability_grade += 10
-    
-    if any('/docs/' in p or '/doc/' in p for p in paths):
-        readability_grade += 15
-    
-    # LICENSE check
-    if any('license' in p for p in paths):
-        readability_grade += 5
-    
-    # Code comments (proxy: README + docs = iyi comment kültürü)
-    readability_grade = min(100, readability_grade)
-    
-    # Cache key (gerçek metriklerle)
-    cache_key = f"{repo_param}:{branch_param}:{security_score}:{test_coverage}:{readability_grade}"
-    
-    # Check cache first (kota tasarrufu!)
-    current_time = time.time()
-    if cache_key in health_narrative_cache:
-        cached_data = health_narrative_cache[cache_key]
-        if current_time - cached_data['timestamp'] < CACHE_TTL:
-            print(f"✓ Cache HIT for {repo_param} (Quota saved!)")
-            return jsonify({
-                'metrics': {
-                    'security': security_score,
-                    'test_coverage': test_coverage,
-                    'readability': readability_grade
-                },
-                'narrative': cached_data['narrative']
-            })
-    
-    print(f"⚡ Cache MISS for {repo_param} - calling AI...")
-    print(f"📊 Real Analysis: Security={security_score}, Tests={test_coverage}, Readability={readability_grade}")
-    print(f"   Files: {code_files} code, {test_files} test ({total_files} total)")
-
-    # Static fallback narratives (kota aşımında kullanılacak)
-    repo_name = repo_param.split('/')[-1]
-    static_narratives = [
-        f"Neural scan complete for {repo_name}. Security protocols operational. Test coverage needs enhancement. Code architecture shows solid foundation.",
-        f"System diagnostics initialized. Repository {repo_name} shows moderate stability. Recommend increasing test coverage for mission-critical components.",
-        f"Cyberdeck analysis complete. {repo_name} codebase functional but requires defensive programming enhancements. Deploy additional test frameworks.",
-        f"Network scan of {repo_name} repository complete. Security: nominal. Coverage: suboptimal. Readability: acceptable. Proceed with caution, Netrunner.",
-        f"OMNI-NET diagnostic: {repo_name} shows balanced architecture. Security measures holding. Test suite expansion recommended for zero-day protection."
-    ]
-
-    # AI Prompt - Gerçek analiz sonuçlarıyla
-    analysis_context = f"""Repository: {repo_name}
-Real Analysis Results:
-- Total Files: {total_files} ({code_files} code files, {test_files} test files)
-- Security Issues Found: {len(security_issues)} ({', '.join(security_issues[:3]) if security_issues else 'None detected'})
-- Test Coverage Ratio: {test_files}/{code_files} = {(test_files/code_files*100) if code_files > 0 else 0:.1f}%
-- Documentation: {'README found ✓' if any('readme' in p for p in paths) else 'No README ✗'}
-"""
-
-    prompt = f"""You are 'OMNI', an AI Game Master monitoring a Cyberpunk megacorporation's codebase.
-
-{analysis_context}
-
-Final Health Metrics:
-- Security Score: {security_score}/100 {'(CRITICAL!)' if security_score < 60 else '(Good)' if security_score > 80 else '(Warning)'}
-- Test Coverage: {test_coverage}/100 {'(CRITICAL!)' if test_coverage < 40 else '(Good)' if test_coverage > 70 else '(Warning)'}
-- Readability: {readability_grade}/100 {'(Needs work)' if readability_grade < 60 else '(Excellent)' if readability_grade > 80 else '(Acceptable)'}
-
-Generate a short, flavorful, Cyberpunk-style narrative report (max 3-4 sentences) based on REAL analysis data above.
-Comment on the actual findings like a mission briefing. Use neon/hacker aesthetics in your tone.
-
-Example: "Initializing neural scan... Security protocols are holding, but test coverage is critically low. We are exposed to rogue zero-days. Enhance the firewall modules immediately, Netrunner."
-"""
-
-    narrative = None
-    # Model fallback chain: GPT-4o-mini -> Gemini 2.5 Flash Lite
-    model_chain = [
-        {'type': 'openai', 'name': 'gpt-4o-mini'},
-        {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
-        {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
-        {'type': 'gemini', 'name': 'gemini-2.5-flash'},
-    ]
-    
-    for model_info in model_chain:
-        try:
-            model_type = model_info['type']
-            model_name = model_info['name']
-            
-            if model_type == 'gemini':
-                full_m_name = model_name if model_name.startswith('models/') else f"models/{model_name}"
-                print(f"Trying Health narrative with: {full_m_name}")
-                model = genai.GenerativeModel(full_m_name)
-                response = model.generate_content(prompt)
-                if response and response.text:
-                    narrative = response.text.replace('*', '').strip()
-                    # Cache success
-                    health_narrative_cache[cache_key] = {
-                        'narrative': narrative,
-                        'timestamp': current_time
-                    }
-                    print(f"✓ AI response cached for {repo_param} (model: {model_name})")
-                    break
-                    
-            elif model_type == 'openai' and openai_client:
-                print(f"Trying Health narrative with: OpenAI {model_name}")
-                response = openai_client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": "You are OMNI, a cyberpunk AI monitoring codebases."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=150,
-                    temperature=0.8
-                )
-                if response.choices and response.choices[0].message.content:
-                    narrative = response.choices[0].message.content.strip()
-                    # Cache success
-                    health_narrative_cache[cache_key] = {
-                        'narrative': narrative,
-                        'timestamp': current_time
-                    }
-                    print(f"✓ AI response cached for {repo_param} (model: {model_name})")
-                    break
-                    
-        except Exception as e:
-            error_msg = str(e)
-            print(f"Health trial with {model_info['name']} failed: {error_msg}")
-            # Quota aşımı kontrolü
-            if "429" in error_msg or "quota" in error_msg.lower() or "RESOURCE_EXHAUSTED" in error_msg:
-                print("⚠️ Quota exceeded - trying next model")
-                continue
-            continue
-    
-    # Fallback to smart static narrative (AI çalışmazsa)
-    if not narrative:
-        # Metrik bazlı akıllı fallback
-        if security_score < 60:
-            sec_status = "CRITICAL SECURITY BREACH DETECTED"
-        elif security_score < 80:
-            sec_status = "Security protocols need reinforcement"
-        else:
-            sec_status = "Security firewalls operational"
-        
-        if test_coverage < 40:
-            test_status = "Test coverage dangerously low. Zero-day vulnerabilities imminent"
-        elif test_coverage < 70:
-            test_status = "Test coverage suboptimal. Deploy additional quality assurance"
-        else:
-            test_status = "Test infrastructure solid"
-        
-        if readability_grade < 60:
-            doc_status = "Documentation incomplete. Code maintainability at risk"
-        elif readability_grade < 80:
-            doc_status = "Documentation acceptable but could be enhanced"
-        else:
-            doc_status = "Excellent documentation standards maintained"
-        
-        narrative = f"Neural scan of {repo_name} complete. {sec_status}. {test_status}. {doc_status}. Netrunner, proceed with tactical awareness."
-
-    return jsonify({
-        'metrics': {
-            'security': security_score,
-            'test_coverage': test_coverage,
-            'readability': readability_grade
-        },
-        'narrative': narrative
-    })
 
 @app.route('/api/history/<int:history_id>/similar', methods=['GET'])
 def get_similar_questions(history_id: int):
@@ -7073,7 +6830,6 @@ def create_answer(history_id: int):
 
 
 @app.route('/api/answers/<int:answer_id>', methods=['DELETE'])
-@jwt_required()
 @jwt_required()
 def delete_answer(answer_id: int):
     answer = Answer.query.get_or_404(answer_id)
@@ -9729,6 +9485,19 @@ def cancel_request():
     if request_id:
         CANCELLED_REQUESTS[request_id] = True
         print(f"[CANCEL] Request {request_id} has been marked for cancellation.")
+        return jsonify({'status': 'ok'})
+    return jsonify({'error': 'request_id missing'}), 400
+
+
+@app.route('/api/cancel', methods=['POST'])
+@jwt_required()
+def web_cancel_request():
+    """Web-client cancellation endpoint."""
+    data = request.get_json(silent=True) or {}
+    request_id = data.get('request_id')
+    if request_id:
+        CANCELLED_REQUESTS[request_id] = True
+        print(f"[CANCEL-WEB] Request {request_id} marked for cancellation.")
         return jsonify({'status': 'ok'})
     return jsonify({'error': 'request_id missing'}), 400
 
