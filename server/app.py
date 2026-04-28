@@ -5238,13 +5238,16 @@ def ask():
                 'carryover': include_previous_modules,
                 'memory_capsules': memory_context.get('hits', []),
             }
-
+            
+            # Resolve current_user early for token deduction
+            current_user = db.session.get(User, u_id) if u_id else None
+            
             # Only save to database if not a no_save request
             if not no_save and c_id:
                 try:
                     # Session'a conversation'ı tekrar bağla/getir
                     current_conv = db.session.get(Conversation, c_id)
-                    current_user = db.session.get(User, u_id) if u_id else None
+                    # (already resolved above)
                     
                     if not current_conv:
                         # Should not happen normally
@@ -5284,39 +5287,57 @@ def ask():
 
                     db.session.commit()
 
-                    # 4. AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
-                    if current_user:
-                        update_user_taste(current_user, model, full_answer, question)
-
-                        # 💰 TOKEN EKONOMİSİ — Harcamayı düş
-                        success, new_bal = deduct_tokens(
-                            current_user,
-                            model,
-                            description=f"Chat: {question[:30]}...",
-                            reference_id=history.id
-                        )
-                        final_data['new_token_balance'] = new_bal
-                        if not success:
-                            final_data['token_warning'] = 'Token düşümü yapılamadı. Bakiye yetersiz olabilir.'
-
+                    # 4. Update final_data for frontend (only when saved)
                     final_data.update({
                         'history_id': history.id,
                         'conversation_id': current_conv.id,
                         'summary': summary,
                         'persona': history.persona
                     })
-
-                    # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa)
-                    if current_user and current_conv:
-                        xp_result = award_xp(current_user.id, XP_REWARDS['ask_question'], "Asking a Question", source='ask_question')
-                        if xp_result:
-                            final_data['xp_awarded'] = xp_result
                 except Exception as save_err:
                     db.session.rollback()
                     print(f"WARN: Final save failed in /api/ask stream: {save_err}")
                     sys.stdout.flush()
                     # Keep stream contract stable so frontend does not append generic error.
                     final_data['warning'] = 'response_saved_with_warning'
+
+            # 3. Handle Token Deduction & Taste Profile (Always if user exists)
+            if current_user:
+                try:
+                    # AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
+                    update_user_taste(current_user, model, full_answer, question)
+
+                    # 💰 TOKEN EKONOMİSİ — Harcamayı düş
+                    # Determine description based on no_save/is_compare
+                    is_compare = _parse_bool(payload.get('is_compare'))
+                    if is_compare or no_save:
+                        token_desc = f"Compare: {question[:30]}..."
+                    else:
+                        token_desc = f"Chat: {question[:30]}..."
+
+                    # Reference ID is only available if we saved to history
+                    ref_id = None
+                    if 'history' in locals() and history:
+                        ref_id = history.id
+
+                    success, new_bal = deduct_tokens(
+                        current_user,
+                        model,
+                        description=token_desc,
+                        reference_id=ref_id
+                    )
+                    final_data['new_token_balance'] = new_bal
+                    if not success:
+                        final_data['token_warning'] = 'Token düşümü yapılamadı. Bakiye yetersiz olabilir.'
+
+                    # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa veya karşılaştırma ise)
+                    # Karşılaştırma için yarım XP verelim? Ya da tam verelim.
+                    if not no_save:
+                        xp_result = award_xp(current_user.id, XP_REWARDS['ask_question'], "Asking a Question", source='ask_question')
+                        if xp_result:
+                            final_data['xp_awarded'] = xp_result
+                except Exception as token_err:
+                    print(f"WARN: Token deduction/Taste update failed: {token_err}")
 
             yield f"data: {json.dumps(final_data)}\n\n"
 

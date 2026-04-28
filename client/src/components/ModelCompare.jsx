@@ -97,7 +97,8 @@ const ModelCompare = ({
                 code: '',
                 model: model,
                 conversation_id: null,
-                no_save: true // Don't save to database during comparison
+                no_save: true, // Don't save to database during comparison
+                is_compare: true
             });
 
             const res = await fetch(`${apiBase}/api/ask`, {
