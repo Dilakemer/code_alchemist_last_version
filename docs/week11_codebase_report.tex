@@ -1,0 +1,189 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[turkish]{babel}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{tcolorbox}
+
+\geometry{
+	a4paper,
+	top=2.5cm,
+	bottom=2.5cm,
+	left=2.5cm,
+	right=2.5cm,
+	headheight=15pt
+}
+
+\definecolor{codeblue}{RGB}{32,78,145}
+\definecolor{codegray}{RGB}{245,246,248}
+\definecolor{codegreen}{RGB}{35,120,80}
+\definecolor{codered}{RGB}{170,45,45}
+\definecolor{headerbg}{RGB}{238,243,250}
+
+\titleformat{\section}{\large\bfseries\color{codeblue}}{\thesection}{1em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small CodeAlchemist -- 11. Hafta Teknik Doküman}
+\rhead{\small 29 Nisan 2026}
+\cfoot{\small CodeAlchemist Team \quad Sayfa \thepage}
+
+\lstset{
+	backgroundcolor=\color{codegray},
+	basicstyle=\ttfamily\footnotesize,
+	keywordstyle=\color{codeblue}\bfseries,
+	commentstyle=\color{codegreen},
+	stringstyle=\color{codered},
+	numbers=left,
+	numberstyle=\tiny\color{gray},
+	frame=single,
+	framerule=0.5pt,
+	breaklines=true,
+	showstringspaces=false,
+	xleftmargin=1.2em,
+	xrightmargin=0.3em,
+	tabsize=2
+}
+
+\tcbuselibrary{skins,breakable}
+\newtcolorbox{notebox}[1][] {
+	colback=headerbg,
+	colframe=codeblue!60,
+	fonttitle=\bfseries\small,
+	title={#1},
+	breakable
+}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=codeblue,
+	urlcolor=codeblue,
+	pdftitle={CodeAlchemist 11. Hafta Teknik Doküman},
+	pdfauthor={CodeAlchemist Team}
+}
+
+\begin{document}
+
+\begin{titlepage}
+	\centering
+	\vspace*{3cm}
+	{\Huge\bfseries\color{codeblue} CodeAlchemist\par}
+	\vspace{0.5cm}
+	{\Large 11. Hafta Teknik Doküman\par}
+	\vspace{0.3cm}
+	{\large Token Yönetimi, Bağlam Optimizasyonu ve İnteraktif Kontrol Sistemleri\par}
+	\vspace{1.8cm}
+	\hrule height 1pt
+	\vspace{0.4cm}
+	{\normalsize Streaming Yanıt \quad $\bullet$ \quad Yanıt Durdurma \quad $\bullet$ \quad Token Billing\par}
+	\vspace{0.4cm}
+	\hrule height 1pt
+	\vfill
+	{\normalsize\textbf{Tarih:} 29 Nisan 2026\par}
+	\vspace{0.2cm}
+	{\normalsize\textbf{Versiyon:} 11.0\par}
+	\vspace{0.2cm}
+	{\normalsize\textbf{Alan Adı:} codealchemist.com.tr\par}
+\end{titlepage}
+
+\newpage
+\tableofcontents
+\newpage
+
+\section{Yönetici Özeti}
+
+CodeAlchemist projesinin 11. haftası, platformun operasyonel kararlılığını ve kullanıcı deneyimini doğrudan etkileyen kritik mimari iyileştirmelere sahne olmuştur. Bu dönemdeki ana odak noktaları; token ekonomisinin model karşılaştırma senaryolarında hatasız çalışması, uzun süreli sohbetlerde bağlamın (context) korunması ve kullanıcıya model yanıtları üzerinde tam denetim sağlayan interaktif kontrol mekanizmalarının entegrasyonudur. Ayrıca, kurumsal kimlik çalışmaları kapsamında \texttt{codealchemist.com.tr} alan adı tescil edilerek canlı ortam hazırlıkları tamamlanmıştır.
+
+\section{Token Ekonomisi ve Model Karşılaştırma Entegrasyonu}
+
+\subsection{Problem Tanımı: Karşılaştırma Modunda Token Kaybı}
+Platformun "Model Alchemy" özelliği, kullanıcıların farklı modelleri yan yana karşılaştırmasına olanak tanımaktadır. Teknik olarak bu işlem \texttt{no\_save=true} parametresiyle gerçekleştirilir; yani yanıtlar veritabanı geçmişine yazılmaz. Ancak, önceki mimaride token düşme (billing) mantığı veritabanı kayıt katmanına bağlı olduğu için, karşılaştırma yapan kullanıcılardan token düşülmediği tespit edilmiştir.
+
+\subsection{Teknik Çözüm: Billing Katmanının Ayrıştırılması}
+\texttt{server/app.py} içerisindeki \texttt{generate\_stream} fonksiyonu, billing mantığını veri saklama mantığından izole edecek şekilde yeniden yapılandırılmıştır.
+
+\begin{itemize}[leftmargin=1.5em]
+	\item \textbf{Atomik Token Hesaplama}: Model yanıtı tamamlandığında, \texttt{no\_save} durumundan bağımsız olarak \texttt{deduct\_tokens} fonksiyonu tetiklenir.
+	\item \textbf{Bakiye Doğrulama}: İstek başında yapılan bakiye kontrolü, çoklu model karşılaştırmalarında (Compare) toplam maliyeti öngörerek işleme izin verir.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Token Billing Mantığının Ayrıştırılması}]
+# generate_stream içinde uygulanan mantık
+try:
+    # Model yanıtı üretilir (stream)
+    for chunk in stream:
+        yield chunk
+finally:
+    # no_save=True olsa bile token düşümü gerçekleşir
+    if user_id:
+        deduct_tokens(user_id, model_cost)
+\end{lstlisting}
+
+\section{Bağlam Sürekliliği: Previous Chat Ayarları}
+
+\subsection{Teorik Arkaplan: RAG ve Bellek Kapsülleri}
+Kullanıcıların yeni bir sohbet başlattığında önceki oturumlarda aldıkları kararların (örneğin UI kütüphanesi tercihi, değişken isimlendirme kuralları vb.) kaybolması, verimliliği düşürmektedir. Bu sorunu çözmek için "Context Memory" sistemi devreye alınmıştır.
+
+\subsection{Uygulama ve UI Entegrasyonu}
+\begin{itemize}[leftmargin=1.5em]
+	\item \textbf{UI Ayarı}: Chat arayüzüne "Include Previous Modules" (Önceki Modülleri Dahil Et) seçeneği eklenmiştir.
+	\item \textbf{Hibrit Erişim (Hybrid Retrieval)}: Sistem, kullanıcının geçmiş mesajlarını semantik (embedding) ve leksikal (keyword) olarak tarayarak en alakalı "bellek kapsüllerini" mevcut prompt'a enjekte eder.
+	\item \textbf{ContextAssembler}: Backend tarafında çalışan bu bileşen, sistem talimatlarını, kullanıcı personasını ve retrieved geçmişi birleştirerek modele sunar.
+\end{itemize}
+
+\section{İnteraktif Yanıt Kontrolü: Streaming ve Yanıt Durdurma}
+
+\subsection{Streaming Yanıt (Server-Sent Events)}
+Kullanıcı deneyimini hızlandırmak amacıyla tüm model yanıtları SSE (Server-Sent Events) protokolü üzerinden akıtılmaktadır. Bu sayede model ilk kelimeyi ürettiği anda kullanıcı ekranında görüntülenmeye başlar.
+
+\subsection{Yanıt Durdurma (Stop Response) Mekanizması}
+Uzun veya hatalı başlayan yanıtları kesmek için "Stop Response" özelliği eklenmiştir.
+
+\textbf{Mimari Akış:}
+\begin{enumerate}[leftmargin=1.5em]
+	\item \textbf{Frontend Tetikleyici}: Kullanıcı kırmızı "Stop" butonuna bastığında bir \texttt{AbortController} sinyali gönderilir.
+	\item \textbf{Backend İptal Endpoint'i}: \texttt{/api/cancel} endpoint'ine gelen istek, global \texttt{CANCELLED\_REQUESTS} sözlüğünde ilgili \texttt{request\_id}'yi \texttt{True} olarak işaretler.
+	\item \textbf{Generator Kontrolü}: \texttt{generate_stream} döngüsü, her adımda \texttt{is_request_cancelled()} kontrolü yapar ve sinyali aldığı anda akışı güvenli bir şekilde keser.
+\end{enumerate}
+
+\begin{notebox}[Kullanıcı Deneyimi Notu]
+Yanıt durdurulduğunda arayüzde "Yanıt durduruldu" mesajı belirir ve gereksiz hata bildirimleri (pop-up'lar) engellenir.
+\end{notebox}
+
+\section{Altyapı ve Branding: Alan Adı Tescili}
+
+Projenin kurumsal kimliğini güçlendirmek ve erişilebilirliğini artırmak amacıyla \texttt{isimtescil.com} üzerinden \textbf{codealchemist.com.tr} alan adı satın alınmıştır.
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+Parametre & Detay \\
+\midrule
+Alan Adı & \texttt{codealchemist.com.tr} \\
+Sağlayıcı & İsim Tescil \\
+Kayıt Durumu & Aktif \\
+DNS Konfigürasyonu & Hazırlık aşamasında (Cloudflare/Heroku entegrasyonu planlanıyor) \\
+\bottomrule
+\end{tabularx}
+\caption{Alan Adı Tescil Bilgileri}
+\end{table}
+
+\section{Sonuç ve Gelecek Planları}
+
+11. hafta çalışmalarıyla CodeAlchemist, sadece bir kod asistanı olmaktan çıkıp, kullanıcı tercihlerini hatırlayan ve işlem maliyetlerini adil şekilde yöneten olgun bir platform haline gelmiştir. Önümüzdeki haftalarda, tescil edilen domain üzerinden canlı yayına geçiş (deployment) ve Agent modunun daha karmaşık dosya sistemleri üzerindeki yetkinliklerinin artırılması hedeflenmektedir.
+
+\end{document}

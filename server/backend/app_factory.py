@@ -18,8 +18,10 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api.agent_router import router as agent_router
 from .runtime.core import AgentRuntime
@@ -144,6 +146,19 @@ def create_app() -> FastAPI:
         import time
         return {"status": "ok", "timestamp": time.time(), "version": "1.0.0"}
 
+    # ── Static folder resolution ──────────────────────────────────────────
+    # backend/app_factory.py -> backend/ -> server/ -> static/
+    server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    static_dir = os.path.join(server_dir, "static")
+
+    @app.get("/", tags=["Frontend"])
+    async def serve_index():
+        """Explicitly serve index.html for the root path as a FastAPI fallback."""
+        index_path = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"detail": "Frontend assets not found. Please run prepare_deploy.py."}
+
     # ── CORS ──────────────────────────────────────────────────────────────
     allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
     app.add_middleware(
@@ -161,19 +176,22 @@ def create_app() -> FastAPI:
     try:
         from asgiref.wsgi import WsgiToAsgi
         import sys
-        server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if server_dir not in sys.path:
             sys.path.insert(0, server_dir)
+            
         from app import app as flask_app
         asgi_flask = WsgiToAsgi(flask_app)
+        
+        # Mount at / so it catches everything not matched by FastAPI (like /api/*)
         app.mount("/", asgi_flask)
-        print("[backend] Flask app mounted at / via WsgiToAsgi.")
+        print(f"[backend] Flask app mounted at / via WsgiToAsgi. Static: {static_dir}")
     except ImportError:
-        print(
-            "[backend] asgiref not installed — Flask mount skipped. "
-            "Install asgiref>=3.8.1 to run both apps in one process."
-        )
+        print("[backend] asgiref not installed — Flask mount skipped. Install asgiref>=3.8.1.")
     except Exception as exc:
-        print(f"[backend] Flask mount failed: {exc}")
+        print(f"🔥 [backend] Flask mount failed: {exc}")
+        # Final fallback for static files if Flask fails
+        if os.path.exists(static_dir):
+            app.mount("/", StaticFiles(directory=static_dir, html=True), name="static_fallback")
+            print("[backend] StaticFiles fallback mounted at / because Flask failed.")
 
     return app

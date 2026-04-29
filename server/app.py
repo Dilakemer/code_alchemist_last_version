@@ -1051,6 +1051,11 @@ mimetypes.add_type('text/css', '.css')
 def health_check():
     return jsonify({'status': 'ok'}), 200
 
+@app.route('/', methods=['GET'])
+def serve_index():
+    """Serve the frontend index.html explicitly."""
+    return app.send_static_file('index.html')
+
 CORS(app, resources={r"/*": {"origins": "*"}})
 db.init_app(app)
 jwt = JWTManager(app)
