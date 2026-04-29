@@ -233,13 +233,16 @@ class _GeminiCompatModel:
         self._client = client
         self._model_name = _normalize_gemini_model_name(model_name)
 
-    def generate_content(self, contents, stream=False, request_options=None, question=None):
+    def generate_content(self, contents, stream=False, request_options=None, question=None, system_instruction=None):
         # request_options is accepted for backward compatibility with old SDK call sites.
         # It is assumed to be in seconds and is converted to milliseconds with a 10s floor.
         timeout_sec = (request_options or {}).get('timeout') if isinstance(request_options, dict) else None
         gemini_timeout = to_gemini_timeout(timeout_sec)
         
         config = {'http_options': {'timeout': gemini_timeout}}
+        if system_instruction:
+            config['system_instruction'] = system_instruction
+
 
         if stream:
             def _iter_stream():
@@ -1596,7 +1599,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
             "Never output internal analysis, background thinking, or instruction labels like <thought>, Thinking:, Input, Role, etc. "
             "CRITICAL: Provide ONLY the final response without any reasoning steps or internal dialogue. "
-            "If context or memory is provided below, use it to personalize your response naturally."
+            "If context, memory, or repository information is provided below, you MUST strictly adhere to it and incorporate it into your response to ensure perfect continuity."
         )
         if github_context:
             system_instruction += f"\n\nCONTEXT FROM SYSTEM MEMORY OR REPOSITORY:\n{github_context}"
@@ -1610,7 +1613,7 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             "IMPORTANT: Always respond in the same language as the user's question (e.g., if the question is in Turkish, respond in Turkish). "
             "Never output internal analysis, background thinking, or instruction labels like <thought>, Thinking:, Input, Role, etc. "
             "CRITICAL: Provide ONLY the final response without any reasoning steps or internal dialogue. "
-            "If context or memory is provided below, use it to personalize your response naturally."
+            "If context, memory, or repository information is provided below, you MUST strictly adhere to it and incorporate it into your response to ensure perfect continuity."
         )
         if github_context:
             system_instruction += f"\n\nCONTEXT FROM SYSTEM MEMORY OR REPOSITORY:\n{github_context}"
@@ -1804,7 +1807,22 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
                 yield f"\n\n*> [System]: Previous model failed, trying **{clean_current}**...*\n\n"
 
             # Use the compat model which has the streaming filter
-            response_iter = model.generate_content(prompt_parts, stream=True, question=question)
+            # Separate the system prompt from the content parts for better instruction following
+            system_instruction = prompt_parts[0] if prompt_parts else None
+            user_contents = prompt_parts[1:] if len(prompt_parts) > 1 else []
+            
+            # If there's no user content yet (e.g. only system prompt), the model call might fail.
+            # Ensure at least one user part exists.
+            if not user_contents:
+                user_contents = [question or "Hello"]
+
+            response_iter = model.generate_content(
+                user_contents, 
+                stream=True, 
+                question=question,
+                system_instruction=system_instruction
+            )
+
             
             for chunk in response_iter:
                 if chunk.text:
@@ -1880,7 +1898,7 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
     )
 
     if github_context:
-        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
+        system_prompt += f"\n\nCRITICAL: If context, memory, or repository information is provided below, you MUST strictly adhere to it and incorporate it into your response to ensure perfect continuity.\n\nCONTEXT FROM SYSTEM MEMORY OR REPOSITORY:\n{github_context}"
 
     user_message = f"Question: {question.strip() or 'Unspecified'}"
     if code and code.strip():
@@ -2036,14 +2054,14 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
     )
     
     if github_context:
-        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
+        system_prompt += f"\n\nCRITICAL: If context, memory, or repository information is provided below, you MUST strictly adhere to it and incorporate it into your response to ensure perfect continuity.\n\nCONTEXT FROM SYSTEM MEMORY OR REPOSITORY:\n{github_context}"
 
     user_message = f"Question: {question.strip() or 'Unspecified'}"
     if code and code.strip():
         user_message += "\n\nRelated Code:\n```\n" + code.strip() + "\n```"
 
     if github_context:
-        system_prompt += f"\n\nCONTEXT FROM LINKED REPOSITORY:\n{github_context}"
+        system_prompt += f"\n\nCRITICAL: If context, memory, or repository information is provided below, you MUST strictly adhere to it and incorporate it into your response to ensure perfect continuity.\n\nCONTEXT FROM SYSTEM MEMORY OR REPOSITORY:\n{github_context}"
 
     messages = [{"role": "system", "content": system_prompt}]
     
