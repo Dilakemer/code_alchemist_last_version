@@ -1381,7 +1381,7 @@ graph TD
 #     ...eski kod kaldırıldı...
 
 # --- 1. GEMINI KONFIGURASYONU ---
-GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-1.5-flash')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.5-flash')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 if GEMINI_API_KEY:
@@ -3335,7 +3335,7 @@ def update_user_taste(user, model_used, answer_text, user_question=""):
                 
                 Respond ONLY with JSON.
                 """
-                model = genai.GenerativeModel('models/gemini-1.5-flash')
+                model = genai.GenerativeModel(GEMINI_MODEL)
                 response = model.generate_content(persona_prompt)
                 analysis = json.loads(response.text.strip().strip('```json').strip('```'))
                 

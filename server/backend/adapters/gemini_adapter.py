@@ -61,6 +61,31 @@ class GeminiAdapter(BaseAdapter):
             }
         )
         return messages
+    
+    def _build_gen_config(self, config: AdapterConfig, system_prompt: str, tools: Optional[Any], tool_config: Optional[Any] = None) -> Any:
+        """Centralized helper to build GenerateContentConfig with thinking_config support."""
+        types = self._types
+        
+        # Determine if thinking_config is needed (Gemini 3 or explicit thinking models)
+        thinking_config = None
+        model_lc = config.model.lower()
+        if 'gemini-3' in model_lc or 'thinking' in model_lc:
+            try:
+                # Preferred: Use typed object for better SDK compatibility
+                thinking_config = types.ThinkingConfig(thinking_level="LOW")
+            except AttributeError:
+                # Fallback: Some SDK versions might expect a dictionary
+                thinking_config = {'thinking_level': 'LOW'}
+            
+        return types.GenerateContentConfig(
+            system_instruction=system_prompt or None,
+            temperature=config.temperature,
+            max_output_tokens=config.max_tokens,
+            tools=tools,
+            tool_config=tool_config,
+            thinking_config=thinking_config,
+            http_options=types.HttpOptions(timeout=to_gemini_timeout(120)),
+        )
 
     # ── Private helpers ───────────────────────────────────────────────────
 
@@ -337,13 +362,7 @@ class GeminiAdapter(BaseAdapter):
         types = self._types
         contents = self._build_gemini_contents(messages)
 
-        gen_config = types.GenerateContentConfig(
-            system_instruction=system_prompt or None,
-            temperature=config.temperature,
-            max_output_tokens=config.max_tokens,
-            tools=tools,
-            http_options=types.HttpOptions(timeout=to_gemini_timeout(120)),
-        )
+        gen_config = self._build_gen_config(config, system_prompt, tools)
 
         loop = asyncio.get_event_loop()
 
@@ -424,14 +443,8 @@ class GeminiAdapter(BaseAdapter):
 
         types = self._types
         contents = self._build_gemini_contents(messages)
-        gen_config = types.GenerateContentConfig(
-            system_instruction=system_prompt or None,
-            temperature=config.temperature,
-            max_output_tokens=config.max_tokens,
-            tools=tools,
-            tool_config={"function_calling_config": {"mode": "AUTO"}} if tools else None,
-            http_options=types.HttpOptions(timeout=to_gemini_timeout(120)),
-        )
+        tool_config = {"function_calling_config": {"mode": "AUTO"}} if tools else None
+        gen_config = self._build_gen_config(config, system_prompt, tools, tool_config=tool_config)
 
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue = asyncio.Queue()

@@ -169,13 +169,11 @@ def _candidate_datetime(item: Any) -> datetime:
 
 
 def _embedding_model_candidates() -> list[str]:
-    configured = os.getenv('EMBEDDING_MODEL_NAME', 'models/text-embedding-004')
+    configured = os.getenv('EMBEDDING_MODEL_NAME', 'models/gemini-embedding-001')
     candidates = [
         configured,
-        'models/text-embedding-004',
-        'text-embedding-004',
-        'models/text-embedding-005',
-        'text-embedding-005',
+        'models/gemini-embedding-001',
+        'gemini-embedding-001',
         'models/gemini-embedding-2-preview',
         'gemini-embedding-2-preview',
     ]
