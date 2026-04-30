@@ -1712,7 +1712,9 @@ function App() {
     activeConversationId ? conversations.find(c => c.id === activeConversationId) : null
   , [activeConversationId, conversations]);
 
-  const resolvedRepo = currentConversation?.linked_repo || preLinkedRepo;
+  const resolvedRepo = (currentConversation?.linked_repo && currentConversation.linked_repo !== 'null' && currentConversation.linked_repo !== 'undefined') 
+    ? currentConversation.linked_repo 
+    : (preLinkedRepo && preLinkedRepo !== 'null' && preLinkedRepo !== 'undefined' ? preLinkedRepo : null);
   const resolvedBranch = currentConversation?.repo_branch || preLinkedBranch || 'main';
 
   return (

@@ -6447,7 +6447,6 @@ Repository structure input:
 
 
 @app.route('/api/github/health', methods=['GET'])
-@jwt_required(optional=True)
 def get_code_health():
     try:
         repo_param = request.args.get('repo')
@@ -6627,9 +6626,10 @@ Example: "Initializing neural scan... Security protocols are holding, but test c
         # Model fallback chain: GPT-4o-mini -> Gemini 2.5 Flash Lite
         model_chain = [
             {'type': 'openai', 'name': 'gpt-4o-mini'},
+            {'type': 'gemini', 'name': 'gemini-1.5-flash'},
             {'type': 'gemini', 'name': 'gemini-2.5-flash-lite-preview-02-05'},
-            {'type': 'gemini', 'name': 'gemini-3.1-flash-lite'},
-            {'type': 'gemini', 'name': 'gemini-2.5-flash'},
+            {'type': 'gemini', 'name': 'gemini-3.1-flash-lite-preview'},
+            {'type': 'gemini', 'name': 'gemini-2.0-flash'},
         ]
         
         for model_info in model_chain:

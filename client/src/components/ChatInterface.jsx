@@ -1093,7 +1093,7 @@ const ChatInterface = ({
 
         // If no active conversation, we need to notify the parent (App.jsx)
         // so it can include this repo in the FIRST message sent.
-        if (!activeConversationId && onUpdate) {
+        if (onUpdate) {
           onUpdate({ linkedRepo: finalRepo, linkedBranch: finalBranch });
         }
 

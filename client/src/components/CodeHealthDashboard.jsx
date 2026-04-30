@@ -16,7 +16,10 @@ const CodeHealthDashboard = ({ repo, branch, onClose, apiBase, authHeaders }) =>
                     headers: authHeaders
                 });
 
-                if (!res.ok) throw new Error("Failed to fetch health metrics");
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    throw new Error(errorData.error || "Failed to fetch health metrics");
+                }
                 const data = await res.json();
 
                 // Animate progress bars entry

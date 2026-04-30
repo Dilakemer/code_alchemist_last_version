@@ -21,7 +21,7 @@ CodeAlchemist is a professional, multi-model AI-powered code assistant that comb
 - **Frontend**: React 18 + Vite
 - **Backend**: Flask (Python)
 - **Database**: PostgreSQL (Supabase)
-- **AI Models**: Gemini 2.5 Flash, Claude 3.5 Sonnet, GPT-4o
+- **AI Models**: Gemini 3.0/2.5, Claude 4.5 (Sonnet & Opus), GPT-4o, Gemma 4
 - **Deployment**: Docker + Render.com
 
 ## 📦 Installation
@@ -92,7 +92,7 @@ This project is configured for deployment on Render.com with Docker support.
 | Frontend | React, Vite, TailwindCSS |
 | Backend | Flask, SQLAlchemy, Gunicorn |
 | Database | PostgreSQL (Supabase) |
-| AI Models | Gemini, Claude, GPT-4o, DALL-E 3 |
+| AI Models | Gemini 3.0/2.5, Claude 4.5, GPT-4o, Gemma 4, DALL-E 3 |
 | DevOps | Docker, Docker Compose |
 | Hosting | Render.com |
 
