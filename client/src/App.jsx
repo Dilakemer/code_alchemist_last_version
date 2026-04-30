@@ -1395,6 +1395,16 @@ function App() {
               }
 
 
+              // Agent reasoning streaming (thoughts)
+              if (data.type === 'reasoning') {
+                const thoughtChunk = data.text || "";
+                setChatHistory(prev => prev.map(item =>
+                  item.id === tempId
+                    ? { ...item, reasoning: (item.reasoning || "") + thoughtChunk, agent_is_stuck: false }
+                    : item
+                ));
+              }
+
               // Agent status updates (real-time trace)
               if (data.type === 'status') {
                 const statusText = data.message || data.text || data.status || 'Working...';
@@ -1451,6 +1461,25 @@ function App() {
                   return { ...item, agent_trace: newTrace, agent_is_stuck: false };
                 }));
               }
+              if (data.type === 'error') {
+                receivedDoneEvent = true;
+                const errorText = data.message || data.error || 'Agent Mode failed before producing a response.';
+                aiResponseAccumulator = errorText ? `[Agent error]: ${errorText}` : '[Agent error]: Agent Mode failed before producing a response.';
+                setChatHistory(prev => prev.map(item =>
+                  item.id === tempId
+                    ? {
+                      ...item,
+                      ai_response: aiResponseAccumulator,
+                      is_response_complete: true,
+                      agent_is_stuck: false,
+                      agent_error: errorText,
+                    }
+                    : item
+                ));
+                setIsStreamingAgent(false);
+                if (watchdogTimer) clearTimeout(watchdogTimer);
+                continue;
+              }
               if (data.type === 'done' || data.done) {
                 receivedDoneEvent = true;
 
@@ -1468,7 +1497,7 @@ function App() {
                 }
 
                 // For blend mode, use blended_response if available (though it was streamed via chunks too)
-                const finalResponse = data.blended_response || aiResponseAccumulator;
+                const finalResponse = data.blended_response || data.answer || data.text || aiResponseAccumulator;
 
                 // Calculate durations
                 const endTime = Date.now();

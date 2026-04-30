@@ -90,27 +90,35 @@ class GeminiAdapter(BaseAdapter):
     # ── Private helpers ───────────────────────────────────────────────────
 
     @staticmethod
-    def _clean_model_output(text: str) -> str:
-        """Remove internal reasoning labels and metadata that Gemma/Gemini models
-        sometimes echo back verbatim into their responses."""
+    def _clean_model_output(text: str, is_reasoning: bool = False) -> str:
+        """
+        Type-aware cleaning pipeline.
+        - Reasoning blocks: Minimal cleaning (keep prose, remove tags).
+        - Final answers: Aggressive cleaning (remove metadata, instructions).
+        """
         import re
+        if not text:
+            return ""
 
-        # --- Think/Thought/Reasoning block removal ---
-        # Gemma 3 uses <think>...</think>; older variants use <thought>, <thinking>, <reasoning>
-        _THINK_TAGS = [
+        # 1. Block Tag Removal (Always remove for both types)
+        _TAGS = [
             (r'<think>', r'</think>'),
             (r'<thought>', r'</thought>'),
             (r'<thinking>', r'</thinking>'),
             (r'<reasoning>', r'</reasoning>'),
         ]
-        for open_tag, close_tag in _THINK_TAGS:
-            text = re.sub(
-                open_tag + r'.*?' + close_tag,
-                '',
-                text,
-                flags=re.DOTALL | re.IGNORECASE,
-            )
+        for open_tag, close_tag in _TAGS:
+            text = re.sub(open_tag + r'.*?' + close_tag, '', text, flags=re.DOTALL | re.IGNORECASE)
+            # Also remove dangling tags
+            text = re.sub(open_tag, '', text, flags=re.IGNORECASE)
+            text = re.sub(close_tag, '', text, flags=re.IGNORECASE)
 
+        if is_reasoning:
+            # For reasoning, we just want to remove technical markers but keep the prose.
+            text = re.sub(r'^\s*#+\s*(thinking|thought|reasoning|plan|analysis).*', '', text, flags=re.MULTILINE | re.IGNORECASE)
+            return text.strip()
+
+        # 2. Aggressive Cleaning for Final Answer
         # Remove whole sections that look like internal checklists / metadata blocks.
         block_headers = (
             r'Constraint Checklist.*?(?=\n\n|\Z)'
@@ -118,12 +126,8 @@ class GeminiAdapter(BaseAdapter):
         )
         text = re.sub(block_headers, '', text, flags=re.DOTALL | re.IGNORECASE)
 
-        # Remove individual label lines (lines that are pure metadata, not prose)
-        # This surgical regex catches: "* **Label:** content" and replaces with "content"
-        # Added more characters to handle "1-2 short sentences?", "Natural?" etc.
+        # Remove individual label lines (surgical removal)
         label_pattern = r'(?i)^\s*(\*|\-)?\s*(\*\*|\*)?([a-z0-9\/\?\(\)\-\+ ]{2,50}):(\*\*|\*)?\s*(.*)'
-        
-        # Common words found in Gemma's echoed instructions/checklists
         forbidden_keywords = [
             'metadata', 'persona', 'thinking process', 'reasoning steps', 
             'short sentences', 'direct answer', 'echoing instructions',
@@ -135,23 +139,17 @@ class GeminiAdapter(BaseAdapter):
         cleaned_lines = []
         for line in lines:
             lower_line = line.lower()
-            
-            # Keyword filtering: if the line looks like an echoed instruction
             if any(kw in lower_line for kw in forbidden_keywords):
                 continue
 
-            # Try the generic label pattern
             match = re.match(label_pattern, line)
             if match:
-                # We found a label. Keep only the content after it.
-                # If the content is just "Yes", "No", "True", "False" (common in Gemma junk), discard the whole line.
                 content = match.group(5).strip()
                 if content.lower() in ['yes', 'no', 'true', 'false', 'yes.', 'no.', 'turkish', 'english', 'natural']:
                     continue
                 else:
                     cleaned_lines.append(content)
             else:
-                # Not a label line, keep as is
                 cleaned_lines.append(line)
         
         text = '\n'.join(cleaned_lines)
@@ -175,15 +173,12 @@ class GeminiAdapter(BaseAdapter):
         for pattern in line_patterns:
             text = re.sub(pattern, '', text, flags=re.MULTILINE)
 
-        # Collapse runs of blank lines left by the removals above
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = text.strip()
 
-        # De-duplicate: if the same sentence appears twice back-to-back
-        # (e.g. "Selam! ..." "Selam! ..."), keep only the first occurrence.
+        # De-duplicate back-to-back sentences
         text = re.sub(r'^"(.+?)"\s+\1\s*$', r'\1', text, flags=re.DOTALL)
         text = re.sub(r'^"(.+?)"\s+"\1"\s*$', r'\1', text, flags=re.DOTALL)
-        # Also strip surrounding quotes if the whole reply is quoted
         text = re.sub(r'^"(.+)"$', r'\1', text, flags=re.DOTALL)
 
         return text.strip()
@@ -355,6 +350,7 @@ class GeminiAdapter(BaseAdapter):
         config: AdapterConfig,
         system_prompt: str = "",
         on_chunk: Optional[callable] = None,
+        on_reasoning: Optional[callable] = None,
     ) -> AdapterResponse:
         import asyncio
         import os
@@ -366,14 +362,11 @@ class GeminiAdapter(BaseAdapter):
 
         loop = asyncio.get_event_loop()
 
-        if on_chunk:
+        if on_chunk or on_reasoning:
             # ── Streaming Path ───────────────────────────────────────────
-            # Use generate_content_stream to get chunks and call on_chunk
-            full_text_parts = []
-            final_response = None
-            
             def _sync_stream():
                 accumulated_text = ""
+                accumulated_thought = ""
                 it = self._client.models.generate_content_stream(
                     model=config.model,
                     contents=contents,
@@ -382,15 +375,29 @@ class GeminiAdapter(BaseAdapter):
                 last_chunk = None
                 for chunk in it:
                     last_chunk = chunk
-                    chunk_text = getattr(chunk, "text", None) or ""
-                    if chunk_text:
-                        accumulated_text += chunk_text
-                        if on_chunk:
-                            loop.call_soon_threadsafe(on_chunk, chunk_text)
-                return last_chunk, accumulated_text
+                    candidates = getattr(chunk, "candidates", [])
+                    if candidates:
+                        content = getattr(candidates[0], "content", None)
+                        parts = getattr(content, "parts", []) if content else []
+                        for part in parts:
+                            # 1. Handle Text
+                            txt = getattr(part, "text", None)
+                            if txt:
+                                accumulated_text += txt
+                                if on_chunk:
+                                    loop.call_soon_threadsafe(on_chunk, txt)
+                            
+                            # 2. Handle Gemini 3 Thought
+                            thought = getattr(part, "thought", None)
+                            if thought:
+                                accumulated_thought += thought
+                                if on_reasoning:
+                                    loop.call_soon_threadsafe(on_reasoning, thought)
+                return last_chunk, accumulated_text, accumulated_thought
 
-            final_response, raw_text = await loop.run_in_executor(None, _sync_stream)
+            final_response, raw_text, raw_thought = await loop.run_in_executor(None, _sync_stream)
             text = self._clean_model_output(raw_text)
+            thought = self._clean_model_output(raw_thought, is_reasoning=True)
             response = final_response
         else:
             # ── Legacy Non-Streaming Path ────────────────────────────────
@@ -402,7 +409,20 @@ class GeminiAdapter(BaseAdapter):
                     config=gen_config,
                 ),
             )
-            text = self._extract_text(response)
+            raw_text = ""
+            raw_thought = ""
+            candidates = getattr(response, "candidates", [])
+            if candidates:
+                content = getattr(candidates[0], "content", None)
+                parts = getattr(content, "parts", []) if content else []
+                for part in parts:
+                    txt = getattr(part, "text", None)
+                    if txt: raw_text += txt
+                    th = getattr(part, "thought", None)
+                    if th: raw_thought += th
+            
+            text = self._clean_model_output(raw_text)
+            thought = self._clean_model_output(raw_thought, is_reasoning=True)
 
         if os.getenv("GEMINI_ADAPTER_DEBUG", "").strip() == "1":
             print("[GeminiAdapter] GEMINI RAW:", response)
@@ -418,9 +438,10 @@ class GeminiAdapter(BaseAdapter):
 
         return AdapterResponse(
             text=text if not tool_calls else "",
+            reasoning=thought,
             tool_calls=tool_calls,
             raw=response,
-            token_estimate=len(text) // 4,
+            token_estimate=(len(text) + len(thought)) // 4,
         )
 
     async def stream(

@@ -133,6 +133,37 @@ TOPIC_RULES = [
             re.IGNORECASE,
         ),
     },
+    {
+        'module_key': 'favorite_food',
+        'memory_type': 'preference',
+        'importance': 5,
+        'label': 'Favorite food',
+        'keywords': (
+            'favorite food',
+            'favourite food',
+            'favori yemek',
+            'favori yemegim',
+            'favori yeme\u011fim',
+            'en sevdigim yemek',
+            'en sevdi\u011fim yemek',
+        ),
+        'pattern': re.compile(
+            '(?:favorite food|favourite food|favori\\s+yem(?:ek|egim|e\\u011fim)|en\\s+sevdi(?:g|\\u011f)im\\s+yemek)'
+            '(?:\\s*(?:is|ise|olarak|:|=|-|de|da)?\\s*)'
+            '([^\\n.,;!?]{2,120})',
+            re.IGNORECASE,
+        ),
+        'reject_content_keywords': (
+            'neydi',
+            'nedir',
+            'hatirliyor',
+            'hat\u0131rl\u0131yor',
+            'remember',
+            'what',
+            'which',
+            '?',
+        ),
+    },
 ]
 
 
@@ -380,6 +411,7 @@ def _task_context_alignment(question: str, module_key: str, content: str) -> flo
         'delivery': ('delivery', 'shipping', 'cargo', 'logistics'),
         'category': ('category', 'taxonomy', 'segment'),
         'preference': ('prefer', 'preference', 'default', 'choice'),
+        'favorite_food': ('favorite food', 'favourite food', 'favori', 'sevdigim yemek', 'sevdi\u011fim yemek', 'yemek', 'food', 'remember', 'hatirla', 'hat\u0131rla'),
     }
 
     terms = align_patterns.get(mk, ())
@@ -460,7 +492,10 @@ def _rule_matches(text: str, rule: dict[str, Any]) -> bool:
 def _extract_rule_content(sentence: str, rule: dict[str, Any]) -> str:
     match = rule['pattern'].search(sentence)
     if match and match.group(1):
-        return _truncate_text(match.group(1), 180)
+        content = _truncate_text(match.group(1), 180)
+        if rule.get('module_key') == 'favorite_food':
+            content = re.sub(r'\b(?:dir|dur|tir|tur|d[\u0131i]r|t[\u0131i]r)\b\.?$', '', content, flags=re.IGNORECASE).strip()
+        return content
     return _truncate_text(sentence, 180)
 
 
@@ -484,6 +519,12 @@ def extract_memory_candidates(question: str, answer: str = '') -> list[dict[str,
             continue
 
         content = _extract_rule_content(matched_sentence, rule)
+        reject_keywords = tuple(rule.get('reject_content_keywords') or ())
+        if reject_keywords:
+            lowered_content = content.lower()
+            if any(keyword.lower() in lowered_content for keyword in reject_keywords):
+                continue
+
         dedupe_key = (rule['module_key'], content.lower())
         if dedupe_key in seen:
             continue
@@ -654,6 +695,7 @@ def _capsule_label(module_key: str) -> str:
         'constraint': 'Constraints',
         'summary': 'SessionSummary',
         'preference': 'Preference',
+        'favorite_food': 'FavoriteFood',
     }
     return labels.get(module_key or '', (module_key or 'Context').title())
 

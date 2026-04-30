@@ -861,6 +861,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         agent_mode: agentMode,
         stream: !agentMode,
         allow_write_tools: true,
+        include_previous_modules: true,
         file_path: wsContext.filePath || '',
         active_file: wsContext.filePath || '',
         workspace_root: wsContext.workspaceRoot || '',

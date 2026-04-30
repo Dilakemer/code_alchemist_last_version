@@ -38,6 +38,7 @@ class AdapterResponse:
     non-empty (the model wants to use tools). Never both.
     """
     text: str = ""
+    reasoning: str = ""
     tool_calls: List[ToolCallRequest] = field(default_factory=list)
     raw: Any = None                    # original SDK response object
     token_estimate: int = 0
@@ -109,10 +110,11 @@ class BaseAdapter(ABC):
         tools: Optional[Any],
         config: AdapterConfig,
         system_prompt: str = "",
-        on_chunk: Optional[callable] = None, # <--- NEW: Support real-time streaming
+        on_chunk: Optional[callable] = None,
+        on_reasoning: Optional[callable] = None,
     ) -> AdapterResponse:
         """
-        Single inference call. If on_chunk is provided, text should be streamed.
+        Single inference call. If on_chunk or on_reasoning are provided, tokens should be streamed.
         Returns a normalised AdapterResponse (with full text accumulated).
         """
 

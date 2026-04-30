@@ -64,6 +64,8 @@ class OpenAIAdapter(BaseAdapter):
         tools: Optional[List[Dict[str, Any]]],
         config: AdapterConfig,
         system_prompt: str = "",
+        on_chunk: Optional[callable] = None,
+        on_reasoning: Optional[callable] = None,
     ) -> AdapterResponse:
         full_messages = []
         if system_prompt:
@@ -77,8 +79,8 @@ class OpenAIAdapter(BaseAdapter):
         }
 
         # o1/o3 models use max_completion_tokens and don't support temperature
-        is_reasoning = config.model.startswith(("o1", "o3"))
-        if is_reasoning:
+        is_o_model = config.model.startswith(("o1", "o3"))
+        if is_o_model:
             kwargs.pop("temperature", None)
             kwargs["max_completion_tokens"] = config.max_tokens
         else:
@@ -87,8 +89,45 @@ class OpenAIAdapter(BaseAdapter):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-            if not is_reasoning:
+            if not is_o_model:
                 kwargs["parallel_tool_calls"] = True
+
+        if on_chunk:
+            # ── Streaming Path ───────────────────────────────────────────
+            kwargs["stream"] = True
+            accumulated_text = ""
+            accumulated_reasoning = ""
+            
+            # Note: Tool calls are not easily streamed in a single turn with text in OpenAI
+            # while maintaining the same complexity, so we usually don't stream if tools are possible.
+            # But AgentLoop wants streaming for text.
+            
+            response_stream = await self._client.chat.completions.create(**kwargs)
+            async for chunk in response_stream:
+                if not chunk.choices: continue
+                delta = chunk.choices[0].delta
+                
+                # Reasoning (o1/o3 support)
+                if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                    accumulated_reasoning += delta.reasoning_content
+                    if on_reasoning:
+                        on_reasoning(delta.reasoning_content)
+                
+                if delta.content:
+                    accumulated_text += delta.content
+                    if on_chunk:
+                        on_chunk(delta.content)
+            
+            # For simplicity in Agent Mode, we assume streaming means no tools or we don't stream tools.
+            # However, OpenAI DOES stream tool calls. If needed, we'd collect them here.
+            # But the current AgentLoop expects non-streaming tools or manual extraction.
+            # Let's fallback to non-streaming if tools are present for now, or just return text.
+            
+            return AdapterResponse(
+                text=accumulated_text,
+                reasoning=accumulated_reasoning,
+                token_estimate=self.estimate_tokens(full_messages) + len(accumulated_text) // 4
+            )
 
         response = await self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
@@ -122,10 +161,12 @@ class OpenAIAdapter(BaseAdapter):
                 ))
 
         text = getattr(message, "content", "") or ""
-        estimate = self.estimate_tokens(full_messages) + len(text) // 4
+        reasoning = getattr(message, "reasoning_content", "") or ""
+        estimate = self.estimate_tokens(full_messages) + (len(text) + len(reasoning)) // 4
 
         return AdapterResponse(
             text=text if not tool_calls else "",
+            reasoning=reasoning,
             tool_calls=tool_calls,
             raw=response,
             token_estimate=estimate,

@@ -78,6 +78,8 @@ class AnthropicAdapter(BaseAdapter):
         tools: Optional[List[Dict[str, Any]]],
         config: AdapterConfig,
         system_prompt: str = "",
+        on_chunk: Optional[callable] = None,
+        on_reasoning: Optional[callable] = None,
     ) -> AdapterResponse:
         # Ensure messages are in block format for stability
         formatted_messages = []

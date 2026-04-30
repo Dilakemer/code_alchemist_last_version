@@ -23,6 +23,7 @@ export interface AskRequestPayload {
   agent_mode: boolean;
   stream?: boolean;
   allow_write_tools?: boolean;
+  include_previous_modules?: boolean;
   file_path: string;
   active_file?: string;
   workspace_root: string;

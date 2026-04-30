@@ -32,21 +32,37 @@ _SEARCH_CACHE_LOCK = threading.Lock()
 
 
 def _build_fallback_queries(query: str) -> List[str]:
+    """
+    Generates a list of query variants from most specific to most general.
+    1. Original query
+    2. Broadened query (official docs/latest)
+    3. Keyword-only query (simplification)
+    """
     base = (query or "").strip()
     if not base:
         return []
 
-    q = [base]
-    # A second query biased toward official/current sources improves weak SERP hits.
-    q.append(f"{base} official documentation latest")
-    # A third query uses a policy/availability framing for country-specific checks.
-    if any(tok in base.lower() for tok in ["turkiye", "türkiye", "supported", "çalışıyor", "available"]):
-        q.append(f"{base} availability supported countries")
+    variants = [base]
+    
+    # 1. Broaden: Add documentation context (if long enough)
+    words = base.split()
+    if len(words) > 2:
+        variants.append(f"{base} official documentation latest")
+
+    # 2. Simplify: Remove question words and conversational filler
+    stop_words = {"nasıl", "nasil", "nedir", "what", "is", "how", "to", "the", "a", "an", "lütfen", "please", "can", "you", "tell", "me"}
+    simplified_words = [w for w in words if w.lower().strip("?!.,") not in stop_words]
+    if simplified_words and len(simplified_words) < len(words):
+        variants.append(" ".join(simplified_words))
+        
+    # 3. Keyword only: first 4 significant words
+    if len(simplified_words) > 4:
+        variants.append(" ".join(simplified_words[:4]))
 
     # Preserve order while deduplicating.
     seen = set()
     out = []
-    for item in q:
+    for item in variants:
         k = item.lower().strip()
         if k and k not in seen:
             seen.add(k)
@@ -114,68 +130,41 @@ def _build_recommended_fetch_urls(results: List[Dict[str, Any]], limit: int = 2)
     return candidates
 
 
-async def _search_once(query: str, limit: int) -> List[Dict[str, Any]]:
-    cache_key = _cache_key(_PROVIDER, query, limit)
+async def _search_once(query: str, limit: int, provider: str = None) -> List[Dict[str, Any]]:
+    active_provider = provider or _PROVIDER
+    cache_key = _cache_key(active_provider, query, limit)
     cached = _get_cached_results(cache_key)
-    if cached is not None:
+    if cached:
         return cached
 
-    if _PROVIDER == "serper" and _SERPER_API_KEY:
-        primary = await _serper_search(query, limit)
-        if primary:
-            _set_cached_results(cache_key, primary)
-            return primary
-        # Provider fallback when Serper quota/network fails.
-        fallback = await _duckduckgo_search(query, limit)
-        if fallback:
-            _set_cached_results(cache_key, fallback)
-        return fallback
+    hits = []
+    if active_provider == "serper":
+        hits = await _serper_search(query, limit)
+    elif active_provider == "tavily":
+        hits = await _tavily_search(query, limit)
+    elif active_provider == "brave":
+        hits = await _brave_search(query, limit)
+    elif active_provider == "duckduckgo":
+        hits = await _duckduckgo_search(query, limit)
 
-    if _PROVIDER == "tavily" and _TAVILY_API_KEY:
-        primary = await _tavily_search(query, limit)
-        if primary:
-            _set_cached_results(cache_key, primary)
-            return primary
-        fallback = await _duckduckgo_search(query, limit)
-        if fallback:
-            _set_cached_results(cache_key, fallback)
-        return fallback
-
-    if _PROVIDER == "brave" and _BRAVE_API_KEY:
-        primary = await _brave_search(query, limit)
-        if primary:
-            _set_cached_results(cache_key, primary)
-            return primary
-        fallback = await _duckduckgo_search(query, limit)
-        if fallback:
-            _set_cached_results(cache_key, fallback)
-        return fallback
-
-    fallback = await _duckduckgo_search(query, limit)
-    if fallback:
-        _set_cached_results(cache_key, fallback)
-    return fallback
+    if hits:
+        _set_cached_results(cache_key, hits)
+    return hits
 
 
 async def _duckduckgo_search(query: str, limit: int) -> List[Dict[str, Any]]:
-    """
-    Calls DuckDuckGo Instant Answer API (no API key required).
-    Rate-limited and best-effort; returns [] on failure.
-    """
+    """Calls DuckDuckGo Instant Answer API. Falls back to HTML scrape if 0 results."""
     import asyncio
     import json
     import urllib.parse
     import urllib.request
+    import re
 
-    encoded = urllib.parse.quote(query)
-    url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_html=1&skip_disambig=1"
-
-    def _fetch() -> List[Dict[str, Any]]:
+    def _fetch_api() -> List[Dict[str, Any]]:
         try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "CodeAlchemist-Agent/1.0"},
-            )
+            encoded = urllib.parse.quote(query)
+            url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_html=1&skip_disambig=1"
+            req = urllib.request.Request(url, headers={"User-Agent": "CodeAlchemist-Agent/1.0"})
             with urllib.request.urlopen(req, timeout=6) as resp:
                 data = json.loads(resp.read().decode())
         except Exception:
@@ -209,25 +198,13 @@ async def _duckduckgo_search(query: str, limit: int) -> List[Dict[str, Any]]:
                 _append_result(out, text, ref)
 
         results: List[Dict[str, Any]] = []
-
-        # RelatedTopics can be flat or nested under groups with a `Topics` key.
         _walk_related(data.get("RelatedTopics") or [], results)
-
-        # Some DDG responses place links under `Results`.
         if len(results) < limit:
             for item in data.get("Results") or []:
-                if not isinstance(item, dict):
-                    continue
-                _append_result(
-                    results,
-                    item.get("Text") or "",
-                    item.get("FirstURL") or "",
-                    item.get("Text") or "",
-                )
-                if len(results) >= limit:
-                    break
+                if not isinstance(item, dict): continue
+                _append_result(results, item.get("Text") or "", item.get("FirstURL") or "", item.get("Text") or "")
+                if len(results) >= limit: break
 
-        # AbstractText as a fallback
         if len(results) < limit and data.get("AbstractText"):
             results.append({
                 "title": data.get("Heading") or query,
@@ -235,11 +212,48 @@ async def _duckduckgo_search(query: str, limit: int) -> List[Dict[str, Any]]:
                 "snippet": data["AbstractText"][:400],
                 "domain": _extract_domain(data.get("AbstractURL") or ""),
             })
-
         return results[:limit]
 
+    def _fetch_html() -> List[Dict[str, Any]]:
+        try:
+            print(f"[web_search] [DDG] API yielded 0. Scrapping HTML for '{query}'...")
+            encoded = urllib.parse.quote(query)
+            url = f"https://html.duckduckgo.com/html/?q={encoded}"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                content = resp.read().decode('utf-8', errors='ignore')
+            
+            results = []
+            matches = re.findall(r'<a class="result__a" rel="nofollow" href="([^"]+)">(.+?)</a>', content, re.DOTALL)
+            snippets = re.findall(r'<a class="result__snippet" href="[^"]+">(.+?)</a>', content, re.DOTALL)
+            
+            for i in range(min(len(matches), len(snippets))):
+                raw_url = matches[i][0]
+                title = re.sub(r'<[^>]+>', '', matches[i][1]).strip()
+                snippet = re.sub(r'<[^>]+>', '', snippets[i]).strip()
+                
+                url = raw_url
+                if "/l/?kh=" in url:
+                    from urllib.parse import parse_qs, urlparse
+                    try:
+                        p = urlparse(url)
+                        qs = parse_qs(p.query)
+                        if 'uddg' in qs: url = qs['uddg'][0]
+                    except: pass
+
+                results.append({"title": title, "url": url, "snippet": snippet, "domain": _extract_domain(url)})
+            print(f"[web_search] [DDG] HTML scrape found {len(results)} results.")
+            return results[:limit]
+        except Exception as e:
+            print(f"[web_search] [DDG] HTML scrape failed: {e}")
+            return []
+
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _fetch)
+    hits = await loop.run_in_executor(None, _fetch_api)
+    if not hits:
+        hits = await loop.run_in_executor(None, _fetch_html)
+    return hits
 
 
 async def _serper_search(query: str, limit: int) -> List[Dict[str, Any]]:
@@ -374,14 +388,42 @@ async def _execute(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
 
     limit = max(1, min(10, int(args.get("limit", 5) or 5)))
 
-    all_results: List[Dict[str, Any]] = []
+    # 1. Multi-stage query variants
     attempts = _build_fallback_queries(query)
-    # Keep the number of outbound searches small and predictable.
-    for candidate in attempts[:3]:
-        hits = await _search_once(candidate, limit)
-        if hits:
-            all_results.extend(hits)
-        # Stop early if we already have enough unique results.
+    
+    # 2. Multi-provider sequence
+    # Primary -> DDG (unless DDG is primary)
+    providers = [_PROVIDER]
+    if _PROVIDER != "duckduckgo":
+        providers.append("duckduckgo")
+
+    all_results: List[Dict[str, Any]] = []
+    trace_log = []
+
+    # 3. Search Loop: Variants x Providers
+    for q_idx, q_variant in enumerate(attempts[:3]):
+        for p_idx, provider in enumerate(providers):
+            start_time = time.time()
+            hits = await _search_once(q_variant, limit, provider=provider)
+            duration = (time.time() - start_time) * 1000
+            
+            trace_log.append({
+                "query": q_variant,
+                "provider": provider,
+                "fallback_level": q_idx,
+                "result_count": len(hits),
+                "duration_ms": duration
+            })
+            
+            print(f"[web_search] Level {q_idx} | Provider: {provider} | Results: {len(hits)} | Query: '{q_variant}'")
+            
+            if hits:
+                all_results.extend(hits)
+            
+            # If we have enough unique results, we can stop early
+            if len(_dedupe_results(all_results, limit)) >= limit:
+                break
+        
         if len(_dedupe_results(all_results, limit)) >= limit:
             break
 
@@ -392,6 +434,7 @@ async def _execute(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
         "query": query,
         "provider": _PROVIDER,
         "attempted_queries": attempts[:3],
+        "search_trace": trace_log,
         "results": results,
         "recommended_fetch_urls": _build_recommended_fetch_urls(results, limit=2),
         "count": len(results),

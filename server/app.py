@@ -40,6 +40,7 @@ from flask_jwt_extended import (
 )
 from passlib.hash import pbkdf2_sha256
 from google import genai as google_genai
+from google.genai import types as google_genai_types
 from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey, VSCodeLoginState, VSCodeOTP, PostLike, AnswerLike, NotificationRead, NotificationHidden, Feedback, FeedbackDetail, UserTheme
 from anthropic import Anthropic, APIError
 from openai import OpenAI
@@ -233,11 +234,27 @@ class _GeminiCompatModel:
         self._client = client
         self._model_name = _normalize_gemini_model_name(model_name)
 
+    def _normalize_content_part(self, part):
+        if isinstance(part, dict) and part.get("mime_type") and part.get("data") is not None:
+            return google_genai_types.Part.from_bytes(
+                data=part.get("data"),
+                mime_type=str(part.get("mime_type") or "application/octet-stream"),
+            )
+        if isinstance(part, list):
+            return [self._normalize_content_part(item) for item in part]
+        return part
+
+    def _normalize_contents(self, contents):
+        if isinstance(contents, list):
+            return [self._normalize_content_part(item) for item in contents]
+        return self._normalize_content_part(contents)
+
     def generate_content(self, contents, stream=False, request_options=None, question=None, system_instruction=None):
         # request_options is accepted for backward compatibility with old SDK call sites.
         # It is assumed to be in seconds and is converted to milliseconds with a 10s floor.
         timeout_sec = (request_options or {}).get('timeout') if isinstance(request_options, dict) else None
         gemini_timeout = to_gemini_timeout(timeout_sec)
+        normalized_contents = self._normalize_contents(contents)
         
         config = {'http_options': {'timeout': gemini_timeout}}
         if system_instruction:
@@ -248,7 +265,7 @@ class _GeminiCompatModel:
             def _iter_stream():
                 stream_iter = self._client.models.generate_content_stream(
                     model=self._model_name,
-                    contents=contents,
+                    contents=normalized_contents,
                     config=config,
                 )
                 
@@ -310,7 +327,7 @@ class _GeminiCompatModel:
 
         response = self._client.models.generate_content(
             model=self._model_name,
-            contents=contents,
+            contents=normalized_contents,
             config=config,
         )
         text = _extract_gemini_text(response, question)
@@ -2331,6 +2348,49 @@ def _load_previous_memory_context(user, question, conversation=None, include_pre
         .all()
     )
 
+    # Backfill-style fallback: older chats may predate newer memory extraction
+    # rules, so derive ephemeral memory candidates from recent saved turns.
+    history_memory_candidates = []
+    try:
+        recent_history_query = (
+            History.query
+            .join(Conversation, History.conversation_id == Conversation.id)
+            .filter(Conversation.user_id == user.id, History.is_deleted == False)  # noqa: E712
+        )
+        if conversation and conversation.id:
+            recent_history_query = recent_history_query.filter(History.conversation_id != conversation.id)
+
+        recent_history_rows = (
+            recent_history_query
+            .order_by(History.timestamp.desc())
+            .limit(80)
+            .all()
+        )
+
+        seen_history_candidates = set()
+        for history_row in recent_history_rows:
+            for item in extract_memory_candidates(history_row.user_question or '', history_row.ai_response or ''):
+                content = (item.get('content') or '').strip()
+                module_key = item.get('module_key') or 'general'
+                key = (module_key, content.lower())
+                if not content or key in seen_history_candidates:
+                    continue
+                seen_history_candidates.add(key)
+                history_memory_candidates.append({
+                    'id': None,
+                    'memory_type': item.get('memory_type') or 'preference',
+                    'module_key': module_key,
+                    'content': content,
+                    'importance': item.get('importance') or 1,
+                    'last_used_at': history_row.timestamp,
+                    'created_at': history_row.timestamp,
+                    'updated_at': history_row.timestamp,
+                })
+    except Exception as history_memory_err:
+        print(f"[MEMORY] Recent history fallback skipped: {history_memory_err}")
+
+    memory_sources = list(memory_rows) + history_memory_candidates
+
     summary_query = ConversationSummary.query.filter_by(user_id=user.id)
     if conversation and conversation.id:
         summary_query = summary_query.filter(ConversationSummary.conversation_id != conversation.id)
@@ -2343,7 +2403,7 @@ def _load_previous_memory_context(user, question, conversation=None, include_pre
 
     memory_context = build_minimum_continuation_capsule(
         question,
-        memory_rows,
+        memory_sources,
         summary_rows,
         char_budget=420,
         max_lines=5,
@@ -2373,7 +2433,7 @@ def _load_previous_memory_context(user, question, conversation=None, include_pre
 
     retrieval_plan = build_memory_retrieval_plan(
         question,
-        memory_rows,
+        memory_sources,
         summary_rows,
         top_k=5,
         min_confidence=0.42,
@@ -4730,6 +4790,9 @@ def ask():
     workspace_files = []
     agent_mode = False
     allow_write_tools = False
+    source_header = request.headers.get("X-Client-Source") or "web"
+    repo_param = None
+    branch_param = "main"
     
     # Handle multipart/form-data
     if request.content_type and 'multipart/form-data' in request.content_type:
@@ -4796,7 +4859,7 @@ def ask():
             }), 402 # Payment Required
 
     # Client source (Web vs Extension)
-    source_header = request.headers.get("X-Client-Source", payload.get("source", "web"))
+    source_header = request.headers.get("X-Client-Source") or payload.get("source") or source_header or "web"
     if source_header == 'vscode': # Legacy compatibility
         source_header = 'extension'
 
@@ -4836,7 +4899,7 @@ def ask():
         
         if not conversation:
             # Yeni konuşma başlat
-            conversation = Conversation(user_id=user_id, title=question[:50], source='web')
+            conversation = Conversation(user_id=user_id, title=question[:50], source=source_header)
             
             # If repo was pre-verified and passed here, link it to the new conversation
             if 'repo_param' in locals() and repo_param:
@@ -5221,10 +5284,16 @@ def ask():
                                         # Depending on runtime, text might be empty if already streamed
                                         # but we check just in case.
                                         pass 
+                                elif etype == "error":
+                                    err_text = data.get("message") or data.get("error") or "Agent Mode failed before producing a response."
+                                    if err_text and not full_answer:
+                                        full_answer = f"[Agent error]: {err_text}"
                             except Exception:
                                 pass
 
                     agent_executed = True
+                    if not full_answer.strip():
+                        full_answer = "Agent Mode finished without producing a response."
                     full_answer = post_process_response(full_answer)
 
 
@@ -5260,6 +5329,7 @@ def ask():
             # Keep these available even if DB save fails; client can still close stream cleanly.
             final_data = {
                 'done': True,
+                'answer': full_answer,
                 'routing_reason': routing_reason,
                 'selected_model': model,
                 'detected_language': detected_lang,

@@ -99,7 +99,7 @@ def build_runtime_request(
     github_context: str = "",
     memory_context: str = "",
     max_tool_calls: int = 8,
-    max_tokens: int = 8000,
+    max_tokens: int = 16000,
     max_files_touched: int = 3,
     max_reads_per_file: int = 2,
     min_token_reserve: int = 512,
@@ -355,7 +355,7 @@ def stream_agent_bridge(
         
         def is_critical(sse_chunk: str) -> bool:
             # Quick string check for critical event types
-            return any(t in sse_chunk for t in ['"type": "message"', '"type": "tool_call"', '"type": "done"', '"type": "error"'])
+            return any(t in sse_chunk for t in ['"type": "message"', '"type": "reasoning"', '"type": "tool_call"', '"type": "done"', '"type": "error"'])
 
         async def _consume():
             try:
@@ -441,4 +441,3 @@ class AgentBridgeResult:
         self.tool_capable = tool_capable
         self.finish_reason = finish_reason
         self.error = error
-

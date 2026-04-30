@@ -87,7 +87,7 @@ class AgentLoop:
     # ── Internal loop ─────────────────────────────────────────────────────
 
     async def _loop(self, ctx: Any, queue: asyncio.Queue) -> None:
-        budget = TokenBudget(max_tokens=ctx.max_tokens)
+        budget = TokenBudget(max_tokens=max(int(ctx.max_tokens or 8000), 16000))
         max_files_touched = max(1, int(getattr(ctx, "max_files_touched", 3) or 3))
         max_reads_per_file = max(1, int(getattr(ctx, "max_reads_per_file", 2) or 2))
         min_token_reserve = max(0, int(getattr(ctx, "min_token_reserve", 512) or 0))
@@ -156,32 +156,72 @@ class AgentLoop:
                 return
 
             # Emit thinking status
+            status_emoji = "🔍" if last_tool_result_weak else "🧠"
+            status_msg = "Arama yapılıyor..." if last_tool_result_weak else "Düşünülüyor..."
             await queue.put(AgentEvent(
                 type=AgentEventType.STATUS,
-                payload={"message": "🧠 Düşünülüyor..."},
+                payload={"message": f"{status_emoji} {status_msg}"},
             ))
 
             # ── Call the model ────────────────────────────────────────────
             loop = asyncio.get_event_loop()
+            
+            # Reasoning Buffer Logic: Avoid UI spam by buffering thought chunks
+            reasoning_buffer = []
+            reasoning_threshold = 100 # chars
+
+            async def _on_reasoning(chunk: str):
+                reasoning_buffer.append(chunk)
+                if sum(len(c) for c in reasoning_buffer) >= reasoning_threshold:
+                    combined = "".join(reasoning_buffer)
+                    reasoning_buffer.clear()
+                    await queue.put(AgentEvent(
+                        type=AgentEventType.REASONING,
+                        payload={"text": combined, "partial": True}
+                    ))
+
             async def _on_chunk(chunk: str):
+                # If we have reasoning buffered, flush it before text starts
+                if reasoning_buffer:
+                    combined = "".join(reasoning_buffer)
+                    reasoning_buffer.clear()
+                    await queue.put(AgentEvent(
+                        type=AgentEventType.REASONING,
+                        payload={"text": combined, "partial": True}
+                    ))
+                
                 # Emit partial message chunk to the stream
                 await queue.put(AgentEvent(
                     type=AgentEventType.MESSAGE,
                     payload={"text": chunk, "partial": True},
                 ))
 
+            stream_callbacks_enabled = not formatted_tools
+
             response: AdapterResponse = await self._adapter.generate(
                 messages=messages,
                 tools=formatted_tools,
                 config=config,
                 system_prompt=ctx.system_prompt,
-                on_chunk=lambda c: asyncio.run_coroutine_threadsafe(_on_chunk(c), loop)
+                on_chunk=(lambda c: asyncio.run_coroutine_threadsafe(_on_chunk(c), loop)) if stream_callbacks_enabled else None,
+                on_reasoning=(lambda c: asyncio.run_coroutine_threadsafe(_on_reasoning(c), loop)) if stream_callbacks_enabled else None,
             )
-            print(f"[AgentLoop] [Step {step}] Model responded. Text length: {len(response.text or '')} | Tool calls: {len(response.tool_calls)}")
+
+            # Final flush of reasoning if any left
+            if reasoning_buffer:
+                combined = "".join(reasoning_buffer)
+                reasoning_buffer.clear()
+                await queue.put(AgentEvent(
+                    type=AgentEventType.REASONING,
+                    payload={"text": combined, "partial": True}
+                ))
+
+            print(f"[AgentLoop] [Step {step}] Model responded. Text: {len(response.text or '')} | Reasoning: {len(response.reasoning or '')} | Tool calls: {len(response.tool_calls)}")
             if response.text:
                 preview = response.text[:200].replace("\n", " ")
                 print(f"[AgentLoop] [Step {step}] Message: {preview}...")
             budget.add(response.text)
+            budget.add(response.reasoning)
 
             # ── Weak search result policy: force retry if needed ────────────
             if response.is_final and last_tool_result_weak and web_search_count < 2:
@@ -343,13 +383,44 @@ class AgentLoop:
         ))
 
         # Append tool result to messages in provider format
-        budget.add(str(result))
+        budget.add(self._budget_text_for_tool_result(tc.name, result))
         updated_messages = self._adapter.format_tool_result(messages, tc.call_id, tc.name, result)
         if updated_messages is not None:
             messages[:] = updated_messages
         
         # Return result for loop inspection
         return result
+
+    def _budget_text_for_tool_result(self, tool_name: str, result: Dict[str, Any]) -> str:
+        """
+        Keep the budget guard conservative without letting verbose tool payloads
+        consume the whole run. The full payload is still sent back to the model.
+        """
+        if tool_name == "web_search" and isinstance(result, dict):
+            compact_results = []
+            for item in (result.get("results") or [])[:5]:
+                if not isinstance(item, dict):
+                    continue
+                compact_results.append({
+                    "title": str(item.get("title") or "")[:120],
+                    "url": str(item.get("url") or "")[:220],
+                    "snippet": str(item.get("snippet") or "")[:240],
+                })
+            return str({
+                "ok": result.get("ok", True),
+                "query": result.get("query"),
+                "count": result.get("count"),
+                "results": compact_results,
+            })
+
+        if isinstance(result, dict):
+            compact = dict(result)
+            for key in ("content", "raw_content", "html", "text"):
+                if key in compact:
+                    compact[key] = str(compact.get(key) or "")[:1200]
+            return str(compact)[:6000]
+
+        return str(result)[:6000]
 
     def _extract_tool_path(self, tc: ToolCallRequest, result: Dict[str, Any]) -> str:
         if isinstance(result, dict) and result.get("path"):
