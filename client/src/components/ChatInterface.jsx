@@ -867,6 +867,7 @@ const ChatInterface = ({
   }, [linkedRepoProp, linkedBranchProp]);
 
   const handleShowCodeHealthClick = () => {
+    console.log("Health Check Clicked - effectiveRepo:", effectiveLinkedRepo);
     if (!effectiveLinkedRepo) {
       showToast("Please link a repository first to view System Health.", "error");
       return;

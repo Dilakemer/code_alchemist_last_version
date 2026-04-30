@@ -1,6 +1,4 @@
-export const API_BASE = import.meta.env.PROD 
-  ? '' 
-  : (import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:5000`);
+export const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '' : `http://${window.location.hostname}:5000`);
 
 // Socket.io bağlantı URL'i
 // Production'da aynı origin (Render reverse proxy WebSocket'i handle eder)
