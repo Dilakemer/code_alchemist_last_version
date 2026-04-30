@@ -1297,9 +1297,24 @@ function App() {
       let buffer = "";
       let receivedDoneEvent = false;
 
+      let lastSeq = -1;
+      let watchdogTimer = null;
+      const resetWatchdog = () => {
+        if (watchdogTimer) clearTimeout(watchdogTimer);
+        watchdogTimer = setTimeout(() => {
+          setChatHistory(prev => prev.map(item =>
+            item.id === tempId && !receivedDoneEvent ? { ...item, agent_is_stuck: true } : item
+          ));
+        }, 15000);
+      };
+      resetWatchdog();
+
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          break;
+        }
 
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
@@ -1313,13 +1328,32 @@ function App() {
             try {
               const jsonStr = line.slice(6);
               const data = JSON.parse(jsonStr);
+              resetWatchdog();
 
-              // Standard Stream & Blend Stream
-              if (data.chunk) {
+              // Event ordering & duplication guard
+              if (data.seq !== undefined) {
+                if (data.seq <= lastSeq) {
+                  console.warn(`[Stream] Out of order event ignored: ${data.seq} <= ${lastSeq}`);
+                  continue;
+                }
+                lastSeq = data.seq;
+              }
+
+              // Standard Stream & Blend Stream & Agent MESSAGE
+              if (data.chunk || data.type === 'message') {
+                const textChunk = data.chunk || data.text || "";
                 if (!firstChunkTime) firstChunkTime = Date.now();
-                aiResponseAccumulator += data.chunk;
+                
+                if (data.full) {
+                  // Consolidated final text
+                  aiResponseAccumulator = textChunk;
+                } else {
+                  // Partial incremental chunk
+                  aiResponseAccumulator += textChunk;
+                }
+
                 setChatHistory(prev => prev.map(item =>
-                  item.id === tempId ? { ...item, ai_response: aiResponseAccumulator } : item
+                  item.id === tempId ? { ...item, ai_response: aiResponseAccumulator, agent_is_stuck: false } : item
                 ));
               }
 
@@ -1374,7 +1408,7 @@ function App() {
                 };
                 setChatHistory(prev => prev.map(item =>
                   item.id === tempId
-                    ? { ...item, agent_trace: [...(item.agent_trace || []), statusTraceEntry] }
+                    ? { ...item, agent_trace: [...(item.agent_trace || []), statusTraceEntry], agent_is_stuck: false }
                     : item
                 ));
               }
@@ -1391,7 +1425,7 @@ function App() {
                 };
                 setChatHistory(prev => prev.map(item =>
                   item.id === tempId 
-                    ? { ...item, agent_trace: [...(item.agent_trace || []), newTraceEntry] } 
+                    ? { ...item, agent_trace: [...(item.agent_trace || []), newTraceEntry], agent_is_stuck: false } 
                     : item
                 ));
               }
@@ -1414,10 +1448,10 @@ function App() {
                     }
                     return t;
                   });
-                  return { ...item, agent_trace: newTrace };
+                  return { ...item, agent_trace: newTrace, agent_is_stuck: false };
                 }));
               }
-              if (data.done) {
+              if (data.type === 'done' || data.done) {
                 receivedDoneEvent = true;
 
                 // Capture debug state for memory/carryover monitoring

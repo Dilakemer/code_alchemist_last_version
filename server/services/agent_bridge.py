@@ -343,32 +343,42 @@ def stream_agent_bridge(
         workspace_root=workspace_root,
     )
 
-    q = queue.Queue(maxsize=16)
+    q = queue.Queue(maxsize=64)
 
     def _producer():
         # Inner thread has its own event loop and should have its own app context
         from app import app
-        from models import db, Conversation, User, Project
+        import json
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        try:
-            async def _consume():
-                # Re-fetch objects if IDs were passed to ensure they are bound to this thread's session
-                with app.app_context():
-                    # We only need to ensure the request is built with correct IDs.
-                    # The build_runtime_request call already handles obj vs id.
-                    pass
+        
+        def is_critical(sse_chunk: str) -> bool:
+            # Quick string check for critical event types
+            return any(t in sse_chunk for t in ['"type": "message"', '"type": "tool_call"', '"type": "done"', '"type": "error"'])
 
+        async def _consume():
+            try:
                 async for chunk in runtime.stream(req):
-                    # Direct passthrough of SSE strings
-                    q.put(chunk)
+                    try:
+                        q.put_nowait(chunk)
+                    except queue.Full:
+                        if is_critical(chunk):
+                            # Critical events MUST be delivered; offload blocking put to executor
+                            await loop.run_in_executor(None, q.put, chunk)
+                        else:
+                            # Drop non-critical (status/reasoning) events when congested
+                            print(f"[AgentBridge] Backpressure: Dropping non-critical event: {chunk[:60]}...")
+            except Exception as e:
+                print(f"[AgentBridge] Stream producer error: {e}")
+                err_msg = f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                await loop.run_in_executor(None, q.put, err_msg)
+            finally:
+                await loop.run_in_executor(None, q.put, StopIteration)
+
+        try:
             loop.run_until_complete(_consume())
-        except Exception as e:
-            print(f"[AgentBridge] Stream producer error: {e}")
-            q.put(f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n")
         finally:
-            q.put(StopIteration)
             loop.close()
 
     thread = threading.Thread(target=_producer, daemon=True)

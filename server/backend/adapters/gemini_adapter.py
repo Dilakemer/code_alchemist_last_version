@@ -329,8 +329,10 @@ class GeminiAdapter(BaseAdapter):
         tools: Optional[Any],
         config: AdapterConfig,
         system_prompt: str = "",
+        on_chunk: Optional[callable] = None,
     ) -> AdapterResponse:
         import asyncio
+        import os
 
         types = self._types
         contents = self._build_gemini_contents(messages)
@@ -343,31 +345,58 @@ class GeminiAdapter(BaseAdapter):
             http_options=types.HttpOptions(timeout=to_gemini_timeout(120)),
         )
 
-        # google-genai SDK is synchronous; run in executor
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self._client.models.generate_content(
-                model=config.model,
-                contents=contents,
-                config=gen_config,
-            ),
-        )
+
+        if on_chunk:
+            # ── Streaming Path ───────────────────────────────────────────
+            # Use generate_content_stream to get chunks and call on_chunk
+            full_text_parts = []
+            final_response = None
+            
+            def _sync_stream():
+                accumulated_text = ""
+                it = self._client.models.generate_content_stream(
+                    model=config.model,
+                    contents=contents,
+                    config=gen_config,
+                )
+                last_chunk = None
+                for chunk in it:
+                    last_chunk = chunk
+                    chunk_text = getattr(chunk, "text", None) or ""
+                    if chunk_text:
+                        accumulated_text += chunk_text
+                        if on_chunk:
+                            loop.call_soon_threadsafe(on_chunk, chunk_text)
+                return last_chunk, accumulated_text
+
+            final_response, raw_text = await loop.run_in_executor(None, _sync_stream)
+            text = self._clean_model_output(raw_text)
+            response = final_response
+        else:
+            # ── Legacy Non-Streaming Path ────────────────────────────────
+            response = await loop.run_in_executor(
+                None,
+                lambda: self._client.models.generate_content(
+                    model=config.model,
+                    contents=contents,
+                    config=gen_config,
+                ),
+            )
+            text = self._extract_text(response)
 
         if os.getenv("GEMINI_ADAPTER_DEBUG", "").strip() == "1":
             print("[GeminiAdapter] GEMINI RAW:", response)
 
-        tool_calls = self._extract_tool_calls_from_response(response)
+        tool_calls = self._extract_tool_calls_from_response(response) if response else []
 
         if tool_calls:
             assistant_blocks = self._extract_assistant_blocks(response)
             if assistant_blocks:
                 messages.append({"role": "assistant", "content": assistant_blocks})
             else:
-                text_fallback = self._extract_text(response)
-                messages.append({"role": "assistant", "content": text_fallback})
+                messages.append({"role": "assistant", "content": text})
 
-        text = self._extract_text(response)
         return AdapterResponse(
             text=text if not tool_calls else "",
             tool_calls=tool_calls,

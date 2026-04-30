@@ -109,10 +109,11 @@ class BaseAdapter(ABC):
         tools: Optional[Any],
         config: AdapterConfig,
         system_prompt: str = "",
+        on_chunk: Optional[callable] = None, # <--- NEW: Support real-time streaming
     ) -> AdapterResponse:
         """
-        Single non-streaming inference call.
-        Returns a normalised AdapterResponse.
+        Single inference call. If on_chunk is provided, text should be streamed.
+        Returns a normalised AdapterResponse (with full text accumulated).
         """
 
     @abstractmethod

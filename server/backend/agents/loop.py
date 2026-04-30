@@ -162,11 +162,20 @@ class AgentLoop:
             ))
 
             # ── Call the model ────────────────────────────────────────────
+            loop = asyncio.get_event_loop()
+            async def _on_chunk(chunk: str):
+                # Emit partial message chunk to the stream
+                await queue.put(AgentEvent(
+                    type=AgentEventType.MESSAGE,
+                    payload={"text": chunk, "partial": True},
+                ))
+
             response: AdapterResponse = await self._adapter.generate(
                 messages=messages,
                 tools=formatted_tools,
                 config=config,
                 system_prompt=ctx.system_prompt,
+                on_chunk=lambda c: asyncio.run_coroutine_threadsafe(_on_chunk(c), loop)
             )
             print(f"[AgentLoop] [Step {step}] Model responded. Text length: {len(response.text or '')} | Tool calls: {len(response.tool_calls)}")
             if response.text:
@@ -191,7 +200,7 @@ class AgentLoop:
                 if response.text:
                     await queue.put(AgentEvent(
                         type=AgentEventType.MESSAGE,
-                        payload={"text": response.text},
+                        payload={"text": response.text, "full": True},
                     ))
                 await self._emit_done(
                     ctx, queue, trace, finish_reason="stop",

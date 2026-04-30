@@ -1036,7 +1036,7 @@ app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__fil
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
 
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 from werkzeug.utils import secure_filename
 from flask import send_from_directory
@@ -3335,7 +3335,7 @@ def update_user_taste(user, model_used, answer_text, user_question=""):
                 
                 Respond ONLY with JSON.
                 """
-                model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
+                model = genai.GenerativeModel('models/gemini-1.5-flash')
                 response = model.generate_content(persona_prompt)
                 analysis = json.loads(response.text.strip().strip('```json').strip('```'))
                 
@@ -5069,26 +5069,37 @@ def ask():
                 'balance': balance_final
             }), 402
 
-    # ── HEURISTIC GUARDRAIL FOR AGENT MODE ──────────────
+    # ── ADVANCED HEURISTIC GUARDRAIL FOR AGENT MODE ──────────────
+    routing_audit = "Standard Mode"
     if agent_mode:
         q_clean = question.lower().strip()
         words = q_clean.split()
+        
+        # Heuristics for skipping Agent Mode even if enabled
         is_trivial = False
-        
         chat_keywords = {'selam', 'merhaba', 'nasılsın', 'teşekkürler', 'sa', 'as', 'teşekkür', 'günaydın', 'iyi akşamlar', 'hi', 'hello', 'selamlar', 'naber'}
+        action_keywords = {'araştır', 'search', 'bul', 'find', 'getir', 'fetch', 'oku', 'read', 'yaz', 'write', 'değiştir', 'edit', 'sil', 'delete', 'listele', 'list', 'check', 'kontrol', 'dosya', 'file', 'proje', 'project', 'repo', 'github'}
         
-        if len(words) < 5:
-            if any(w in chat_keywords for w in words):
-                is_trivial = True
-            elif 'nedir' in q_clean or 'kimdir' in q_clean:
-                if len(words) < 3:
-                    is_trivial = True
-                
+        has_action = any(kw in q_clean for kw in action_keywords)
+        is_greeting = len(words) < 3 and any(w in chat_keywords for w in words)
+        is_short_general = len(words) < 8 and not has_action
+        
+        if is_greeting:
+            is_trivial = True
+            routing_audit = "Skipped Agent Mode (Greeting detected)"
+        elif is_short_general:
+            is_trivial = True
+            routing_audit = "Skipped Agent Mode (Short general query)"
+        else:
+            routing_audit = "Active Agent Mode (Complex/Actionable query)"
+
         if is_trivial:
             agent_mode = False
-            routing_reason = "🛡️ Basit/Sohbet amaçlı istek tespit edildi, Agent Modu atlandı."
-            print(f"DEBUG: Agent mode overridden by guardrail for trivial query: '{question}'")
-    # ────────────────────────────────────────────────────
+            routing_reason = f"🛡️ {routing_audit}, Normal Mod kullanılıyor."
+            print(f"DEBUG: [RoutingAudit] {routing_audit} for query: '{question[:50]}...'")
+        else:
+            print(f"DEBUG: [RoutingAudit] {routing_audit} triggered for query: '{question[:50]}...'")
+    # ─────────────────────────────────────────────────────────────
 
     answer = ""
     agent_trace = []
@@ -5337,31 +5348,33 @@ def ask():
             # 3. Handle Token Deduction & Taste Profile (Always if user exists)
             if current_user:
                 try:
-                    # AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
-                    update_user_taste(current_user, model, full_answer, question)
+                    # 💰 TOKEN EKONOMİSİ — Harcamayı düş (Sadece başarılı yanıtlarda)
+                    if full_answer and len(full_answer.strip()) > 0:
+                        # AI Taste Profile Güncelle (Öğrenme + Persona Analizi)
+                        update_user_taste(current_user, model, full_answer, question)
 
-                    # 💰 TOKEN EKONOMİSİ — Harcamayı düş
-                    # Determine description based on no_save/is_compare
-                    is_compare = _parse_bool(payload.get('is_compare'))
-                    if is_compare or no_save:
-                        token_desc = f"Compare: {question[:30]}..."
+                        is_compare = _parse_bool(payload.get('is_compare'))
+                        if is_compare or no_save:
+                            token_desc = f"Compare: {question[:30]}..."
+                        else:
+                            token_desc = f"Chat: {question[:30]}..."
+
+                        # Reference ID is only available if we saved to history
+                        ref_id = None
+                        if 'history' in locals() and history:
+                            ref_id = history.id
+
+                        success, new_bal = deduct_tokens(
+                            current_user,
+                            model,
+                            description=token_desc,
+                            reference_id=ref_id
+                        )
+                        final_data['new_token_balance'] = new_bal
+                        if not success:
+                            final_data['token_warning'] = 'Token düşümü yapılamadı. Bakiye yetersiz olabilir.'
                     else:
-                        token_desc = f"Chat: {question[:30]}..."
-
-                    # Reference ID is only available if we saved to history
-                    ref_id = None
-                    if 'history' in locals() and history:
-                        ref_id = history.id
-
-                    success, new_bal = deduct_tokens(
-                        current_user,
-                        model,
-                        description=token_desc,
-                        reference_id=ref_id
-                    )
-                    final_data['new_token_balance'] = new_bal
-                    if not success:
-                        final_data['token_warning'] = 'Token düşümü yapılamadı. Bakiye yetersiz olabilir.'
+                        print(f"DEBUG: Skipping token deduction for empty/failed response (User: {current_user.id})")
 
                     # Soru sorma XP ödülü (sadece yeni geçmiş oluşturuluyorsa veya karşılaştırma ise)
                     # Karşılaştırma için yarım XP verelim? Ya da tam verelim.

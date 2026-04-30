@@ -84,6 +84,7 @@ class AgentRuntime:
             get_memory_fn=get_memory_fn,
         )
         self._compressor = ContextCompressor()
+        self._seq_counter = 0  # <--- NEW: Track event sequence for frontend ordering
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -94,12 +95,13 @@ class AgentRuntime:
         Intended for use in a FastAPI StreamingResponse.
         """
         run_id = request.get("run_id") or f"run_{uuid.uuid4().hex[:8]}"
+        self._seq_counter = 0 # Reset for new stream
 
         # ── Step 0: Optimize Prompt ───────────────────────────────────────
         try:
             self._run_prompt_optimization(request)
         except ValueError as e:
-            yield error_event(str(e), code="VALIDATION_ERROR")
+            yield error_event(str(e), code="VALIDATION_ERROR", seq=self._next_seq())
             return
 
         ctx = await self._build_context(request, run_id=run_id)
@@ -116,22 +118,27 @@ class AgentRuntime:
             project_id=ctx.project_id,
             tools_available=tool_names,
             intent=request.get("intent"),
-            optimizer_version=request.get("optimizer_version")
+            optimizer_version=request.get("optimizer_version"),
+            seq=self._next_seq()
         )
 
         try:
             adapter = self._dispatcher.get(provider)
         except Exception as exc:
-            yield error_event(str(exc), code="ADAPTER_ERROR")
+            yield error_event(str(exc), code="ADAPTER_ERROR", seq=self._next_seq())
             return
 
         loop = AgentLoop(adapter, self.registry, self._compressor)
 
         try:
             async for event in loop.run(ctx):
-                yield self._event_to_sse(event)
+                yield self._event_to_sse(event, seq=self._next_seq())
         except Exception as exc:
-            yield error_event(str(exc), code="RUNTIME_ERROR")
+            yield error_event(str(exc), code="RUNTIME_ERROR", seq=self._next_seq())
+
+    def _next_seq(self) -> int:
+        self._seq_counter += 1
+        return self._seq_counter
 
     async def run_sync(self, request: Dict[str, Any]) -> AgentResult:
         """
@@ -289,7 +296,7 @@ class AgentRuntime:
         )
 
     @staticmethod
-    def _event_to_sse(event: AgentEvent) -> str:
+    def _event_to_sse(event: AgentEvent, seq: Optional[int] = None) -> str:
         """Convert an AgentEvent to a raw SSE data string."""
         etype = event.type
         payload = event.payload
@@ -299,6 +306,7 @@ class AgentRuntime:
                 step=payload.get("step", 0),
                 name=payload.get("name", ""),
                 args=payload.get("args") or {},
+                seq=seq
             )
         if etype == AgentEventType.TOOL_RESULT:
             return tool_result_event(
@@ -308,9 +316,10 @@ class AgentRuntime:
                 summary=payload.get("summary", ""),
                 result=payload.get("result") or {},
                 duration_ms=payload.get("duration_ms", 0.0),
+                seq=seq
             )
         if etype == AgentEventType.MESSAGE:
-            return message_event(payload.get("text", ""))
+            return message_event(payload.get("text", ""), seq=seq)
         if etype == AgentEventType.DONE:
             return done_event(
                 run_id=payload.get("run_id", ""),
@@ -320,11 +329,13 @@ class AgentRuntime:
                 trace=payload.get("trace") or [],
                 changed_files=payload.get("changed_files") or [],
                 pending_confirmations=payload.get("pending_confirmations") or [],
+                seq=seq
             )
         if etype == AgentEventType.ERROR:
             return error_event(
                 message=payload.get("message", "Unknown error"),
                 code=payload.get("code", "AGENT_ERROR"),
+                seq=seq
             )
         # metadata and reasoning passthrough
-        return build_sse_event(SSEEventType(etype.value), payload)
+        return build_sse_event(SSEEventType(etype.value), payload, seq=seq)

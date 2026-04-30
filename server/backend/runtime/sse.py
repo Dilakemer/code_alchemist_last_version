@@ -28,15 +28,22 @@ class SSEEventType(str, Enum):
     ERROR       = "error"
 
 
-def build_sse_event(event_type: SSEEventType, payload: Dict[str, Any]) -> str:
+def build_sse_event(event_type: SSEEventType, payload: Dict[str, Any], seq: Optional[int] = None) -> str:
     """
     Serialize an event to a raw SSE string ready to stream to the client.
 
-    Format::
+    Standardized Envelope::
 
-        data: {"type": "...", ...}\n\n
+        data: {"type": "...", "ts": 123.45, "seq": 1, ...}\n\n
     """
-    data = {"type": event_type.value, **payload}
+    import time
+    data = {
+        "type": event_type.value,
+        "ts": time.time(),
+        **payload
+    }
+    if seq is not None:
+        data["seq"] = seq
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
@@ -50,6 +57,7 @@ def metadata_event(
     tools_available: List[str],
     intent: Optional[str] = None,
     optimizer_version: Optional[str] = None,
+    seq: Optional[int] = None,
 ) -> str:
     payload = {
         "run_id": run_id,
@@ -63,23 +71,23 @@ def metadata_event(
         payload["optimized"] = True
     if optimizer_version:
         payload["optimizer_version"] = optimizer_version
-    return build_sse_event(SSEEventType.METADATA, payload)
+    return build_sse_event(SSEEventType.METADATA, payload, seq=seq)
 
 
-def status_event(message: str) -> str:
-    return build_sse_event(SSEEventType.STATUS, {"message": message})
+def status_event(message: str, seq: Optional[int] = None) -> str:
+    return build_sse_event(SSEEventType.STATUS, {"message": message}, seq=seq)
 
 
-def reasoning_event(text: str) -> str:
-    return build_sse_event(SSEEventType.REASONING, {"text": text})
+def reasoning_event(text: str, seq: Optional[int] = None) -> str:
+    return build_sse_event(SSEEventType.REASONING, {"text": text}, seq=seq)
 
 
-def tool_call_event(step: int, name: str, args: Dict[str, Any]) -> str:
+def tool_call_event(step: int, name: str, args: Dict[str, Any], seq: Optional[int] = None) -> str:
     return build_sse_event(SSEEventType.TOOL_CALL, {
         "step": step,
         "name": name,
         "args": args,
-    })
+    }, seq=seq)
 
 
 def tool_result_event(
@@ -89,6 +97,7 @@ def tool_result_event(
     summary: str,
     result: Dict[str, Any],
     duration_ms: float = 0.0,
+    seq: Optional[int] = None,
 ) -> str:
     return build_sse_event(SSEEventType.TOOL_RESULT, {
         "step": step,
@@ -97,11 +106,11 @@ def tool_result_event(
         "summary": summary,
         "result": result,
         "duration_ms": duration_ms,
-    })
+    }, seq=seq)
 
 
-def message_event(text: str) -> str:
-    return build_sse_event(SSEEventType.MESSAGE, {"text": text})
+def message_event(text: str, seq: Optional[int] = None) -> str:
+    return build_sse_event(SSEEventType.MESSAGE, {"text": text}, seq=seq)
 
 
 def done_event(
@@ -112,6 +121,7 @@ def done_event(
     trace: List[Dict[str, Any]],
     changed_files: List[Dict[str, Any]],
     pending_confirmations: Optional[List[Dict[str, Any]]] = None,
+    seq: Optional[int] = None,
 ) -> str:
     return build_sse_event(SSEEventType.DONE, {
         "run_id": run_id,
@@ -121,11 +131,11 @@ def done_event(
         "trace": trace,
         "changed_files": changed_files,
         "pending_confirmations": pending_confirmations or [],
-    })
+    }, seq=seq)
 
 
-def error_event(message: str, code: str = "AGENT_ERROR") -> str:
+def error_event(message: str, code: str = "AGENT_ERROR", seq: Optional[int] = None) -> str:
     return build_sse_event(SSEEventType.ERROR, {
         "message": message,
         "code": code,
-    })
+    }, seq=seq)
