@@ -458,7 +458,7 @@ class TokenTransaction(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     # Pozitif = kazanç/satın alma, Negatif = harcama
     amount = db.Column(db.Integer, nullable=False)
-    # 'purchase' | 'usage' | 'refund' | 'bonus' | 'signup_grant'
+    # 'purchase' | 'usage' | 'refund' | 'bonus' | 'signup_grant' | 'monthly_grant'
     type = db.Column(db.String(20), nullable=False, index=True)
     description = db.Column(db.String(255), nullable=True)
     # Stripe payment_intent_id veya history_id referansı

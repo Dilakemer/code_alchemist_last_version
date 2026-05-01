@@ -441,6 +441,7 @@ TOKEN_COSTS = {
 }
 
 SIGNUP_GRANT_TOKENS = 100  # Yeni kullanıcıya verilen ücretsiz başlangıç token'ı
+MONTHLY_GRANT_TOKENS = 100  # Her ay başında korunacak minimum token hakkı
 
 DEFAULT_TOKEN_PACKAGES = [
     {
@@ -3621,7 +3622,7 @@ def serialize_user(user: User) -> dict:
         except:
             pass
             
-    token_wallet = getattr(user, 'token_balance', None)
+    token_wallet = get_or_create_token_balance(user)
     tokens = token_wallet.balance if token_wallet else SIGNUP_GRANT_TOKENS
 
     return {
@@ -3720,6 +3721,52 @@ def get_or_create_token_balance(user: User) -> TokenBalance:
         )
         db.session.add(grant_tx)
         db.session.commit()
+    _ensure_monthly_token_grant(user, wallet)
+    return wallet
+
+
+def _ensure_monthly_token_grant(user: User, wallet: TokenBalance) -> TokenBalance:
+    """Yeni ayda kullanıcı tokenlarını en az aylık kotaya tamamlar.
+
+    Signup grant, oluşturulduğu ay için zaten aylık hak sayılır; bu yüzden aynı ayda
+    yeniden grant verilmez. Eski aylarda ise ilk erişimde wallet 100'e tamamlanır.
+    """
+    current_month_key = _utcnow().strftime('%Y-%m')
+
+    latest_monthly_grant = (
+        TokenTransaction.query
+        .filter_by(user_id=user.id, type='monthly_grant')
+        .order_by(TokenTransaction.created_at.desc())
+        .first()
+    )
+    if latest_monthly_grant and latest_monthly_grant.created_at and latest_monthly_grant.created_at.strftime('%Y-%m') == current_month_key:
+        return wallet
+
+    latest_signup_grant = (
+        TokenTransaction.query
+        .filter_by(user_id=user.id, type='signup_grant')
+        .order_by(TokenTransaction.created_at.desc())
+        .first()
+    )
+    if latest_signup_grant and latest_signup_grant.created_at and latest_signup_grant.created_at.strftime('%Y-%m') == current_month_key:
+        return wallet
+
+    current_balance = wallet.balance or 0
+    grant_amount = max(0, MONTHLY_GRANT_TOKENS - current_balance)
+    wallet.balance = current_balance + grant_amount
+
+    monthly_tx = TokenTransaction(
+        user_id=user.id,
+        amount=grant_amount,
+        type='monthly_grant',
+        description=(
+            f'Aylık token yenilemesi — {grant_amount} token'
+            if grant_amount > 0
+            else 'Aylık token yenilemesi — bakiye zaten yeterli'
+        ),
+    )
+    db.session.add(monthly_tx)
+    db.session.commit()
     return wallet
 
 
@@ -8792,12 +8839,7 @@ def token_usage():
     user_id = user.id
     limit = max(1, min(int(request.args.get('limit', 10)), 50))
     try:
-        balance_record = TokenBalance.query.filter_by(user_id=user_id).first()
-        if not balance_record:
-            # Hesap yoksa oluştur (graceful init)
-            balance_record = TokenBalance(user_id=user_id, balance=0, total_spent=0)
-            db.session.add(balance_record)
-            db.session.commit()
+        balance_record = get_or_create_token_balance(user)
 
         transactions = (
             TokenTransaction.query
@@ -9576,7 +9618,7 @@ def vscode_consume_otp():
             'id': user.id,
             'email': user.email,
             'display_name': user.display_name,
-            'tokens': user.token_balance.balance if user.token_balance else 0
+            'tokens': get_or_create_token_balance(user).balance
         }
     })
 
@@ -10264,18 +10306,15 @@ def external_status():
     user = User.query.get(key_record.user_id)
     
     # Ensure TokenBalance record exists (SaaS resilience)
-    if user and not user.token_balance:
-        from models import TokenBalance
-        new_balance = TokenBalance(user_id=user.id, balance=SIGNUP_GRANT_TOKENS)
-        db.session.add(new_balance)
-        db.session.commit()
+    if user:
+        get_or_create_token_balance(user)
     
     # Dynamically resolve purchase URL based on configuration or current host
     base_url = _get_iyzico_frontend_base_url()
     purchase_url = f"{base_url}/billing"
 
     # Diagnostic logging for VS Code connection
-    reported_balance = user.token_balance.balance if user and user.token_balance else 0
+    reported_balance = get_or_create_token_balance(user).balance if user else 0
     print(f"[VSCODE] FINAL SYNC: {user.email if user else 'N/A'} | Balance: {reported_balance} | URL: {purchase_url}")
 
     return jsonify({
