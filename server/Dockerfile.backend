@@ -24,4 +24,4 @@ RUN mkdir -p /app/instance /app/uploads /app/static/generated
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} --worker-class gthread --threads 8 -w 1 --timeout 120 app:app"]
+CMD ["sh", "-c", "uvicorn backend.app_factory:create_app --factory --host 0.0.0.0 --port ${PORT}"]

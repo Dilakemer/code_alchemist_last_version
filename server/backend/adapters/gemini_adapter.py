@@ -367,8 +367,13 @@ class GeminiAdapter(BaseAdapter):
             def _sync_stream():
                 accumulated_text = ""
                 accumulated_thought = ""
+                # Normalize model name: ensure it has models/ prefix
+                model_name = config.model
+                if not model_name.startswith("models/"):
+                    model_name = f"models/{model_name}"
+                
                 it = self._client.models.generate_content_stream(
-                    model=config.model,
+                    model=model_name,
                     contents=contents,
                     config=gen_config,
                 )
@@ -401,10 +406,15 @@ class GeminiAdapter(BaseAdapter):
             response = final_response
         else:
             # ── Legacy Non-Streaming Path ────────────────────────────────
+            # Normalize model name: ensure it has models/ prefix
+            model_name = config.model
+            if not model_name.startswith("models/"):
+                model_name = f"models/{model_name}"
+            
             response = await loop.run_in_executor(
                 None,
                 lambda: self._client.models.generate_content(
-                    model=config.model,
+                    model=model_name,
                     contents=contents,
                     config=gen_config,
                 ),
@@ -474,8 +484,13 @@ class GeminiAdapter(BaseAdapter):
         def _produce():
             """Run in thread-pool; push each SDK chunk into the queue."""
             try:
+                # Normalize model name: ensure it has models/ prefix
+                model_name = config.model
+                if not model_name.startswith("models/"):
+                    model_name = f"models/{model_name}"
+                
                 stream_iter = self._client.models.generate_content_stream(
-                    model=config.model,
+                    model=model_name,
                     contents=contents,
                     config=gen_config,
                 )

@@ -1305,7 +1305,7 @@ function App() {
           setChatHistory(prev => prev.map(item =>
             item.id === tempId && !receivedDoneEvent ? { ...item, agent_is_stuck: true } : item
           ));
-        }, 15000);
+        }, 5000); // Reduced from 15s to 5s for faster timeout detection
       };
       resetWatchdog();
 
@@ -1318,16 +1318,23 @@ function App() {
 
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
-        const lines = buffer.split('\n\n');
+        
+        // More robust SSE parsing: handle both \n\n and flexible whitespace
+        // Split on double newline (with optional whitespace)
+        const eventBlocks = buffer.split(/\n\s*\n/);
 
-        // Keep the last part in buffer if it's not empty (incomplete event)
-        buffer = lines.pop() || "";
+        // Keep the last incomplete block in buffer
+        buffer = eventBlocks.pop() || "";
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const jsonStr = line.slice(6);
-              const data = JSON.parse(jsonStr);
+        for (const block of eventBlocks) {
+          // Each block might have multiple 'data: ' lines, so split and process each
+          const blockLines = block.split('\n');
+          for (const line of blockLines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const jsonStr = trimmed.slice(6);
+                const data = JSON.parse(jsonStr);
               resetWatchdog();
 
               // Event ordering & duplication guard
@@ -1572,6 +1579,40 @@ function App() {
           }
         }
       }
+
+      // Process any remaining data in buffer (incomplete event that arrived before stream end)
+      if (buffer.trim()) {
+        const blockLines = buffer.split('\n');
+        for (const line of blockLines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const jsonStr = trimmed.slice(6);
+              const data = JSON.parse(jsonStr);
+              resetWatchdog();
+              
+              // Reuse standard chunk processing logic
+              if (data.chunk || data.type === 'message') {
+                const textChunk = data.chunk || data.text || "";
+                if (!firstChunkTime) firstChunkTime = Date.now();
+                aiResponseAccumulator += textChunk;
+                setChatHistory(prev => prev.map(item =>
+                  item.id === tempId ? { ...item, ai_response: aiResponseAccumulator, agent_is_stuck: false } : item
+                ));
+              }
+              
+              if (data.done || data.type === 'done') {
+                receivedDoneEvent = true;
+              }
+            } catch (e) {
+              console.error("Error parsing trailing SSE buffer", e);
+            }
+          }
+        }
+      }
+
+      // Defensive: if stream ended without done event, finalize response
+      if (watchdogTimer) clearTimeout(watchdogTimer);
 
       // Stream may end without an explicit done event; finalize timing/metadata defensively.
       if (!receivedDoneEvent) {

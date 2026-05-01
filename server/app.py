@@ -855,6 +855,8 @@ SUPPORTED_GEMINI_AGENT_MODELS = (
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
     'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
 )
 
 
@@ -869,7 +871,12 @@ def _is_agent_model_supported(provider: str, model: str) -> bool:
         if model_lc.startswith('gemma-'):
             return True
         # Agent Mode allows Gemini text/tool-calling families.
-        return any(model_lc.startswith(prefix) for prefix in SUPPORTED_GEMINI_AGENT_MODELS)
+        # Also allow any gemini model that contains 'flash' (more permissive)
+        if any(model_lc.startswith(prefix) for prefix in SUPPORTED_GEMINI_AGENT_MODELS):
+            return True
+        # Fallback: if it's a gemini model with 'flash' in the name, allow it
+        if 'gemini' in model_lc and 'flash' in model_lc:
+            return True
 
     return False
 
@@ -5195,6 +5202,15 @@ def ask():
             'agent_workspace_file_count': len(workspace_files or []),
         }
         yield f"data: {json.dumps(early_meta)}\n\n"
+        
+        # For agent mode, send an immediate placeholder to show the system is working
+        if agent_mode and model != 'dall-e-3':
+            placeholder = {
+                'type': 'status',
+                'message': '🔄 Agent is processing your request...',
+                'step': 0,
+            }
+            yield f"data: {json.dumps(placeholder)}\n\n"
         
         generator = None
         
