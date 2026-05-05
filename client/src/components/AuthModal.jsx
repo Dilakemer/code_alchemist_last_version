@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { GOOGLE_CLIENT_ID } from '../config';
 
 const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
   const [authMode, setAuthMode] = useState('login'); // login, register, forgot, reset
@@ -12,8 +13,106 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const googleButtonRef = useRef(null);
+  const onSuccessRef = useRef(onSuccess);
+  const apiBaseRef = useRef(apiBase);
 
   const isPasswordStrong = (pwd) => /^(?=.*[a-z])(?=.*[A-Z]).{8,}$/.test(pwd);
+
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
+
+  useEffect(() => {
+    apiBaseRef.current = apiBase;
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (!open || authMode !== 'login' || !GOOGLE_CLIENT_ID || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const handleGoogleCredential = async (response) => {
+      if (!response?.credential) {
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+      setSuccessMessage('');
+
+      try {
+        const res = await fetch(`${apiBaseRef.current}/api/auth/google`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: response.credential })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          onSuccessRef.current(data);
+        } else {
+          setError(data.error || 'Google sign-in failed.');
+        }
+      } catch (err) {
+        console.error(err);
+        setError('A connection error occurred');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const renderGoogleButton = () => {
+      if (cancelled || !googleButtonRef.current || !window.google?.accounts?.id) {
+        return;
+      }
+
+      googleButtonRef.current.innerHTML = '';
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredential
+      });
+
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        shape: 'pill',
+        text: 'continue_with',
+        width: 320,
+        logo_alignment: 'left'
+      });
+    };
+
+    const existingScript = document.querySelector('script[data-google-gis="true"]');
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const script = existingScript || document.createElement('script');
+    const onLoad = () => renderGoogleButton();
+
+    if (!existingScript) {
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.dataset.googleGis = 'true';
+      script.addEventListener('load', onLoad);
+      document.head.appendChild(script);
+    } else {
+      existingScript.addEventListener('load', onLoad);
+    }
+
+    return () => {
+      cancelled = true;
+      script.removeEventListener('load', onLoad);
+    };
+  }, [open, authMode]);
 
   if (!open) return null;
 
@@ -204,6 +303,19 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
             >
               {authMode === 'login' ? 'Login' : 'Register'}
             </button>
+
+            {authMode === 'login' && GOOGLE_CLIENT_ID && (
+              <>
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="h-px flex-1 bg-gray-800" />
+                  <span className="text-[10px] uppercase tracking-[0.24em] text-gray-500">or</span>
+                  <div className="h-px flex-1 bg-gray-800" />
+                </div>
+                <div className="rounded-xl border border-gray-800 bg-black/25 p-2 flex justify-center">
+                  <div ref={googleButtonRef} className="min-h-[44px] flex items-center justify-center" />
+                </div>
+              </>
+            )}
           </form>
         )}
 

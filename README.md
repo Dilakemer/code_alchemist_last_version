@@ -71,7 +71,11 @@ DATABASE_URL=postgresql://user:pass@host:5432/db
 # Security
 SECRET_KEY=your_secret_key
 JWT_SECRET_KEY=your_jwt_secret
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
 ```
+
+Google sign-in uses Google Identity Services in the browser and verifies the ID token on the Flask backend.
 
 ## 🌐 Deployment
 

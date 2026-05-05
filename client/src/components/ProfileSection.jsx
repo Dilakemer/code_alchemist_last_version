@@ -50,7 +50,6 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout, onShow
     );
 
     const handleDeleteAccount = async () => {
-        if (!deletePassword) return;
         const success = await deleteAccount(deletePassword);
         if (success) {
             setDeletePassword('');
@@ -366,7 +365,7 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout, onShow
                     <div className="bg-gray-900 border border-red-900/50 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
                         <h2 className="text-xl font-bold text-white mb-2">Are you sure you want to delete your account?</h2>
                         <p className="text-sm text-gray-400 mb-6">
-                            This action cannot be undone. Please enter your password to continue.
+                            This action cannot be undone. {deletePassword === '' ? 'Confirm below to continue.' : 'Please enter your password to continue.'}
                         </p>
 
                         {message.type === 'error' && message.text && (
@@ -378,7 +377,7 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout, onShow
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-xs font-medium text-gray-400 mb-1">
-                                    Your Password
+                                    Your Password (optional)
                                 </label>
                                 <div className="relative">
                                     <input
@@ -405,7 +404,7 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout, onShow
                                 </button>
                                 <button
                                     onClick={handleDeleteAccount}
-                                    disabled={isDeleting || !deletePassword}
+                                    disabled={isDeleting}
                                     className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-bold transition-colors disabled:opacity-50"
                                 >
                                     {isDeleting ? 'Deleting...' : 'Delete Account'}

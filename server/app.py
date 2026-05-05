@@ -99,7 +99,12 @@ def _classify_openai_error(error: Exception) -> str:
 def _normalize_gemini_model_name(model_name):
     if not model_name:
         return model_name
-    return model_name.replace('models/', '', 1) if model_name.startswith('models/') else model_name
+    # Ensure the model string uses the full resource path expected by the
+    # Google GenAI client (e.g. "models/gemini-2.5-flash"). Some places in
+    # config may omit the "models/" prefix while others include it; always
+    # normalize to include the prefix to avoid mismatches that cause some
+    # Gemini variants to fail when called.
+    return model_name if model_name.startswith('models/') else f"models/{model_name}"
 
 
 def _utcnow():
@@ -322,6 +327,21 @@ class _GeminiCompatModel:
                 if not yielded_any and full_raw_for_fallback:
                     yield SimpleNamespace(text=_clean_gemma_output(full_raw_for_fallback, question))
 
+                # Some Gemini variants expose no usable text through the stream API.
+                # Retry once with the non-stream response shape before giving up.
+                if not yielded_any:
+                    response = self._client.models.generate_content(
+                        model=self._model_name,
+                        contents=normalized_contents,
+                        config=config,
+                    )
+                    final_text = _extract_gemini_text(response, question)
+                    if final_text:
+                        print(f"Gemini stream fallback succeeded for {self._model_name} (len={len(final_text)})")
+                        yield SimpleNamespace(text=final_text)
+                    else:
+                        print(f"Gemini stream and fallback were empty for {self._model_name}")
+
 
             return _iter_stream()
 
@@ -331,6 +351,8 @@ class _GeminiCompatModel:
             config=config,
         )
         text = _extract_gemini_text(response, question)
+        if not text:
+            print(f"Gemini non-stream response was empty for {self._model_name}")
         return SimpleNamespace(
             text=text,
             content=[SimpleNamespace(text=text)] if text else []
@@ -450,6 +472,7 @@ DEFAULT_TOKEN_PACKAGES = [
         'description': 'Solo kullanım ve hafif deneme akışları için.',
         'tokens': 500,
         'price_usd': 5.0,
+        'price_try': 175.0,
         'bonus_pct': 0,
     },
     {
@@ -458,6 +481,7 @@ DEFAULT_TOKEN_PACKAGES = [
         'description': 'Sürekli üretim akışı olan bireyler ve küçük ekipler için.',
         'tokens': 2000,
         'price_usd': 15.0,
+        'price_try': 495.0,
         'bonus_pct': 5,
     },
     {
@@ -466,6 +490,7 @@ DEFAULT_TOKEN_PACKAGES = [
         'description': 'Yoğun kullanım ve ekip içi denemeler için.',
         'tokens': 8000,
         'price_usd': 49.0,
+        'price_try': 1590.0,
         'bonus_pct': 10,
     },
     {
@@ -474,6 +499,7 @@ DEFAULT_TOKEN_PACKAGES = [
         'description': 'Kurumsal ekipler ve yüksek hacimli kullanım için.',
         'tokens': 20000,
         'price_usd': 99.0,
+        'price_try': 2990.0,
         'bonus_pct': 15,
     },
 ]
@@ -1043,8 +1069,8 @@ if database_url.startswith("postgres://"):
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 # Pool Optimization for Concurrency
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': 10,
-    'max_overflow': 20,
+    'pool_size': 50,
+    'max_overflow': 150,
     'pool_recycle': 1800,
     'pool_pre_ping': True
 }
@@ -3126,7 +3152,7 @@ def get_leaderboard():
         leaderboard.append({
             'user_id': u.id,
             'display_name': u.display_name,
-            'profile_image': f"/api/files/{os.path.basename(u.profile_image)}" if u.profile_image else None,
+            'profile_image': _serialize_profile_image(u.profile_image),
             'level': user_level,
             'total_xp': total_xp,
             'rank': idx + 1,
@@ -3543,6 +3569,14 @@ Respond with ONLY the category name (one word, no punctuation):"""
 
 # --- SERİALİZASYON VE YARDIMCI FONKSİYONLAR ---
 
+def _serialize_profile_image(image_value):
+    if not image_value:
+        return None
+    image_str = str(image_value).strip()
+    if image_str.startswith('http://') or image_str.startswith('https://'):
+        return image_str
+    return f"/api/files/{os.path.basename(image_str)}"
+
 def serialize_history(item: History) -> dict:
     # Kullanıcı bilgisini conversation üzerinden al
     author_name = None
@@ -3552,7 +3586,7 @@ def serialize_history(item: History) -> dict:
         author_name = item.conversation.user.display_name
         author_id = item.conversation.user.id
         if item.conversation.user.profile_image:
-            author_image = f"/uploads/{os.path.basename(item.conversation.user.profile_image)}"
+            author_image = _serialize_profile_image(item.conversation.user.profile_image)
     
     data = {
         'id': item.id,
@@ -3631,7 +3665,7 @@ def serialize_user(user: User) -> dict:
         'display_name': user.display_name,
         'bio': prefs.get('bio', '') if isinstance(prefs, dict) else '',
         'is_admin': user.is_admin,
-        'profile_image': f"/api/files/{os.path.basename(str(user.profile_image))}" if user.profile_image else None,
+        'profile_image': _serialize_profile_image(user.profile_image),
         'created_at': user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else None,
         'preferences': prefs,
         'xp': getattr(user, 'xp', 0),
@@ -3644,6 +3678,75 @@ def serialize_user(user: User) -> dict:
         'tokens': tokens
 
     }
+
+
+def _normalize_google_display_name(name: str, email: str) -> str:
+    base_name = (name or email.split('@')[0] or 'google_user').strip()
+    safe_name = re.sub(r'[^a-zA-Z0-9._-]+', '_', base_name).strip('._-') or 'google_user'
+    candidate = safe_name[:120]
+    suffix = 1
+
+    while User.query.filter_by(display_name=candidate).first():
+        suffix += 1
+        candidate = f"{safe_name[:110]}_{suffix}"
+
+    return candidate
+
+
+def _exchange_google_credential(credential: str) -> tuple[dict, int]:
+    google_client_id = os.getenv('GOOGLE_CLIENT_ID') or os.getenv('VITE_GOOGLE_CLIENT_ID')
+    if not google_client_id:
+        return {'error': 'GOOGLE_CLIENT_ID is not configured on the server.'}, 500
+
+    try:
+        import requests
+
+        response = requests.get(
+            'https://oauth2.googleapis.com/tokeninfo',
+            params={'id_token': credential},
+            timeout=10,
+        )
+        info = response.json()
+    except Exception as exc:
+        print(f"[AUTH] Google token verification error: {exc}")
+        return {'error': 'Google token verification failed.'}, 400
+
+    if not isinstance(info, dict) or info.get('error'):
+        return {'error': info.get('error_description') or 'Invalid Google credential.'}, 401
+
+    if info.get('aud') != google_client_id:
+        return {'error': 'Google credential audience mismatch.'}, 401
+
+    if info.get('email_verified') not in (True, 'true', 'True'):
+        return {'error': 'Google account email is not verified.'}, 401
+
+    email = (info.get('email') or '').strip().lower()
+    if not email:
+        return {'error': 'Google credential did not include an email address.'}, 401
+
+    user = User.query.filter_by(email=email).first()
+    created = False
+
+    if not user:
+        created = True
+        display_name = _normalize_google_display_name(info.get('name') or '', email)
+        user = User(
+            email=email,
+            display_name=display_name,
+            password_hash=hash_password(secrets.token_urlsafe(32)),
+            profile_image=info.get('picture') or None,
+        )
+        db.session.add(user)
+        db.session.flush()
+        get_or_create_token_balance(user)
+    elif not user.profile_image and info.get('picture'):
+        user.profile_image = info.get('picture')
+
+    db.session.commit()
+
+    token = create_access_token(identity=str(user.id))
+    status_code = 201 if created else 200
+    return {'token': token, 'user': serialize_user(user)}, status_code
 
 def hash_password(password: str) -> str:
     return pbkdf2_sha256.hash(password)
@@ -3721,53 +3824,62 @@ def get_or_create_token_balance(user: User) -> TokenBalance:
         )
         db.session.add(grant_tx)
         db.session.commit()
-    _ensure_monthly_token_grant(user, wallet)
+    # Not: Aylık otomatik grant artık yoktur. Sadece paket satın alma sırasında renewal yapılır.
     return wallet
 
 
-def _ensure_monthly_token_grant(user: User, wallet: TokenBalance) -> TokenBalance:
-    """Yeni ayda kullanıcı tokenlarını en az aylık kotaya tamamlar.
 
-    Signup grant, oluşturulduğu ay için zaten aylık hak sayılır; bu yüzden aynı ayda
-    yeniden grant verilmez. Eski aylarda ise ilk erişimde wallet 100'e tamamlanır.
-    """
-    current_month_key = _utcnow().strftime('%Y-%m')
+# ============================================================
+# 🔧 ADMIN & RENEWAL MANAGEMENT
+# ============================================================
 
-    latest_monthly_grant = (
-        TokenTransaction.query
-        .filter_by(user_id=user.id, type='monthly_grant')
-        .order_by(TokenTransaction.created_at.desc())
+def check_and_apply_monthly_renewal(user_id: int) -> bool:
+    """Eğer renewal zamanı geldiyse, satın alınan token'ları yenile."""
+    purchase = (
+        TokenPurchase.query
+        .filter_by(user_id=user_id, status='completed', auto_renew=True)
+        .order_by(TokenPurchase.completed_at.desc())
         .first()
     )
-    if latest_monthly_grant and latest_monthly_grant.created_at and latest_monthly_grant.created_at.strftime('%Y-%m') == current_month_key:
-        return wallet
-
-    latest_signup_grant = (
-        TokenTransaction.query
-        .filter_by(user_id=user.id, type='signup_grant')
-        .order_by(TokenTransaction.created_at.desc())
-        .first()
+    if not purchase or not purchase.renewal_day:
+        return False
+    
+    wallet = TokenBalance.query.filter_by(user_id=user_id).first()
+    if not wallet:
+        return False
+    
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    
+    # Renewal zamanı kontrol et
+    if purchase.last_renewal_at is None:
+        # İlk kez, oluşturulma tarihine bak
+        purchase.last_renewal_at = purchase.completed_at
+    
+    last_renewal = purchase.last_renewal_at
+    next_renewal_date = last_renewal.replace(
+        month=(last_renewal.month % 12) + 1 if last_renewal.month < 12 else 1,
+        year=last_renewal.year if last_renewal.month < 12 else last_renewal.year + 1,
+        day=min(purchase.renewal_day, 28)  # 29-31 taarihler için 28 kullan
     )
-    if latest_signup_grant and latest_signup_grant.created_at and latest_signup_grant.created_at.strftime('%Y-%m') == current_month_key:
-        return wallet
-
-    current_balance = wallet.balance or 0
-    grant_amount = max(0, MONTHLY_GRANT_TOKENS - current_balance)
-    wallet.balance = current_balance + grant_amount
-
-    monthly_tx = TokenTransaction(
-        user_id=user.id,
-        amount=grant_amount,
-        type='monthly_grant',
-        description=(
-            f'Aylık token yenilemesi — {grant_amount} token'
-            if grant_amount > 0
-            else 'Aylık token yenilemesi — bakiye zaten yeterli'
-        ),
-    )
-    db.session.add(monthly_tx)
-    db.session.commit()
-    return wallet
+    
+    if now >= next_renewal_date:
+        # Yenile
+        wallet.balance += purchase.tokens_granted
+        purchase.last_renewal_at = now
+        
+        tx = TokenTransaction(
+            user_id=user_id,
+            amount=purchase.tokens_granted,
+            type='monthly_renewal',
+            description=f'{purchase.package_name} paketi otomatik yenileme — {purchase.tokens_granted} token',
+            reference_id=str(purchase.id)
+        )
+        db.session.add(tx)
+        db.session.commit()
+        return True
+    
+    return False
 
 
 def ensure_default_token_packages() -> None:
@@ -3797,6 +3909,131 @@ def _serialize_token_package(package: TokenPackage) -> dict:
         'is_active': package.is_active,
         'stripe_price_id': package.stripe_price_id,
         'created_at': package.created_at.isoformat() if package.created_at else None,
+    }
+
+
+# ============================================================
+# 📊 HAFTALIK/GÜNLÜK KOTA SİSTEMİ
+# ============================================================
+
+def calculate_weekly_reset_time():
+    """Pazar akşamı (UTC+0) 3:00 AM'deki reset zamanını döndür."""
+    from datetime import timedelta, datetime, timezone
+    now = datetime.now(timezone.utc)
+    days_since_sunday = (now.weekday() + 1) % 7  # Pazara göre
+    if days_since_sunday == 0:  # Eğer bugün Pazar
+        next_sunday = now + timedelta(weeks=1)
+    else:
+        next_sunday = now + timedelta(days=7 - days_since_sunday)
+    reset_time = next_sunday.replace(hour=3, minute=0, second=0, microsecond=0)
+    return reset_time
+
+
+def calculate_daily_reset_time():
+    """Yarın saat 00:00 UTC'deki reset zamanını döndür."""
+    from datetime import timedelta, datetime, timezone
+    now = datetime.now(timezone.utc)
+    tomorrow = now + timedelta(days=1)
+    reset_time = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+    return reset_time
+
+
+def reset_quota_if_needed(wallet: TokenBalance) -> bool:
+    """Eğer reset zamanı geçtiyse, kotaları sıfırla. True döndür = reset yapıldı."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    
+    reset_needed = False
+    
+    # Haftalık reset kontrolü
+    if wallet.weekly_reset_at and now >= wallet.weekly_reset_at:
+        wallet.weekly_used = 0
+        wallet.weekly_reset_at = calculate_weekly_reset_time()
+        reset_needed = True
+    
+    # Günlük reset kontrolü
+    if wallet.daily_reset_at and now >= wallet.daily_reset_at:
+        wallet.daily_used = 0
+        wallet.daily_reset_at = calculate_daily_reset_time()
+        reset_needed = True
+    
+    if reset_needed:
+        db.session.commit()
+    
+    return reset_needed
+
+
+def init_quota_for_new_user(wallet: TokenBalance) -> None:
+    """Yeni kullanıcı için kota zamanlarını başlat."""
+    if not wallet.weekly_reset_at:
+        wallet.weekly_reset_at = calculate_weekly_reset_time()
+    if not wallet.daily_reset_at:
+        wallet.daily_reset_at = calculate_daily_reset_time()
+    db.session.commit()
+
+
+def check_quota_available(wallet: TokenBalance, tokens_needed: int = 1) -> tuple[bool, str]:
+    """
+    Kota kontrolü yapıp, bool ve mesaj döndür.
+    Returns: (allowed: bool, reason: str)
+    """
+    reset_quota_if_needed(wallet)
+    
+    # Günlük limit kontrolü
+    if wallet.daily_used + tokens_needed > wallet.daily_limit:
+        remaining = max(0, wallet.daily_limit - wallet.daily_used)
+        return False, f"Günlük limit aşıldı. Kalan: {remaining} token. Reset: {wallet.daily_reset_at.isoformat() if wallet.daily_reset_at else 'N/A'}"
+    
+    # Haftalık limit kontrolü
+    if wallet.weekly_used + tokens_needed > wallet.weekly_limit:
+        remaining = max(0, wallet.weekly_limit - wallet.weekly_used)
+        return False, f"Haftalık limit aşıldı. Kalan: {remaining} token. Reset: {wallet.weekly_reset_at.isoformat() if wallet.weekly_reset_at else 'N/A'}"
+    
+    # Cüzdan bakiyesi kontrolü
+    if wallet.balance < tokens_needed:
+        return False, f"Yetersiz token bakiyesi. Kalan: {wallet.balance} token"
+    
+    return True, "OK"
+
+
+def deduct_tokens_and_update_quota(wallet: TokenBalance, amount: int) -> None:
+    """Token harca ve kota bilgilerini güncelle."""
+    reset_quota_if_needed(wallet)
+    wallet.balance -= amount
+    wallet.total_spent += amount
+    wallet.weekly_used += amount
+    wallet.daily_used += amount
+    db.session.commit()
+
+
+def get_quota_status(user_id: int) -> dict:
+    """Kullanıcının kota durumunu JSON olarak döndür."""
+    wallet = TokenBalance.query.filter_by(user_id=user_id).first()
+    if not wallet:
+        return None
+    
+    reset_quota_if_needed(wallet)
+    
+    weekly_used_pct = round((wallet.weekly_used / wallet.weekly_limit) * 100) if wallet.weekly_limit > 0 else 0
+    daily_used_pct = round((wallet.daily_used / wallet.daily_limit) * 100) if wallet.daily_limit > 0 else 0
+    
+    return {
+        'balance': wallet.balance,
+        'total_spent': wallet.total_spent,
+        'weekly': {
+            'limit': wallet.weekly_limit,
+            'used': wallet.weekly_used,
+            'remaining': wallet.weekly_limit - wallet.weekly_used,
+            'used_pct': weekly_used_pct,
+            'reset_at': wallet.weekly_reset_at.isoformat() if wallet.weekly_reset_at else None,
+        },
+        'daily': {
+            'limit': wallet.daily_limit,
+            'used': wallet.daily_used,
+            'remaining': wallet.daily_limit - wallet.daily_used,
+            'used_pct': daily_used_pct,
+            'reset_at': wallet.daily_reset_at.isoformat() if wallet.daily_reset_at else None,
+        },
     }
 
 
@@ -4031,6 +4268,18 @@ def register():
 
     token = create_access_token(identity=str(user.id))
     return jsonify({'token': token, 'user': serialize_user(user)}), 201
+
+
+@app.route('/api/auth/google', methods=['POST'])
+def google_login():
+    data = request.json or {}
+    credential = (data.get('credential') or '').strip()
+
+    if not credential:
+        return jsonify({'error': 'Google credential is required.'}), 400
+
+    payload, status_code = _exchange_google_credential(credential)
+    return jsonify(payload), status_code
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -4332,11 +4581,13 @@ def delete_account():
             return jsonify({'error': 'User not found.'}), 404
 
         data = request.json or {}
-        password = data.get('password')
-        if not password:
-            return jsonify({'error': 'Enter password.'}), 400
-        if not verify_password(password, user.password_hash):
-            return jsonify({'error': 'Incorrect password.'}), 401
+        password = (data.get('password') or '').strip()
+        
+        # Şifre sağlandıysa kontrol et (Normal user'lar için)
+        # Şifre sağlanmadıysa skip et (Google OAuth user'lar için)
+        if password:
+            if not verify_password(password, user.password_hash):
+                return jsonify({'error': 'Incorrect password.'}), 401
 
         # 1. Genel tablolar
         UserFollow.query.filter(db.or_(UserFollow.follower_id == user.id, UserFollow.following_id == user.id)).delete(synchronize_session=False)
@@ -4388,11 +4639,26 @@ def delete_account():
             ConversationSummary.query.filter(ConversationSummary.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
         if history_ids:
             History.query.filter(History.id.in_(history_ids)).delete(synchronize_session=False)
+
         if conv_ids:
+            # SharedSession'lara bağlı yorum ve incelemeleri sil (Foreign Key hatasını önlemek için)
+            shared_sessions = SharedSession.query.filter(SharedSession.conversation_id.in_(conv_ids)).all()
+            session_ids = [ss.id for ss in shared_sessions]
+            if session_ids:
+                CollaborationComment.query.filter(CollaborationComment.session_id.in_(session_ids)).delete(synchronize_session=False)
+                CollaborationReview.query.filter(CollaborationReview.session_id.in_(session_ids)).delete(synchronize_session=False)
+            
             SharedSession.query.filter(SharedSession.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
             Conversation.query.filter(Conversation.id.in_(conv_ids)).delete(synchronize_session=False)
 
-        SharedSession.query.filter_by(owner_id=user.id).delete(synchronize_session=False)
+        # Kullanıcının sahip olduğu diğer paylaşımlar için de aynı temizliği yap
+        owned_shared_sessions = SharedSession.query.filter_by(owner_id=user.id).all()
+        owned_session_ids = [ss.id for ss in owned_shared_sessions]
+        if owned_session_ids:
+            CollaborationComment.query.filter(CollaborationComment.session_id.in_(owned_session_ids)).delete(synchronize_session=False)
+            CollaborationReview.query.filter(CollaborationReview.session_id.in_(owned_session_ids)).delete(synchronize_session=False)
+            SharedSession.query.filter(SharedSession.id.in_(owned_session_ids)).delete(synchronize_session=False)
+
         CollaborationReview.query.filter_by(updated_by_user_id=user.id).delete(synchronize_session=False)
         CollaborationComment.query.filter_by(author_user_id=user.id).delete(synchronize_session=False)
         
@@ -8546,6 +8812,46 @@ iyzi_options = {
     'base_url': _normalize_iyzico_base_url(_IYZICO_BASE_URL)
 }
 
+def _find_token_package(package_id):
+    """Hem DB ID (int) hem de string slug/name bazlı paket araması yapan yardımcı fonksiyon."""
+    if not package_id:
+        return None
+        
+    package_id_str = str(package_id).lower().replace('-', ' ')
+    pkg = None
+    
+    try:
+        # 1. DB'den Ara (ID ile)
+        if isinstance(package_id, int) or (isinstance(package_id, str) and package_id.isdigit()):
+            pkg = TokenPackage.query.filter_by(id=int(package_id), is_active=True).first()
+        
+        # 2. DB'den Ara (İsim/Slug ile)
+        if not pkg:
+            pkg = TokenPackage.query.filter(
+                (db.func.lower(TokenPackage.name) == package_id_str) |
+                (db.func.lower(TokenPackage.name) == str(package_id).lower())
+            ).filter_by(is_active=True).first()
+
+        # 3. Fallback: DB'de yoksa DEFAULT_TOKEN_PACKAGES'tan seç
+        if not pkg:
+            for default_pkg in DEFAULT_TOKEN_PACKAGES:
+                if default_pkg['id'] == package_id or default_pkg['name'].lower() == package_id_str:
+                    # Mock nesne oluştur
+                    pkg = type('PseudoPkg', (), {
+                        'id': default_pkg['id'],
+                        'name': default_pkg['name'],
+                        'description': default_pkg.get('description', ''),
+                        'tokens': default_pkg['tokens'],
+                        'price_usd': default_pkg['price_usd'],
+                        'price_try': default_pkg.get('price_try'),
+                        'bonus_pct': default_pkg.get('bonus_pct', 0),
+                    })()
+                    break
+    except Exception as e:
+        print(f"Package lookup error: {e}")
+        
+    return pkg
+
 @app.route('/api/billing/iyzico/config', methods=['GET'])
 def iyzico_config():
     """Frontend'in Iyzico'nun aktif olup olmadığını anlaması için config endpoint."""
@@ -8580,7 +8886,7 @@ def iyzico_checkout_session():
     package_id = data.get('package_id')
     # Fallback is opt-in so explicit Iyzico choice does not silently redirect to Stripe.
     allow_stripe_fallback = bool(data.get('allow_stripe_fallback', False))
-    package = TokenPackage.query.get(package_id)
+    package = _find_token_package(package_id)
     if not package:
         return jsonify({'error': 'Invalid package'}), 400
 
@@ -8598,8 +8904,8 @@ def iyzico_checkout_session():
         iyzipay_request = {
             'locale': 'tr',
             'conversationId': str(user_id) + "_" + _utcnow().strftime('%Y%m%d%H%M%S'),
-            'price': str(package.price_usd * 32), # Örnek döviz kuru veya TRY fiyatı
-            'paidPrice': str(package.price_usd * 32),
+            'price': str(package.price_try or (package.price_usd * 32)), 
+            'paidPrice': str(package.price_try or (package.price_usd * 32)),
             'currency': 'TRY',
             'basketId': 'B' + str(user_id),
             'paymentGroup': 'PRODUCT',
@@ -8634,7 +8940,7 @@ def iyzico_checkout_session():
                     'name': package.name + " Tokens",
                     'category1': 'Tokens',
                     'itemType': 'VIRTUAL',
-                    'price': str(package.price_usd * 32)
+                    'price': str(package.price_try or (package.price_usd * 32))
                 }
             ]
         }
@@ -8650,7 +8956,7 @@ def iyzico_checkout_session():
                 package_id=package.id,
                 package_name=package.name,
                 tokens_granted=package.tokens,
-                amount_cents=int(package.price_usd * 3200),
+                amount_cents=int((package.price_try or (package.price_usd * 32)) * 100),
                 currency='TRY',
                 stripe_checkout_session_id='iyz_' + checkout_result.get('token', ''), # Token'ı buraya saklıyoruz
                 status='pending',
@@ -8786,6 +9092,57 @@ def iyzico_callback():
     return redirect(f'{_get_iyzico_frontend_base_url()}/?billing=error&gateway=iyzico')
 
 
+@app.route('/api/tokens/renewal-status', methods=['GET'])
+@jwt_required()
+def get_renewal_status():
+    """Kullanıcının kendi otomatik yenileme durumunu görmesi için."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    wallet = get_or_create_token_balance(user)
+    has_purchase = TokenPurchase.query.filter_by(user_id=user.id, status='completed').first() is not None
+
+    return jsonify({
+        'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
+        'monthly_renewal_day': wallet.monthly_renewal_day,
+        'last_renewal_at': wallet.last_renewal_at.isoformat() if wallet.last_renewal_at else None,
+        'can_enable': has_purchase
+    })
+
+
+@app.route('/api/tokens/renewal-status', methods=['PUT'])
+@jwt_required()
+def update_renewal_status():
+    """Kullanıcının kendi otomatik yenilemesini açıp kapatması için."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.get_json(silent=True) or {}
+    enabled = data.get('enabled')
+    
+    if enabled:
+        # Sadece en az bir kez paket almış olanlar auto-renew açabilir
+        has_purchase = TokenPurchase.query.filter_by(user_id=user.id, status='completed').first()
+        if not has_purchase:
+            return jsonify({'error': 'Otomatik yenilemeyi aktif etmek için en az bir paket satın almış olmanız gerekmektedir.'}), 400
+        
+    wallet = get_or_create_token_balance(user)
+    wallet.monthly_renewal_enabled = bool(enabled)
+    
+    # Eğer yenileme günü set edilmemişse ve aktif ediliyorsa, üyelik tarihini set edelim
+    if wallet.monthly_renewal_enabled and wallet.monthly_renewal_day is None:
+        wallet.monthly_renewal_day = min(28, user.created_at.day if user.created_at else _utcnow().day)
+        
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
+        'monthly_renewal_day': wallet.monthly_renewal_day
+    })
+
+
 @app.route('/api/billing/config', methods=['GET'])
 def billing_config():
     """Frontend'in Stripe'ın aktif olup olmadığını anlaması için config endpoint."""
@@ -8865,6 +9222,35 @@ def token_usage():
     except Exception as e:
         print(f"token_usage error: {e}")
         return jsonify({'error': 'Could not fetch token usage.'}), 500
+
+
+@app.route('/api/quota/status', methods=['GET'])
+@jwt_required()
+def get_quota_status_endpoint():
+    """Kullanıcının haftalık/günlük kota durumunu döndürür."""
+    try:
+        user_id = get_jwt_identity()
+        if not user_id:
+            return jsonify({'error': 'User not found'}), 401
+        
+        user = User.query.get(int(user_id))
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        wallet = get_or_create_token_balance(user)
+        if wallet.weekly_reset_at is None or wallet.daily_reset_at is None:
+            init_quota_for_new_user(wallet)
+        
+        quota_data = get_quota_status(user.id)
+        if quota_data:
+            return jsonify(quota_data), 200
+        else:
+            return jsonify({'error': 'Could not get quota data'}), 500
+    except Exception as e:
+        print(f"get_quota_status error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Could not fetch quota status: {str(e)}'}), 500
 
 
 @app.route('/api/billing/checkout-session', methods=['POST'])
@@ -10331,6 +10717,392 @@ def external_status():
         },
         'server_time': _utcnow().isoformat()
     })
+
+# ============================================================
+# 🔐 ADMIN — QUOTA & TOKEN MANAGEMENT ENDPOINTS
+# ============================================================
+
+def _require_admin():
+    """Returns (user, error_response) — error_response is None if admin check passes."""
+    user = get_current_user()
+    if not user:
+        return None, (jsonify({'error': 'Authentication required.'}), 401)
+    if not user.is_admin:
+        return None, (jsonify({'error': 'Admin privileges required.'}), 403)
+    return user, None
+
+
+@app.route('/api/admin/quota/defaults', methods=['GET'])
+@jwt_required()
+def admin_get_quota_defaults():
+    """Global quota varsayılanlarını döndürür (tüm kullanıcılar için default limit)."""
+    _, err = _require_admin()
+    if err:
+        return err
+
+    return jsonify({
+        'signup_grant_tokens': SIGNUP_GRANT_TOKENS,
+        'default_daily_limit': 200,
+        'default_weekly_limit': 1000,
+        'monthly_grant_tokens': MONTHLY_GRANT_TOKENS,
+    })
+
+
+@app.route('/api/admin/quota/defaults', methods=['PUT'])
+@jwt_required()
+def admin_update_quota_defaults():
+    """
+    Global quota varsayılanlarını günceller.
+    NOT: Bu endpoint mevcut kullanıcı cüzdanlarını TOPLU olarak günceller.
+    Body: { daily_limit?: int, weekly_limit?: int }
+    """
+    _, err = _require_admin()
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    daily_limit = data.get('daily_limit')
+    weekly_limit = data.get('weekly_limit')
+
+    if daily_limit is None and weekly_limit is None:
+        return jsonify({'error': 'En az bir alan belirtilmeli: daily_limit veya weekly_limit'}), 400
+
+    updated = 0
+    try:
+        wallets = TokenBalance.query.all()
+        for wallet in wallets:
+            changed = False
+            if daily_limit is not None:
+                wallet.daily_limit = int(daily_limit)
+                changed = True
+            if weekly_limit is not None:
+                wallet.weekly_limit = int(weekly_limit)
+                changed = True
+            if changed:
+                updated += 1
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'updated_wallets': updated,
+            'new_daily_limit': daily_limit,
+            'new_weekly_limit': weekly_limit,
+        })
+    except Exception as e:
+        db.session.rollback()
+        print(f"admin_update_quota_defaults error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users', methods=['GET'])
+@jwt_required()
+def admin_list_users():
+    """Tüm kullanıcıları token cüzdanı bilgileriyle listeler."""
+    _, err = _require_admin()
+    if err:
+        return err
+
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = max(1, min(int(request.args.get('per_page', 50)), 200))
+    search = (request.args.get('search') or '').strip()
+
+    try:
+        query = User.query
+        if search:
+            like = f'%{search}%'
+            query = query.filter(
+                (User.email.ilike(like)) | (User.display_name.ilike(like))
+            )
+
+        paginated = query.order_by(User.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
+        users_data = []
+        for u in paginated.items:
+            wallet = TokenBalance.query.filter_by(user_id=u.id).first()
+            users_data.append({
+                'id': u.id,
+                'email': u.email,
+                'display_name': u.display_name,
+                'is_admin': u.is_admin,
+                'created_at': u.created_at.isoformat() if u.created_at else None,
+                'token_balance': {
+                    'balance': wallet.balance if wallet else 0,
+                    'total_spent': wallet.total_spent if wallet else 0,
+                    'daily_limit': wallet.daily_limit if wallet else 200,
+                    'daily_used': wallet.daily_used if wallet else 0,
+                    'weekly_limit': wallet.weekly_limit if wallet else 1000,
+                    'weekly_used': wallet.weekly_used if wallet else 0,
+                    'monthly_renewal_enabled': wallet.monthly_renewal_enabled if wallet else False,
+                    'monthly_renewal_day': wallet.monthly_renewal_day if wallet else None,
+                    'last_renewal_at': wallet.last_renewal_at.isoformat() if wallet and wallet.last_renewal_at else None,
+                } if wallet else None,
+            })
+
+        return jsonify({
+            'users': users_data,
+            'total': paginated.total,
+            'page': page,
+            'per_page': per_page,
+            'pages': paginated.pages,
+        })
+    except Exception as e:
+        print(f"admin_list_users error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:target_user_id>/quota', methods=['GET'])
+@jwt_required()
+def admin_get_user_quota(target_user_id):
+    """Belirli kullanıcının kota ve token bilgisini döndürür."""
+    _, err = _require_admin()
+    if err:
+        return err
+
+    user = db.session.get(User, target_user_id)
+    if not user:
+        return jsonify({'error': 'Kullanıcı bulunamadı.'}), 404
+
+    wallet = get_or_create_token_balance(user)
+    if wallet.weekly_reset_at is None or wallet.daily_reset_at is None:
+        init_quota_for_new_user(wallet)
+
+    return jsonify({
+        'user_id': user.id,
+        'email': user.email,
+        'display_name': user.display_name,
+        'balance': wallet.balance,
+        'total_spent': wallet.total_spent,
+        'daily_limit': wallet.daily_limit,
+        'daily_used': wallet.daily_used,
+        'daily_reset_at': wallet.daily_reset_at.isoformat() if wallet.daily_reset_at else None,
+        'weekly_limit': wallet.weekly_limit,
+        'weekly_used': wallet.weekly_used,
+        'weekly_reset_at': wallet.weekly_reset_at.isoformat() if wallet.weekly_reset_at else None,
+        'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
+        'monthly_renewal_day': wallet.monthly_renewal_day,
+        'last_renewal_at': wallet.last_renewal_at.isoformat() if wallet.last_renewal_at else None,
+        'updated_at': wallet.updated_at.isoformat() if wallet.updated_at else None,
+    })
+
+
+@app.route('/api/admin/users/<int:target_user_id>/quota', methods=['PUT'])
+@jwt_required()
+def admin_update_user_quota(target_user_id):
+    """
+    Belirli kullanıcının kota limitlerini günceller.
+    Body: {
+        daily_limit?: int,
+        weekly_limit?: int,
+        monthly_renewal_enabled?: bool,
+        monthly_renewal_day?: int (1-28) | null
+    }
+    """
+    _, err = _require_admin()
+    if err:
+        return err
+
+    user = db.session.get(User, target_user_id)
+    if not user:
+        return jsonify({'error': 'Kullanıcı bulunamadı.'}), 404
+
+    data = request.get_json(silent=True) or {}
+
+    wallet = get_or_create_token_balance(user)
+
+    try:
+        changed_fields = []
+        if 'daily_limit' in data:
+            val = int(data['daily_limit'])
+            if val < 0:
+                return jsonify({'error': 'daily_limit negatif olamaz.'}), 400
+            wallet.daily_limit = val
+            changed_fields.append(f'daily_limit={val}')
+
+        if 'weekly_limit' in data:
+            val = int(data['weekly_limit'])
+            if val < 0:
+                return jsonify({'error': 'weekly_limit negatif olamaz.'}), 400
+            wallet.weekly_limit = val
+            changed_fields.append(f'weekly_limit={val}')
+
+        if 'monthly_renewal_enabled' in data:
+            wallet.monthly_renewal_enabled = bool(data['monthly_renewal_enabled'])
+            changed_fields.append(f'monthly_renewal_enabled={wallet.monthly_renewal_enabled}')
+
+        if 'monthly_renewal_day' in data:
+            rday = data['monthly_renewal_day']
+            if rday is not None:
+                rday = int(rday)
+                if not (1 <= rday <= 28):
+                    return jsonify({'error': 'monthly_renewal_day 1-28 arasında olmalı.'}), 400
+            wallet.monthly_renewal_day = rday
+            changed_fields.append(f'monthly_renewal_day={rday}')
+
+        if not changed_fields:
+            return jsonify({'error': 'Güncellenecek alan bulunamadı.'}), 400
+
+        db.session.commit()
+        print(f"[ADMIN] Quota updated for user {user.id} ({user.email}): {', '.join(changed_fields)}")
+
+        return jsonify({
+            'success': True,
+            'user_id': user.id,
+            'email': user.email,
+            'daily_limit': wallet.daily_limit,
+            'weekly_limit': wallet.weekly_limit,
+            'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
+            'monthly_renewal_day': wallet.monthly_renewal_day,
+        })
+    except Exception as e:
+        db.session.rollback()
+        print(f"admin_update_user_quota error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:target_user_id>/grant-tokens', methods=['POST'])
+@jwt_required()
+def admin_grant_tokens(target_user_id):
+    """
+    Admin olarak belirli kullanıcıya token yükler.
+    Body: { amount: int, description?: str }
+    """
+    admin_user, err = _require_admin()
+    if err:
+        return err
+
+    user = db.session.get(User, target_user_id)
+    if not user:
+        return jsonify({'error': 'Kullanıcı bulunamadı.'}), 404
+
+    data = request.get_json(silent=True) or {}
+    amount = data.get('amount')
+    description = data.get('description', f'Admin tarafından eklendi — {admin_user.display_name}')
+
+    if not amount or int(amount) <= 0:
+        return jsonify({'error': 'Geçerli bir miktar belirtin (pozitif tam sayı).'}), 400
+
+    amount = int(amount)
+    try:
+        wallet = get_or_create_token_balance(user)
+        wallet.balance += amount
+
+        tx = TokenTransaction(
+            user_id=user.id,
+            amount=amount,
+            type='bonus',
+            description=description,
+            reference_id=f'admin:{admin_user.id}',
+        )
+        db.session.add(tx)
+        db.session.commit()
+
+        print(f"[ADMIN] {admin_user.email} granted {amount} tokens to {user.email}. New balance: {wallet.balance}")
+
+        return jsonify({
+            'success': True,
+            'user_id': user.id,
+            'email': user.email,
+            'granted': amount,
+            'new_balance': wallet.balance,
+        })
+    except Exception as e:
+        db.session.rollback()
+        print(f"admin_grant_tokens error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:target_user_id>/reset-quota', methods=['POST'])
+@jwt_required()
+def admin_reset_user_quota(target_user_id):
+    """
+    Belirli kullanıcının günlük/haftalık kota sayaçlarını sıfırlar.
+    Body: { reset_daily?: bool, reset_weekly?: bool }  (default her ikisi de true)
+    """
+    _, err = _require_admin()
+    if err:
+        return err
+
+    user = db.session.get(User, target_user_id)
+    if not user:
+        return jsonify({'error': 'Kullanıcı bulunamadı.'}), 404
+
+    data = request.get_json(silent=True) or {}
+    reset_daily = data.get('reset_daily', True)
+    reset_weekly = data.get('reset_weekly', True)
+
+    try:
+        wallet = get_or_create_token_balance(user)
+        if reset_daily:
+            wallet.daily_used = 0
+            wallet.daily_reset_at = calculate_daily_reset_time()
+        if reset_weekly:
+            wallet.weekly_used = 0
+            wallet.weekly_reset_at = calculate_weekly_reset_time()
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'user_id': user.id,
+            'daily_used': wallet.daily_used,
+            'weekly_used': wallet.weekly_used,
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<int:target_user_id>/force-renewal', methods=['POST'])
+@jwt_required()
+def admin_force_renewal(target_user_id):
+    """
+    Belirli kullanıcı için aylık yenilemeyi hemen tetikler.
+    Kullanıcının aktif auto_renew purchase'ı varsa renewal yapar.
+    """
+    admin_user, err = _require_admin()
+    if err:
+        return err
+
+    user = db.session.get(User, target_user_id)
+    if not user:
+        return jsonify({'error': 'Kullanıcı bulunamadı.'}), 404
+
+    try:
+        renewed = check_and_apply_monthly_renewal(user.id)
+        wallet = TokenBalance.query.filter_by(user_id=user.id).first()
+        return jsonify({
+            'success': True,
+            'renewed': renewed,
+            'new_balance': wallet.balance if wallet else 0,
+            'message': 'Yenileme yapıldı.' if renewed else 'Yenileme zamanı gelmedi veya auto_renew kapalı.',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/stats', methods=['GET'])
+@jwt_required()
+def admin_stats():
+    """Genel platform istatistiklerini döndürür."""
+    _, err = _require_admin()
+    if err:
+        return err
+
+    try:
+        total_users = User.query.count()
+        total_tokens_balance = db.session.query(db.func.sum(TokenBalance.balance)).scalar() or 0
+        total_tokens_spent = db.session.query(db.func.sum(TokenBalance.total_spent)).scalar() or 0
+        total_conversations = Conversation.query.filter_by(is_deleted=False).count()
+        total_purchases = TokenPurchase.query.filter_by(status='completed').count()
+
+        return jsonify({
+            'total_users': total_users,
+            'total_tokens_balance': int(total_tokens_balance),
+            'total_tokens_spent': int(total_tokens_spent),
+            'total_conversations': total_conversations,
+            'total_completed_purchases': total_purchases,
+        })
+    except Exception as e:
+        print(f"admin_stats error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/')
 def serve_index():

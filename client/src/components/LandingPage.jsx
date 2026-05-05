@@ -247,6 +247,17 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
 
         {/* Footer */}
         <footer className="relative z-10 py-16 border-t border-white/5 text-center">
+          <div className="mb-8">
+            <p className="text-xs text-slate-400 font-semibold tracking-[0.2em] uppercase mb-3">
+              BİZE ULAŞIN
+            </p>
+            <a
+              href="mailto:info@codealchemist.com.tr"
+              className="text-base md:text-lg text-indigo-300 hover:text-indigo-200 font-bold transition-colors"
+            >
+              info@codealchemist.com.tr
+            </a>
+          </div>
           <p className="text-[10px] text-slate-600 font-bold tracking-[0.3em] uppercase">
             © 2026 CodeAlchemist • Engineering the Future
           </p>

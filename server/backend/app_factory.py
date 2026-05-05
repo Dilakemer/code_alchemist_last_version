@@ -109,6 +109,16 @@ def _get_or_create_runtime() -> AgentRuntime:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise the runtime before serving requests."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    
+    # Varsayılan asyncio Thread Pool boyutunu artırıyoruz.
+    # WsgiToAsgi wrapper'ı her WSGI isteğini bu thread pool içinde çalıştırır.
+    # Akış (streaming) yanıtlarında iş parçacıkları uzun süre meşgul olacağı için
+    # bu boyutu 200'e çıkararak diğer isteklerin (login gibi) bloklanmasını önlüyoruz.
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=200))
+    
     app.state.agent_runtime = _get_or_create_runtime()
     print(f"[backend] AgentRuntime ready. Providers: {app.state.agent_runtime.available_providers()}")
     print(f"[backend] Registered tools: {[t['name'] for t in app.state.agent_runtime.list_tools()]}")

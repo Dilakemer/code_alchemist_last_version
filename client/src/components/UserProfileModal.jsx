@@ -845,12 +845,12 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                                 </button>
                                             ) : (
                                                 <div className="p-6 bg-red-500/5 border border-red-500/20 rounded-2xl space-y-4">
-                                                    <p className="text-sm text-red-300">Bu işlem geri alınamaz. Onaylamak için şifrenizi girin:</p>
-                                                    <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} className="w-full bg-black/20 border border-red-500/30 rounded-xl px-4 py-3 text-white outline-none" />
+                                                    <p className="text-sm text-red-300">Bu işlem geri alınamaz. Şifreyle açılan hesaplar için şifre girin; Google ile girişte boş bırakabilirsiniz.</p>
+                                                    <input type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} placeholder="Şifre (opsiyonel)" className="w-full bg-black/20 border border-red-500/30 rounded-xl px-4 py-3 text-white outline-none" />
                                                     <div className="flex gap-3">
                                                         <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 bg-white/5 text-white py-3 rounded-xl font-bold">Vazgeç</button>
                                                         <button 
-                                                            disabled={isDeleting || !deletePassword}
+                                                            disabled={isDeleting}
                                                             onClick={async () => {
                                                                 await deleteAccount(deletePassword);
                                                             }}

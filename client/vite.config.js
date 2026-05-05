@@ -8,6 +8,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 4000
   },
   server: {
+    port: 5001,
     proxy: {
       '/api': {
         target: 'http://localhost:5000',

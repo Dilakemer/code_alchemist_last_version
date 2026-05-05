@@ -12,7 +12,7 @@ import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from .base import BaseAdapter, AdapterConfig, AdapterResponse, ToolCallRequest
-from ...utils.timeout_utils import to_gemini_timeout
+from utils.timeout_utils import to_gemini_timeout
 
 
 class GeminiAdapter(BaseAdapter):
@@ -388,16 +388,16 @@ class GeminiAdapter(BaseAdapter):
                             # 1. Handle Text
                             txt = getattr(part, "text", None)
                             if txt:
-                                accumulated_text += txt
+                                accumulated_text += str(txt)
                                 if on_chunk:
-                                    loop.call_soon_threadsafe(on_chunk, txt)
+                                    loop.call_soon_threadsafe(on_chunk, str(txt))
                             
                             # 2. Handle Gemini 3 Thought
                             thought = getattr(part, "thought", None)
                             if thought:
-                                accumulated_thought += thought
+                                accumulated_thought += str(thought)
                                 if on_reasoning:
-                                    loop.call_soon_threadsafe(on_reasoning, thought)
+                                    loop.call_soon_threadsafe(on_reasoning, str(thought))
                 return last_chunk, accumulated_text, accumulated_thought
 
             final_response, raw_text, raw_thought = await loop.run_in_executor(None, _sync_stream)
@@ -427,9 +427,9 @@ class GeminiAdapter(BaseAdapter):
                 parts = getattr(content, "parts", []) if content else []
                 for part in parts:
                     txt = getattr(part, "text", None)
-                    if txt: raw_text += txt
+                    if txt: raw_text += str(txt)
                     th = getattr(part, "thought", None)
-                    if th: raw_thought += th
+                    if th: raw_thought += str(th)
             
             text = self._clean_model_output(raw_text)
             thought = self._clean_model_output(raw_thought, is_reasoning=True)
@@ -505,7 +505,7 @@ class GeminiAdapter(BaseAdapter):
                             for part in list(getattr(content, "parts", None) or []):
                                 pt = getattr(part, "text", None)
                                 if pt:
-                                    text += pt
+                                    text += str(pt)
                     if text:
                         loop.call_soon_threadsafe(queue.put_nowait, text)
             except Exception as exc:

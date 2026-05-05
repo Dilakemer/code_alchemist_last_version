@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 const DEFAULT_PACKAGES = [
-  { id: 'starter', name: 'Starter', description: 'Solo kullanım ve hafif deneme akışları için.', tokens: 500, price_usd: 5, bonus_pct: 0, highlight: false },
-  { id: 'pro-pack', name: 'Pro Pack', description: 'Sürekli üretim akışı olan bireyler ve küçük ekipler için.', tokens: 2000, price_usd: 15, bonus_pct: 5, highlight: true },
-  { id: 'heavy-user-bundle', name: 'Heavy User Bundle', description: 'Yoğun kullanım ve ekip içi denemeler için.', tokens: 8000, price_usd: 49, bonus_pct: 10, highlight: false },
-  { id: 'studio-upgrade', name: 'Studio Upgrade', description: 'Kurumsal ekipler ve yüksek hacimli kullanım için.', tokens: 20000, price_usd: 99, bonus_pct: 15, highlight: false },
+  { id: 'starter', name: 'Starter', description: 'Solo kullanım ve hafif deneme akışları için.', tokens: 500, price_usd: 5, price_try: 175, bonus_pct: 0, highlight: false },
+  { id: 'pro-pack', name: 'Pro Pack', description: 'Sürekli üretim akışı olan bireyler ve küçük ekipler için.', tokens: 2000, price_usd: 15, price_try: 495, bonus_pct: 5, highlight: true },
+  { id: 'heavy-user-bundle', name: 'Heavy User Bundle', description: 'Yoğun kullanım ve ekip içi denemeler için.', tokens: 8000, price_usd: 49, price_try: 1590, bonus_pct: 10, highlight: false },
+  { id: 'studio-upgrade', name: 'Studio Upgrade', description: 'Kurumsal ekipler ve yüksek hacimli kullanım için.', tokens: 20000, price_usd: 99, price_try: 2990, bonus_pct: 15, highlight: false },
 ];
 
 const formatDate = (value) => {
@@ -38,6 +38,8 @@ const TokenDashboardModal = ({
   const [selectedGateway, setSelectedGateway] = useState('stripe');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState(initialTab); // 'overview', 'upgrade', 'history'
+  const [renewalStatus, setRenewalStatus] = useState({ enabled: false, day: null, canEnable: false });
+  const [renewalLoading, setRenewalLoading] = useState(false);
 
   const effectiveHeaders = useMemo(() => {
     if (authHeaders && Object.keys(authHeaders).length > 0) return authHeaders;
@@ -65,6 +67,9 @@ const TokenDashboardModal = ({
           fetchPromises.push(
             fetch(`${apiBase}/api/tokens/usage?limit=15`, {
               headers: effectiveHeaders,
+            }),
+            fetch(`${apiBase}/api/tokens/renewal-status`, {
+              headers: effectiveHeaders,
             })
           );
         }
@@ -85,6 +90,9 @@ const TokenDashboardModal = ({
         const usageData = usageResp && usageResp.status === 'fulfilled'
           ? await usageResp.value.json().catch(() => ({}))
           : null;
+        const renewalData = effectiveHeaders.Authorization && responses[4] && responses[4].status === 'fulfilled'
+          ? await responses[4].value.json().catch(() => ({}))
+          : null;
 
         if (!cancelled) {
           if (usageData) setUsage(usageData);
@@ -98,6 +106,13 @@ const TokenDashboardModal = ({
           setPackages(Array.isArray(packageData?.packages) && packageData.packages.length > 0
             ? packageData.packages
             : DEFAULT_PACKAGES);
+          if (renewalData) {
+            setRenewalStatus({ 
+              enabled: !!renewalData.monthly_renewal_enabled, 
+              day: renewalData.monthly_renewal_day,
+              canEnable: !!renewalData.can_enable
+            });
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -202,6 +217,36 @@ const TokenDashboardModal = ({
     } catch (err) {
       setError(err.message || 'Checkout could not be started.');
       setCheckoutLoadingId(null);
+    }
+  };
+
+  const toggleRenewal = async () => {
+    if (renewalLoading) return;
+    setRenewalLoading(true);
+    try {
+      const nextEnabled = !renewalStatus.enabled;
+      const resp = await fetch(`${apiBase}/api/tokens/renewal-status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...effectiveHeaders,
+        },
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        setRenewalStatus((prev) => ({ 
+          ...prev, 
+          enabled: data.monthly_renewal_enabled, 
+          day: data.monthly_renewal_day 
+        }));
+      } else {
+        setError(data.error || 'Yenileme durumu güncellenemedi.');
+      }
+    } catch (err) {
+      setError('Bağlantı hatası.');
+    } finally {
+      setRenewalLoading(false);
     }
   };
 
@@ -383,6 +428,32 @@ const TokenDashboardModal = ({
                       <span className="text-slate-400">Next Reset</span>
                       <span className="text-white">Auto-renews dynamically</span>
                     </div>
+                    
+                    <div className="pt-4 border-t border-white/5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-white">Auto-Renewal</p>
+                          <p className="text-[10px] text-slate-500">Automatically renew tokens every month</p>
+                        </div>
+                        <button 
+                          onClick={toggleRenewal}
+                          disabled={renewalLoading || (!renewalStatus.canEnable && !renewalStatus.enabled)}
+                          className={`relative h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none ${renewalStatus.enabled ? 'bg-indigo-600' : 'bg-slate-700'} ${(renewalLoading || (!renewalStatus.canEnable && !renewalStatus.enabled)) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white transition-transform duration-200 ${renewalStatus.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
+                      {!renewalStatus.canEnable && !renewalStatus.enabled && (
+                        <p className="text-[10px] text-amber-500 font-medium">
+                          Otomatik yenilemeyi açmak için bir paket satın almalısınız.
+                        </p>
+                      )}
+                      {renewalStatus.enabled && renewalStatus.day && (
+                        <p className="text-[10px] text-indigo-400 font-medium">
+                          Next renewal scheduled on day {renewalStatus.day} of the month.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="p-8 rounded-[2rem] border border-white/10 bg-white/5">
@@ -484,7 +555,7 @@ const TokenDashboardModal = ({
                       <div className="mt-2 text-2xl font-bold text-slate-400">
                         {selectedGateway === 'iyzico' ? '₺' : '$'}
                         {selectedGateway === 'iyzico' 
-                          ? (Number(pkg.price_usd) * 32).toLocaleString() 
+                          ? (pkg.price_try || (Number(pkg.price_usd) * 32)).toLocaleString() 
                           : (Number.isFinite(Number(pkg.price_usd)) ? Number(pkg.price_usd).toFixed(0) : pkg.price)}
                       </div>
                     </div>

@@ -442,12 +442,28 @@ class TokenBalance(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
     balance = db.Column(db.Integer, default=100, nullable=False)     # Kalan token
     total_spent = db.Column(db.Integer, default=0, nullable=False)   # Toplam harcanan (azalmaz)
+    
+    # Haftalık Kota Sistemi
+    weekly_limit = db.Column(db.Integer, default=1000, nullable=False)  # Haftalık limit (token)
+    weekly_used = db.Column(db.Integer, default=0, nullable=False)      # Bu hafta harcanan
+    weekly_reset_at = db.Column(db.DateTime, nullable=True)             # Reset zamanı (e.g., Pazar 3:00 AM)
+    
+    # Günlük Kota Sistemi (opsiyonel)
+    daily_limit = db.Column(db.Integer, default=200, nullable=False)    # Günlük limit
+    daily_used = db.Column(db.Integer, default=0, nullable=False)       # Bugün harcanan
+    daily_reset_at = db.Column(db.DateTime, nullable=True)              # Bugün saat kaçta reset (UTC)
+    
+    # Aylık Yenileme Sistemi (Paket satın almada)
+    monthly_renewal_enabled = db.Column(db.Boolean, default=False)      # Kullanıcı toggle edebilir
+    monthly_renewal_day = db.Column(db.Integer, nullable=True)          # Ay içinde hangi gün yenilensin (1-28)
+    last_renewal_at = db.Column(db.DateTime, nullable=True)             # Son yenileme zamanı
+    
     updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
     user = db.relationship('User', backref=db.backref('token_balance', uselist=False))
 
     def __repr__(self):
-        return f'<TokenBalance user_id={self.user_id} balance={self.balance}>'
+        return f'<TokenBalance user_id={self.user_id} balance={self.balance} weekly_used={self.weekly_used}/{self.weekly_limit} renewal={self.monthly_renewal_enabled}>'
 
 
 class TokenTransaction(db.Model):
@@ -480,6 +496,7 @@ class TokenPackage(db.Model):
     description = db.Column(db.String(255), nullable=True)
     tokens = db.Column(db.Integer, nullable=False)           # Verilen token miktarı
     price_usd = db.Column(db.Float, nullable=False)          # USD fiyat
+    price_try = db.Column(db.Float, nullable=True)           # TRY fiyat (Iyzico için)
     stripe_price_id = db.Column(db.String(100), nullable=True)  # Stripe ile entegrasyon (Hafta 3)
     is_active = db.Column(db.Boolean, default=True)
     bonus_pct = db.Column(db.Integer, default=0)             # Örn: 20 → %20 bonus token
@@ -507,12 +524,18 @@ class TokenPurchase(db.Model):
     stripe_customer_id = db.Column(db.String(128), nullable=True, index=True)
     status = db.Column(db.String(32), default='pending', index=True)
     metadata_json = db.Column(db.Text, nullable=True)
+    
+    # Aylık Yenileme
+    auto_renew = db.Column(db.Boolean, default=False)              # Otomatik yenileme aktif mi?
+    renewal_day = db.Column(db.Integer, nullable=True)             # Ay içinde hangi gün yenilensin (1-28)
+    last_renewal_at = db.Column(db.DateTime, nullable=True)        # Son yenileme zamanı
+    
     created_at = db.Column(db.DateTime, default=_utcnow, index=True)
     completed_at = db.Column(db.DateTime, nullable=True)
 
     user = db.relationship('User', backref=db.backref('token_purchases', lazy='dynamic'))
 
     def __repr__(self):
-        return f'<TokenPurchase user_id={self.user_id} session={self.stripe_checkout_session_id} status={self.status}>'
+        return f'<TokenPurchase user_id={self.user_id} session={self.stripe_checkout_session_id} status={self.status} auto_renew={self.auto_renew}>'
 
 

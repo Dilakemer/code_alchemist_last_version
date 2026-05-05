@@ -25,8 +25,10 @@ import ModelCostDashboard from './components/ModelCostDashboard';
 import GamificationPanel from './components/GamificationPanel';
 import TokenWallet from './components/TokenWallet';
 import TokenDashboardModal from './components/TokenDashboardModal';
+import AdminQuotaPanel from './components/AdminQuotaPanel';
 import ThemeStore from './components/ThemeStore';
 import WeeklyReport from './components/WeeklyReport';
+import QuotaBar from './components/QuotaBar';
 import { requestNotificationPermission } from './utils/notifications';
 import { API_BASE } from './config';
 import { useCollabSocket } from './hooks/useCollabSocket';
@@ -63,6 +65,7 @@ function App() {
   const [showToolsDrawer, setShowToolsDrawer] = useState(false);
   const [showTokenDashboard, setShowTokenDashboard] = useState(false);
   const [tokenDashboardTab, setTokenDashboardTab] = useState('overview');
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [collabShareLink, setCollabShareLink] = useState('');
   const [showCollabShareOptions, setShowCollabShareOptions] = useState(false);
   const [usageInfo, setUsageInfo] = useState(null);
@@ -1579,37 +1582,38 @@ function App() {
           }
         }
       }
+    }
 
-      // Process any remaining data in buffer (incomplete event that arrived before stream end)
-      if (buffer.trim()) {
-        const blockLines = buffer.split('\n');
-        for (const line of blockLines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('data: ')) {
-            try {
-              const jsonStr = trimmed.slice(6);
-              const data = JSON.parse(jsonStr);
-              resetWatchdog();
-              
-              // Reuse standard chunk processing logic
-              if (data.chunk || data.type === 'message') {
-                const textChunk = data.chunk || data.text || "";
-                if (!firstChunkTime) firstChunkTime = Date.now();
-                aiResponseAccumulator += textChunk;
-                setChatHistory(prev => prev.map(item =>
-                  item.id === tempId ? { ...item, ai_response: aiResponseAccumulator, agent_is_stuck: false } : item
-                ));
-              }
-              
-              if (data.done || data.type === 'done') {
-                receivedDoneEvent = true;
-              }
-            } catch (e) {
-              console.error("Error parsing trailing SSE buffer", e);
+    // Process any remaining data in buffer (incomplete event that arrived before stream end)
+    if (buffer.trim()) {
+      const blockLines = buffer.split('\n');
+      for (const line of blockLines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const jsonStr = trimmed.slice(6);
+            const data = JSON.parse(jsonStr);
+            resetWatchdog();
+
+            // Reuse standard chunk processing logic
+            if (data.chunk || data.type === 'message') {
+              const textChunk = data.chunk || data.text || "";
+              if (!firstChunkTime) firstChunkTime = Date.now();
+              aiResponseAccumulator += textChunk;
+              setChatHistory(prev => prev.map(item =>
+                item.id === tempId ? { ...item, ai_response: aiResponseAccumulator, agent_is_stuck: false } : item
+              ));
             }
+
+            if (data.done || data.type === 'done') {
+              receivedDoneEvent = true;
+            }
+          } catch (e) {
+            console.error("Error parsing trailing SSE buffer", e);
           }
         }
       }
+    }
 
       // Defensive: if stream ended without done event, finalize response
       if (watchdogTimer) clearTimeout(watchdogTimer);
@@ -2321,6 +2325,15 @@ function App() {
                 }}
               />
             )}
+            {user?.is_admin && (
+              <button
+                onClick={() => setShowAdminPanel(true)}
+                title="Admin Paneli"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-bold hover:bg-rose-500/25 transition-all active:scale-95"
+              >
+                🛡️ Admin
+              </button>
+            )}
           </div>
 
           {/* Search Bar */}
@@ -2542,6 +2555,15 @@ function App() {
             </button>
           </div>
         </header>
+
+        {/* Quota Bar - Haftalık Limit Göstergesi (Geçici devre dışı) */}
+        {/* {user && (
+          <QuotaBar
+            apiBase={API_BASE}
+            authHeaders={authHeaders}
+            user={user}
+          />
+        )} */}
 
         {/* Content Area */}
         <section className="flex-1 overflow-hidden relative flex">
@@ -3106,6 +3128,16 @@ function App() {
             setShowTokenDashboard(false);
             setShowToolsDrawer(true);
           }}
+        />
+      )}
+
+      {/* Admin Quota Panel */}
+      {showAdminPanel && user?.is_admin && (
+        <AdminQuotaPanel
+          isOpen={showAdminPanel}
+          onClose={() => setShowAdminPanel(false)}
+          apiBase={API_BASE}
+          authHeaders={authHeaders}
         />
       )}
 

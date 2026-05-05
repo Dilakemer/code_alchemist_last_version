@@ -4,7 +4,7 @@ export const useAccountDeletion = ({ apiBase, authHeaders, onShowAlert, onLogout
     const [isDeleting, setIsDeleting] = useState(false);
 
     const deleteAccount = async (password) => {
-        if (!password) return;
+        const trimmedPassword = (password || '').trim();
 
         setIsDeleting(true);
         localStorage.setItem('is_deleting_account', 'true');
@@ -13,7 +13,7 @@ export const useAccountDeletion = ({ apiBase, authHeaders, onShowAlert, onLogout
             const res = await fetch(`${apiBase}/api/auth/delete-account`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json', ...authHeaders },
-                body: JSON.stringify({ password }),
+                body: JSON.stringify({ password: trimmedPassword }),
             });
 
             const data = await res.json();

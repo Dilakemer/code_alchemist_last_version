@@ -1,0 +1,419 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[turkish]{babel}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+\geometry{margin=1in}
+
+\lstset{
+  backgroundcolor=\color{gray!10},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!40},
+  keywordstyle=\color{blue!70},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60},
+  showstringspaces=false,
+  tabsize=2
+}
+
+\title{\textbf{Code Alchemist --- Hafta 12 Geliştirme Raporu} \\[0.3em]
+\large Token Ekonomisi, Kota Yönetimi, İletişim Altyapısı ve Google OAuth}
+\author{Dila Kemer}
+\date{Mayıs 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Giriş}
+% ============================================================
+Bu doküman, Code Alchemist platformunun 12.\ hafta geliştirme döngüsünde gerçekleştirilen dört ana çalışma alanını detaylandırmaktadır:
+
+\begin{enumerate}
+  \item \textbf{Token Ekonomisi ve Kota Sistemi} --- Kullanıcı bazlı günlük/haftalık limit yönetimi, tek seferlik 100 token kayıt bonusu ve satın alma tabanlı otomatik yenileme toggle mekanizması.
+  \item \textbf{Admin Panel Endpoint'leri} --- Yönetici yetkisiyle kota varsayılanlarını değiştirme, kullanıcı bazlı limit güncelleme, token bağışlama ve zorunlu yenileme tetikleme.
+  \item \textbf{E-posta Altyapısı} --- Cloudflare Email Routing ile \texttt{info@codealchemist.com.tr} profesyonel e-posta yönlendirmesi.
+  \item \textbf{Google OAuth Entegrasyonu} --- Landing page üzerinden Google ile giriş yapma özelliği.
+\end{enumerate}
+
+% ============================================================
+\section{Token Ekonomisi ve Kota Sistemi}
+% ============================================================
+
+\subsection{Genel Mimari}
+Token ekonomisi, \texttt{TokenBalance} modeli üzerinden yönetilmektedir. Her kullanıcının tek bir cüzdan kaydı (\texttt{token\_balance} tablosu) bulunur ve bu kayıt bakiye, harcama, günlük/haftalık kota ve aylık yenileme bilgilerini barındırır.
+
+\subsection{Tek Seferlik 100 Token Kayıt Bonusu}
+Yeni kayıt olan her kullanıcıya \textbf{bir defalık 100 token} verilmektedir. Bu bonus \textbf{otomatik olarak yenilenmez}; kullanıcının ek token elde etmesi için paket satın alması gerekmektedir.
+
+\subsubsection{Teknik Uygulama}
+Sabit değer \texttt{app.py} dosyasında tanımlıdır:
+
+\begin{lstlisting}[language=Python, caption={Signup grant sabiti (app.py satır 465)}]
+SIGNUP_GRANT_TOKENS = 100
+\end{lstlisting}
+
+Cüzdan oluşturma fonksiyonu, kullanıcının ilk erişiminde çağrılır:
+
+\begin{lstlisting}[language=Python, caption={get\_or\_create\_token\_balance fonksiyonu}]
+def get_or_create_token_balance(user: User) -> TokenBalance:
+    wallet = TokenBalance.query.filter_by(user_id=user.id).first()
+    if not wallet:
+        wallet = TokenBalance(
+            user_id=user.id,
+            balance=SIGNUP_GRANT_TOKENS,
+            total_spent=0
+        )
+        db.session.add(wallet)
+        grant_tx = TokenTransaction(
+            user_id=user.id,
+            amount=SIGNUP_GRANT_TOKENS,
+            type='signup_grant',
+            description=f'Yeni kullanici hos geldin bonusu'
+        )
+        db.session.add(grant_tx)
+        db.session.commit()
+    return wallet
+\end{lstlisting}
+
+\textbf{Önemli:} Aylık otomatik grant sistemi kaldırılmıştır. Yorum satırında belirtildiği üzere, yenileme yalnızca paket satın alma döngüsünde gerçekleşir.
+
+\subsection{Günlük ve Haftalık Kota Sistemi}
+
+\subsubsection{Varsayılan Limitler}
+\begin{center}
+\begin{tabular}{|l|c|l|}
+\hline
+\textbf{Kota Türü} & \textbf{Varsayılan} & \textbf{Açıklama} \\
+\hline
+Günlük limit (\texttt{daily\_limit}) & 200 token & Her gece 00:00 UTC sıfırlanır \\
+Haftalık limit (\texttt{weekly\_limit}) & 1000 token & Her Pazartesi 03:00 UTC sıfırlanır \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{Kota Kontrol Mekanizması}
+Her AI isteği öncesinde \texttt{check\_quota\_available()} fonksiyonu çağrılır. Kontrol sırası:
+
+\begin{enumerate}
+  \item \textbf{Günlük limit} --- \texttt{daily\_used + tokens\_needed > daily\_limit} ise istek reddedilir.
+  \item \textbf{Haftalık limit} --- \texttt{weekly\_used + tokens\_needed > weekly\_limit} ise istek reddedilir.
+  \item \textbf{Bakiye kontrolü} --- \texttt{balance < tokens\_needed} ise istek reddedilir.
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption={Kota kontrol fonksiyonu}]
+def check_quota_available(wallet, tokens_needed=1):
+    reset_quota_if_needed(wallet)
+    if wallet.daily_used + tokens_needed > wallet.daily_limit:
+        return False, "Gunluk limit asildi."
+    if wallet.weekly_used + tokens_needed > wallet.weekly_limit:
+        return False, "Haftalik limit asildi."
+    if wallet.balance < tokens_needed:
+        return False, "Yetersiz token bakiyesi."
+    return True, "OK"
+\end{lstlisting}
+
+\subsubsection{Token Harcama ve Kota Güncelleme}
+\begin{lstlisting}[language=Python, caption={Token düşme fonksiyonu}]
+def deduct_tokens_and_update_quota(wallet, amount):
+    reset_quota_if_needed(wallet)
+    wallet.balance -= amount
+    wallet.total_spent += amount
+    wallet.weekly_used += amount
+    wallet.daily_used += amount
+    db.session.commit()
+\end{lstlisting}
+
+\subsection{Otomatik Yenileme (Auto-Renewal) Toggle}
+
+\subsubsection{İş Kuralları}
+\begin{itemize}
+  \item Yalnızca en az bir paket satın almış kullanıcılar otomatik yenilemeyi aktif edebilir.
+  \item Hediye (signup grant) tokenları otomatik yenilenemez.
+  \item Yenileme günü, kullanıcının üyelik tarihine (kayıt olduğu gün) göre belirlenir (maks.\ 28).
+  \item Mevcut sistem \textbf{Stripe üzerinden otomatik ödeme almaz}; yenileme, satın alınan token miktarını bakiyeye ekler.
+\end{itemize}
+
+\subsubsection{Backend Endpoint'leri}
+
+\paragraph{GET /api/tokens/renewal-status}
+Kullanıcının yenileme durumunu sorgular.
+
+\begin{lstlisting}[language=Python, caption={Renewal status GET endpoint}]
+@app.route('/api/tokens/renewal-status', methods=['GET'])
+@jwt_required()
+def get_renewal_status():
+    user = get_current_user()
+    wallet = get_or_create_token_balance(user)
+    has_purchase = TokenPurchase.query.filter_by(
+        user_id=user.id, status='completed'
+    ).first() is not None
+    return jsonify({
+        'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
+        'monthly_renewal_day': wallet.monthly_renewal_day,
+        'last_renewal_at': wallet.last_renewal_at,
+        'can_enable': has_purchase
+    })
+\end{lstlisting}
+
+\paragraph{PUT /api/tokens/renewal-status}
+Kullanıcının yenileme durumunu günceller. Satın alma geçmişi yoksa 400 hatası döner.
+
+\begin{lstlisting}[language=Python, caption={Renewal status PUT endpoint}]
+@app.route('/api/tokens/renewal-status', methods=['PUT'])
+@jwt_required()
+def update_renewal_status():
+    user = get_current_user()
+    data = request.get_json(silent=True) or {}
+    enabled = data.get('enabled')
+    if enabled:
+        has_purchase = TokenPurchase.query.filter_by(
+            user_id=user.id, status='completed'
+        ).first()
+        if not has_purchase:
+            return jsonify({
+                'error': 'Paket satin almaniz gereklidir.'
+            }), 400
+    wallet = get_or_create_token_balance(user)
+    wallet.monthly_renewal_enabled = bool(enabled)
+    if wallet.monthly_renewal_enabled and not wallet.monthly_renewal_day:
+        wallet.monthly_renewal_day = min(28, user.created_at.day if user.created_at else _utcnow().day)
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
+        'monthly_renewal_day': wallet.monthly_renewal_day
+    })
+\end{lstlisting}
+
+\subsubsection{Frontend Toggle Bileşeni}
+\texttt{TokenDashboardModal.jsx} dosyasındaki Overview sekmesine eklenen toggle bileşeni:
+
+\begin{itemize}
+  \item \texttt{renewalStatus} state'i: \texttt{\{enabled, day, canEnable\}} yapısında tutulur.
+  \item \texttt{canEnable} false ise toggle butonu \texttt{disabled} ve soluk (\texttt{opacity-50}) görünür.
+  \item Altında ``Otomatik yenilemeyi açmak için bir paket satın almalısınız'' uyarısı gösterilir.
+  \item Toggle aktif edildiğinde \texttt{PUT /api/tokens/renewal-status} çağrılır.
+\end{itemize}
+
+\subsection{Aylık Yenileme Mekanizması}
+\texttt{check\_and\_apply\_monthly\_renewal()} fonksiyonu, satın alma kaydındaki \texttt{auto\_renew=True} ve \texttt{renewal\_day} bilgisine göre çalışır:
+
+\begin{lstlisting}[language=Python, caption={Aylık yenileme kontrolü}]
+def check_and_apply_monthly_renewal(user_id):
+    purchase = TokenPurchase.query.filter_by(
+        user_id=user_id, status='completed', auto_renew=True
+    ).order_by(TokenPurchase.completed_at.desc()).first()
+    if not purchase or not purchase.renewal_day:
+        return False
+    # Sonraki yenileme tarihini hesapla
+    # Tarih geldiyse token ekle ve logla
+    if now >= next_renewal_date:
+        wallet.balance += purchase.tokens_granted
+        purchase.last_renewal_at = now
+        # TokenTransaction kaydı olustur
+        db.session.commit()
+        return True
+    return False
+\end{lstlisting}
+
+% ============================================================
+\section{Veritabanı Model Güncellemeleri}
+% ============================================================
+
+\subsection{TokenBalance Modeli}
+\texttt{models.py} dosyasındaki \texttt{TokenBalance} modeline eklenen yeni alanlar:
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Alan} & \textbf{Tip} & \textbf{Varsayılan} \\
+\hline
+\texttt{weekly\_limit} & INTEGER & 1000 \\
+\texttt{weekly\_used} & INTEGER & 0 \\
+\texttt{weekly\_reset\_at} & TIMESTAMP & NULL \\
+\texttt{daily\_limit} & INTEGER & 200 \\
+\texttt{daily\_used} & INTEGER & 0 \\
+\texttt{daily\_reset\_at} & TIMESTAMP & NULL \\
+\texttt{monthly\_renewal\_enabled} & BOOLEAN & FALSE \\
+\texttt{monthly\_renewal\_day} & INTEGER & NULL \\
+\texttt{last\_renewal\_at} & TIMESTAMP & NULL \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{TokenPurchase Modeli}
+Aylık yenileme desteği için eklenen alanlar:
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Alan} & \textbf{Tip} & \textbf{Varsayılan} \\
+\hline
+\texttt{auto\_renew} & BOOLEAN & FALSE \\
+\texttt{renewal\_day} & INTEGER & NULL \\
+\texttt{last\_renewal\_at} & TIMESTAMP & NULL \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Veritabanı Migration}
+Mevcut Supabase (PostgreSQL) veritabanına eksik sütunlar \texttt{ALTER TABLE} komutlarıyla eklenmiştir. Migration, Docker konteynırı içinden Python scripti aracılığıyla çalıştırılmıştır:
+
+\begin{lstlisting}[language=Python, caption={Migration scripti (Docker exec ile çalıştırıldı)}]
+from sqlalchemy import text
+cols = [
+    ('token_balance', 'weekly_limit', 'INTEGER DEFAULT 1000'),
+    ('token_balance', 'weekly_used', 'INTEGER DEFAULT 0'),
+    # ... diger alanlar
+    ('token_purchase', 'auto_renew', 'BOOLEAN DEFAULT FALSE'),
+    ('token_purchase', 'renewal_day', 'INTEGER'),
+    ('token_purchase', 'last_renewal_at', 'TIMESTAMP')
+]
+for table, col, col_type in cols:
+    db.session.execute(
+        text(f'ALTER TABLE {table} ADD COLUMN {col} {col_type}')
+    )
+    db.session.commit()
+\end{lstlisting}
+
+% ============================================================
+\section{Admin Panel ve Yönetim Endpoint'leri}
+% ============================================================
+
+\subsection{Yetkilendirme}
+Tüm admin endpoint'leri \texttt{@jwt\_required()} ve \texttt{\_require\_admin()} kontrolünden geçer. Kullanıcının \texttt{is\_admin=True} olması gereklidir.
+
+\subsection{Endpoint Özeti}
+
+\begin{center}
+\begin{tabular}{|l|l|p{5.5cm}|}
+\hline
+\textbf{Method} & \textbf{Endpoint} & \textbf{Açıklama} \\
+\hline
+GET & \texttt{/api/admin/quota/defaults} & Global kota varsayılanlarını döndürür \\
+PUT & \texttt{/api/admin/quota/defaults} & Tüm kullanıcıların limitlerini toplu günceller \\
+GET & \texttt{/api/admin/users} & Kullanıcı listesi (sayfalama ve arama destekli) \\
+GET & \texttt{/api/admin/users/:id/quota} & Belirli kullanıcının kota detayı \\
+PUT & \texttt{/api/admin/users/:id/quota} & Kullanıcı bazlı limit güncelleme \\
+POST & \texttt{/api/admin/users/:id/grant-tokens} & Manuel token bağışlama \\
+POST & \texttt{/api/admin/users/:id/reset-quota} & Günlük/haftalık sayaçları sıfırlama \\
+POST & \texttt{/api/admin/users/:id/force-renewal} & Aylık yenilemeyi anında tetikleme \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Frontend Admin Paneli}
+\texttt{AdminQuotaPanel.jsx} bileşeni, \texttt{App.jsx} header kısmına eklenen \textbf{🛡️ Admin} butonuyla erişilebilir hale getirilmiştir. Panel, platform istatistikleri, kullanıcı listesi ve bireysel kota yönetimi işlevlerini sunmaktadır.
+
+% ============================================================
+\section{E-posta Yapılandırması (Cloudflare Email Routing)}
+% ============================================================
+
+\subsection{Platform Seçimi}
+Zoho Mail denemesi yapılmış, teknik kısıtlamalar nedeniyle \textbf{Cloudflare Email Routing} çözümüne geçilmiştir. Cloudflare hesabı mevcut Gmail adresi (\texttt{dilakemer1@gmail.com}) üzerinden aktif edilmiştir.
+
+\subsection{DNS ve Nameserver Yönetimi}
+Alan adının yönetim yetkisi İsimtescil üzerinden Cloudflare'e devredilmiştir:
+
+\begin{itemize}
+  \item \textbf{Eski Nameserver'lar:} \texttt{tr.dnsenable.com}, \texttt{eu.dnsenable.com} (silindi)
+  \item \textbf{Yeni Nameserver'lar:}
+  \begin{enumerate}
+    \item \texttt{aitana.ns.cloudflare.com}
+    \item \texttt{tom.ns.cloudflare.com}
+  \end{enumerate}
+\end{itemize}
+
+\subsection{E-posta Yönlendirme Kurulumu}
+\begin{itemize}
+  \item \textbf{Özel Adres:} \texttt{info@codealchemist.com.tr}
+  \item \textbf{Hedef Adres:} Gelen tüm e-postalar \texttt{dilakemer1@gmail.com} adresine yönlendirilmektedir.
+  \item \textbf{Doğrulama:} Hedef e-posta adresine gönderilen onay bağlantısı ile tamamlanmıştır.
+\end{itemize}
+
+\subsection{Güvenlik ve Teslimat DNS Kayıtları}
+\begin{itemize}
+  \item \textbf{MX Kayıtları:} 3 adet MX kaydı ile e-posta trafiği Cloudflare'e yönlendirilmiştir.
+  \item \textbf{SPF Kaydı:} \texttt{v=spf1 include:\_spf.mx.cloudflare.net \textasciitilde all}
+  \item \textbf{DKIM Kaydı:} Dijital imza doğrulama kaydı eklenmiştir.
+\end{itemize}
+
+\subsection{Landing Page Entegrasyonu}
+\texttt{LandingPage.jsx} footer bölümüne ``BİZE ULAŞIN'' başlığı ve \texttt{info@codealchemist.com.tr} e-posta bağlantısı eklenmiştir.
+
+% ============================================================
+\section{Google OAuth Entegrasyonu}
+% ============================================================
+
+\subsection{Yapılandırma}
+Google Cloud Console üzerinden OAuth 2.0 istemci kimliği oluşturulmuştur.
+
+\begin{itemize}
+  \item \textbf{Client ID:} \texttt{.env} ve \texttt{client/.env.local} dosyalarında \texttt{GOOGLE\_CLIENT\_ID} olarak tanımlıdır.
+  \item \textbf{Frontend:} \texttt{VITE\_GOOGLE\_CLIENT\_ID} ortam değişkeni ile Vite build sürecine enjekte edilir.
+\end{itemize}
+
+\subsection{Backend Endpoint}
+\texttt{POST /api/auth/google} endpoint'i, Google'dan alınan \texttt{credential} (JWT token) değerini doğrular ve kullanıcıyı oluşturur ya da giriş yapar.
+
+\subsection{Frontend Bileşeni}
+\texttt{AuthModal.jsx} dosyasında Google Identity Services (GIS) kütüphanesi kullanılarak ``Continue with Google'' butonu render edilmektedir. Buton yalnızca login modunda ve \texttt{GOOGLE\_CLIENT\_ID} tanımlıysa gösterilir.
+
+\begin{lstlisting}[language=JavaScript, caption={Google buton render mantığı}]
+{authMode === 'login' && GOOGLE_CLIENT_ID && (
+  <>
+    <div className="flex items-center gap-3 py-1.5">
+      <div className="h-px flex-1 bg-gray-800" />
+      <span className="text-xs uppercase text-gray-500">or</span>
+      <div className="h-px flex-1 bg-gray-800" />
+    </div>
+    <div ref={googleButtonRef} className="min-h-[44px]" />
+  </>
+)}
+\end{lstlisting}
+
+% ============================================================
+\section{Docker ve Dağıtım Güncellemeleri}
+% ============================================================
+
+\subsection{Backend Port Değişikliği}
+\texttt{docker-compose.backend.yml} dosyasında port eşlemesi \texttt{5001:5000} olarak güncellenmiş, yerel test ortamında backend'e \texttt{http://localhost:5001} üzerinden erişim sağlanmıştır.
+
+\subsection{Client Dockerfile Güncellemesi}
+Vite ortam değişkenlerinin build aşamasında geçirilmesi için \texttt{ARG} ve \texttt{ENV} direktifleri eklenmiştir:
+
+\begin{lstlisting}[caption={Client Dockerfile güncellemesi}]
+ARG VITE_GOOGLE_CLIENT_ID
+ARG VITE_API_BASE
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+ENV VITE_API_BASE=$VITE_API_BASE
+RUN npm run build
+\end{lstlisting}
+
+% ============================================================
+\section{Sonuç ve Değerlendirme}
+% ============================================================
+
+Hafta 12 geliştirme döngüsünde tamamlanan işler özetle:
+
+\begin{itemize}
+  \item Yeni kullanıcılara \textbf{tek seferlik 100 token} verilmesi ve aylık otomatik grant sisteminin kaldırılması.
+  \item \textbf{Günlük (200) ve haftalık (1000)} token kota sistemi ile aşım koruması.
+  \item Paket satın alan kullanıcılar için üyelik tarihini baz alan \textbf{Auto-Renewal toggle} mekanizması; satın almayan kullanıcılar için toggle devre dışı.
+  \item 8 adet \textbf{admin endpoint} ile kapsamlı kota ve kullanıcı yönetimi.
+  \item \textbf{Cloudflare Email Routing} ile profesyonel e-posta altyapısı.
+  \item \textbf{Google OAuth} ile hızlı giriş desteği.
+  \item Supabase PostgreSQL'e \textbf{sütun migration}'ı ile geriye dönük uyumluluk.
+\end{itemize}
+
+\end{document}
