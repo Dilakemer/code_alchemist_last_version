@@ -6117,7 +6117,13 @@ def list_conversations():
         if source_filter == 'vscode': source_filter = 'extension'
         query = query.filter(Conversation.source == source_filter)
 
-        # Exclude community posts and include archive filter logic if needed
+        # Exclude community posts
+        community_conv_ids = db.session.query(History.conversation_id)\
+            .filter(History.selected_model == 'Community')\
+            .subquery()
+        query = query.filter(Conversation.id.notin_(community_conv_ids))
+
+        # Include archive filter logic if needed
         convs = query.filter(Conversation.is_deleted == False)\
             .filter(db.or_(Conversation.is_archived == False, Conversation.is_archived == None))\
             .order_by(Conversation.is_pinned.desc(), Conversation.created_at.desc())\
