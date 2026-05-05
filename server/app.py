@@ -5596,6 +5596,7 @@ def ask():
                         messages=agent_messages[:-1],
                         history_context=effective_history_context,
                         github_context=github_context,
+                        memory_context=(memory_context.get('text') if isinstance(memory_context, dict) else memory_context),
                         allow_write_tools=allow_write_tools,
                         search_project_callback=_agent_project_search,
                         db_read_callback=_agent_db_read,
@@ -6121,9 +6122,15 @@ def list_conversations():
             query = query.filter(Conversation.project_id.is_(None))
             
         # Filter by source (Web vs Extension)
+        # Also include conversations with NULL source (legacy records created before source tracking)
         source_filter = request.headers.get("X-Client-Source", "web")
         if source_filter == 'vscode': source_filter = 'extension'
-        query = query.filter(Conversation.source == source_filter)
+        query = query.filter(
+            db.or_(
+                Conversation.source == source_filter,
+                Conversation.source.is_(None)
+            )
+        )
 
         # Exclude community posts
         community_conv_ids = db.session.query(History.conversation_id)\

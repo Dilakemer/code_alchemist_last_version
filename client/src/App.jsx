@@ -3013,12 +3013,12 @@ function App() {
             includePreviousModules={includePreviousModules}
             onIncludePreviousModulesChange={(val) => {
               setIncludePreviousModules(val);
-              localStorage.setItem('codebrain_include_previous_modules', val);
+              localStorage.setItem('codebrain_include_previous_modules', val ? 'true' : 'false');
             }}
             agentModeEnabled={agentModeEnabled}
             onAgentModeChange={(val) => {
               setAgentModeEnabled(val);
-              localStorage.setItem('codebrain_agent_mode', val);
+              localStorage.setItem('codebrain_agent_mode', val ? 'true' : 'false');
             }}
             onBack={handleProfileBack}
             canGoBack={userHistory.length > 0}

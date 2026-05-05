@@ -1,46 +1,46 @@
 import React, { useState } from 'react';
 
 const ComparisonTable = () => (
-  <div className="mt-24 max-w-5xl mx-auto overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] backdrop-blur-sm">
-    <div className="p-8 border-b border-white/10 text-center">
-      <h2 className="text-3xl font-black text-white mb-2">Neden CodeAlchemist?</h2>
-      <p className="text-gray-400 text-sm">Geliştirici araçlarında yeni standart.</p>
+  <div className="mt-12 md:mt-24 max-w-5xl mx-auto overflow-hidden rounded-2xl md:rounded-3xl border border-white/10 bg-white/[0.02] backdrop-blur-sm">
+    <div className="p-6 md:p-8 border-b border-white/10 text-center">
+      <h2 className="text-2xl md:text-3xl font-black text-white mb-2">Neden CodeAlchemist?</h2>
+      <p className="text-gray-400 text-xs md:text-sm">Geliştirici araçlarında yeni standart.</p>
     </div>
     <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse">
+      <table className="w-full text-left border-collapse min-w-[600px]">
         <thead>
           <tr className="bg-white/[0.03]">
-            <th className="p-6 text-xs font-bold text-gray-500 uppercase tracking-widest">Özellik</th>
-            <th className="p-6 text-xs font-bold text-gray-500 uppercase tracking-widest">GitHub Copilot</th>
-            <th className="p-6 text-xs font-bold text-indigo-400 uppercase tracking-widest bg-indigo-500/5">CodeAlchemist</th>
+            <th className="p-4 md:p-6 text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest w-1/3">Özellik</th>
+            <th className="p-4 md:p-6 text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest w-1/3">GitHub Copilot</th>
+            <th className="p-4 md:p-6 text-[10px] md:text-xs font-bold text-indigo-400 uppercase tracking-widest bg-indigo-500/5 w-1/3">CodeAlchemist</th>
           </tr>
         </thead>
-        <tbody className="text-sm text-gray-300">
+        <tbody className="text-xs md:text-sm text-gray-300">
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-            <td className="p-6 font-medium">Model seçimi</td>
-            <td className="p-6">
+            <td className="p-4 md:p-6 font-medium">Model seçimi</td>
+            <td className="p-4 md:p-6">
               <div className="text-white font-medium mb-1">Çoklu model</div>
-              <div className="text-gray-500 text-xs font-normal">GPT-4o, Claude, Gemini vb.</div>
+              <div className="text-gray-500 text-[10px] md:text-xs font-normal">GPT-4o, Claude, Gemini vb.</div>
             </td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">Hibrit (5+ model)</td>
+            <td className="p-4 md:p-6 bg-indigo-500/5 font-bold text-white">Hibrit (5+ model)</td>
           </tr>
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-            <td className="p-6 font-medium">Karşılaştırma (Compare)</td>
-            <td className="p-6 text-gray-500 text-xs">Desteklenmiyor</td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">Gerçek zamanlı karşılaştırma</td>
+            <td className="p-4 md:p-6 font-medium">Karşılaştırma (Compare)</td>
+            <td className="p-4 md:p-6 text-gray-500 text-[10px] md:text-xs">Desteklenmiyor</td>
+            <td className="p-4 md:p-6 bg-indigo-500/5 font-bold text-white">Gerçek zamanlı karşılaştırma</td>
           </tr>
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-            <td className="p-6 font-medium">Fiyatlandırma</td>
-            <td className="p-6">
+            <td className="p-4 md:p-6 font-medium">Fiyatlandırma</td>
+            <td className="p-4 md:p-6">
               <div className="text-white font-medium mb-1">Ücretsiz / $10 / $39 / ay</div>
-              <div className="text-gray-500 text-xs font-normal">Katmanlı; premium istek aşımında +$0.04/istek</div>
+              <div className="text-gray-500 text-[10px] md:text-xs font-normal">Katmanlı; premium istek aşımında +$0.04/istek</div>
             </td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">Token bazlı (kullandığın kadar)</td>
+            <td className="p-4 md:p-6 bg-indigo-500/5 font-bold text-white">Token bazlı (kullandığın kadar)</td>
           </tr>
           <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
-            <td className="p-6 font-medium">Yerel ödeme (TRY)</td>
-            <td className="p-6 text-gray-500 text-xs">Desteklenmiyor</td>
-            <td className="p-6 bg-indigo-500/5 font-bold text-white">iyzico / TL desteği</td>
+            <td className="p-4 md:p-6 font-medium">Yerel ödeme (TRY)</td>
+            <td className="p-4 md:p-6 text-gray-500 text-[10px] md:text-xs">Desteklenmiyor</td>
+            <td className="p-4 md:p-6 bg-indigo-500/5 font-bold text-white">iyzico / TL desteği</td>
           </tr>
         </tbody>
       </table>
@@ -65,10 +65,10 @@ const DemoModal = ({ onClose }) => (
           ⚗️
         </div>
         <h3 className="text-xl md:text-2xl font-black text-white mb-2">CodeAlchemist'i Aksiyonda Görün</h3>
-        <p className="text-gray-400 text-xs md:text-sm mb-6 md:mb-8 max-w-lg mx-auto">
+        <p className="text-gray-400 text-xs md:text-sm mb-6 md:mb-8 max-w-lg mx-auto px-4">
           Çoklu model analizi, gerçek zamanlı karşılaştırma ve akıllı kod yamalarını keşfedin.
         </p>
-        <div className="aspect-video bg-black rounded-2xl border border-white/10 overflow-hidden shadow-2xl mb-6 relative group/video">
+        <div className="aspect-video bg-black rounded-xl md:rounded-2xl border border-white/10 overflow-hidden shadow-2xl mb-6 relative group/video">
           <video
             className="w-full h-full object-cover"
             controls
@@ -81,10 +81,10 @@ const DemoModal = ({ onClose }) => (
             Tarayıcınız video etiketini desteklemiyor.
           </video>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+        <div className="flex flex-col sm:flex-row gap-3 justify-center px-4">
           <button
             onClick={onClose}
-            className="px-8 py-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-600/20"
+            className="w-full sm:w-auto px-8 py-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-600/20"
           >
             Hemen Dene →
           </button>
@@ -145,22 +145,22 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
         </div>
 
         {/* Navigation */}
-        <nav className="relative z-50 flex items-center justify-between px-8 py-6 max-w-7xl mx-auto">
+        <nav className="relative z-50 flex items-center justify-between px-4 md:px-8 py-6 max-w-7xl mx-auto">
           <div className="flex items-center gap-2.5">
-            <span className="text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-[var(--accent-gradient)]">
+            <span className="text-xl md:text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-[var(--accent-gradient)]">
               CodeAlchemist
             </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             <button
               onClick={onLogin}
-              className="text-sm font-medium text-gray-300 hover:text-white transition-colors px-4 py-2 rounded-xl"
+              className="text-xs md:text-sm font-medium text-gray-300 hover:text-white transition-colors px-2 md:px-4 py-2 rounded-xl"
             >
               Giriş Yap
             </button>
             <button
               onClick={onGetStarted}
-              className="px-5 py-2.5 bg-white text-black rounded-full text-sm font-bold hover:bg-gray-100 transition-all shadow-xl"
+              className="px-4 md:px-5 py-2 md:py-2.5 bg-white text-black rounded-full text-xs md:text-sm font-bold hover:bg-gray-100 transition-all shadow-xl whitespace-nowrap"
             >
               Ücretsiz Başla
             </button>
@@ -168,33 +168,33 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
         </nav>
 
         {/* Hero Section */}
-        <section className="relative z-10 pt-16 pb-24 px-6 max-w-7xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] font-bold uppercase tracking-widest text-indigo-400 mb-8">
+        <section className="relative z-10 pt-10 md:pt-16 pb-20 md:pb-24 px-4 md:px-6 max-w-7xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[9px] md:text-[10px] font-bold uppercase tracking-widest text-indigo-400 mb-6 md:mb-8">
             <span className="flex h-2 w-2 rounded-full bg-indigo-500 animate-slow-pulse" />
             Token-based AI coding is here
           </div>
 
-          <h1 className="text-5xl md:text-8xl font-black tracking-tight mb-6 leading-[0.85]">
+          <h1 className="text-3xl sm:text-5xl md:text-8xl font-black tracking-tight mb-6 leading-[1.1] md:leading-[0.85]">
             <span className="block text-white">5 Model aynı anda çalışsın.</span>
             <span className="bg-clip-text text-transparent bg-[var(--accent-gradient)]">
               En iyi cevabı sen seç.
             </span>
           </h1>
 
-          <p className="text-base md:text-xl text-slate-400 max-w-2xl mx-auto mb-10 font-medium leading-relaxed">
+          <p className="text-sm md:text-xl text-slate-400 max-w-2xl mx-auto mb-8 md:mb-10 font-medium leading-relaxed px-2">
             GPT-4o, Claude ve Gemini'yi tek soruda karşılaştır.Tek modele bağlı kalma. En iyi cevabı seç. Token bazlı fiyatlandırma ile sadece kullandığın kadar öde. Kuruş israf etme.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12 md:mb-16 px-4">
             <button
               onClick={onGetStarted}
-              className="w-full sm:w-auto px-10 py-4 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-2xl text-lg font-black transition-all shadow-2xl shadow-indigo-600/30 transform hover:-translate-y-1 active:scale-95"
+              className="w-full sm:w-auto px-8 md:px-10 py-3.5 md:py-4 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-2xl text-base md:text-lg font-black transition-all shadow-2xl shadow-indigo-600/30 transform hover:-translate-y-1 active:scale-95"
             >
               Start Free — 100 tokens 🧪
             </button>
             <button
               onClick={() => setShowDemo(true)}
-              className="w-full sm:w-auto px-10 py-4 bg-white/5 border border-white/10 text-white rounded-2xl text-lg font-bold hover:bg-white/10 transition-all"
+              className="w-full sm:w-auto px-8 md:px-10 py-3.5 md:py-4 bg-white/5 border border-white/10 text-white rounded-2xl text-base md:text-lg font-bold hover:bg-white/10 transition-all"
             >
               Demo İzle
             </button>
@@ -204,37 +204,37 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
         </section>
 
         {/* Features Section - Enhanced Depth & Emotion */}
-        <section className="relative z-10 py-32 px-6 max-w-7xl mx-auto">
-          <div className="text-center mb-20">
-            <h2 className="text-3xl md:text-5xl font-black text-white mb-6 tracking-tight">
+        <section className="relative z-10 py-20 md:py-32 px-4 md:px-6 max-w-7xl mx-auto">
+          <div className="text-center mb-12 md:mb-20">
+            <h2 className="text-2xl md:text-5xl font-black text-white mb-4 md:mb-6 tracking-tight">
               Geliştiriciler için <span className="text-indigo-400">Gerçek Özgürlük</span>
             </h2>
-            <p className="text-slate-400 max-w-2xl mx-auto text-lg leading-relaxed">
+            <p className="text-slate-400 max-w-2xl mx-auto text-base md:text-lg leading-relaxed px-2">
               Sadece kod yazmanızı değil, en doğru kararı vermenizi sağlıyoruz.
               Sınırları ortadan kaldırın, verimliliği sanat haline getirin.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
             {features.map((f, i) => (
               <div
                 key={i}
-                className="group relative p-10 rounded-[2.5rem] bg-white/[0.01] border border-white/5 hover:border-indigo-500/20 transition-all duration-500 hover:-translate-y-2 overflow-hidden"
+                className="group relative p-8 md:p-10 rounded-[2rem] md:rounded-[2.5rem] bg-white/[0.01] border border-white/5 hover:border-indigo-500/20 transition-all duration-500 hover:-translate-y-2 overflow-hidden"
               >
                 {/* Hover Glow Effect */}
                 <div className="absolute -inset-px bg-gradient-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
                 {/* Icon Container with Glassmorphism */}
-                <div className="relative w-16 h-16 mb-8 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-white/10 flex items-center justify-center text-3xl group-hover:scale-110 group-hover:rotate-3 transition-transform duration-500 shadow-xl">
+                <div className="relative w-14 h-14 md:w-16 md:h-16 mb-6 md:mb-8 rounded-2xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-white/10 flex items-center justify-center text-2xl md:text-3xl group-hover:scale-110 group-hover:rotate-3 transition-transform duration-500 shadow-xl">
                   <div className="absolute inset-0 bg-indigo-500/5 blur-xl rounded-full group-hover:bg-indigo-500/20 transition-colors" />
                   <span className="relative drop-shadow-md">{f.icon}</span>
                 </div>
 
-                <h3 className="relative text-2xl font-black mb-4 text-white group-hover:text-indigo-300 transition-colors tracking-tight">
+                <h3 className="relative text-xl md:text-2xl font-black mb-3 md:mb-4 text-white group-hover:text-indigo-300 transition-colors tracking-tight">
                   {f.title}
                 </h3>
 
-                <p className="relative text-slate-400 text-sm leading-relaxed font-medium group-hover:text-slate-200 transition-colors">
+                <p className="relative text-slate-400 text-xs md:text-sm leading-relaxed font-medium group-hover:text-slate-200 transition-colors">
                   {f.desc}
                 </p>
 
@@ -246,19 +246,19 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
         </section>
 
         {/* Footer */}
-        <footer className="relative z-10 py-16 border-t border-white/5 text-center">
+        <footer className="relative z-10 py-12 md:py-16 border-t border-white/5 text-center px-4">
           <div className="mb-8">
-            <p className="text-xs text-slate-400 font-semibold tracking-[0.2em] uppercase mb-3">
+            <p className="text-[10px] text-slate-400 font-semibold tracking-[0.2em] uppercase mb-3">
               BİZE ULAŞIN
             </p>
             <a
               href="mailto:info@codealchemist.com.tr"
-              className="text-base md:text-lg text-indigo-300 hover:text-indigo-200 font-bold transition-colors"
+              className="text-sm md:text-lg text-indigo-300 hover:text-indigo-200 font-bold transition-colors"
             >
               info@codealchemist.com.tr
             </a>
           </div>
-          <p className="text-[10px] text-slate-600 font-bold tracking-[0.3em] uppercase">
+          <p className="text-[8px] md:text-[10px] text-slate-600 font-bold tracking-[0.3em] uppercase">
             © 2026 CodeAlchemist • Engineering the Future
           </p>
         </footer>

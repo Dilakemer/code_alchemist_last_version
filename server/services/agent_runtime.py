@@ -219,7 +219,9 @@ class AgentToolRuntime:
 
     @property
     def has_tool_access(self) -> bool:
-        return bool(self.project or self.workspace_files is not None)
+        # web_search and web_fetch are always available; project/workspace tools
+        # are conditionally available.
+        return True
 
     @property
     def workspace_label(self) -> str:
@@ -334,17 +336,47 @@ class AgentToolRuntime:
                     "required": ["command"],
                 },
             },
+            {
+                "name": "web_search",
+                "description": "Search the internet for real-time information. Use this for current events, recent data, documentation, or any question requiring up-to-date facts. Returns a list of results with title, snippet, and URL.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The search query."},
+                        "limit": {"type": "integer", "description": "Max number of results to return.", "default": 5},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "web_fetch",
+                "description": "Fetch and read the text content of a web page by URL. Use this after web_search to read the full content of a page.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "The URL to fetch."},
+                        "max_chars": {"type": "integer", "description": "Maximum characters to return.", "default": 4000},
+                    },
+                    "required": ["url"],
+                },
+            },
         ]
 
     def execute(self, name: str, raw_args: Any) -> dict:
+        # web_search and web_fetch are always available (no workspace required)
+        args = _safe_json_loads(raw_args, default={})
+        tool_name = (name or "").strip()
+
+        if tool_name == "web_search":
+            return self._web_search(args)
+        if tool_name == "web_fetch":
+            return self._web_fetch(args)
+
         if not self.has_tool_access:
             return {
                 "ok": False,
                 "error": "No project or workspace files are attached to this turn.",
             }
-
-        args = _safe_json_loads(raw_args, default={})
-        tool_name = (name or "").strip()
 
         if tool_name == "list_files":
             return self._list_files(args)
@@ -779,6 +811,150 @@ class AgentToolRuntime:
             "message": f"Terminal command '{command}' has been sent to VS Code for execution.",
         }
 
+    def _web_search(self, args: dict) -> dict:
+        """Perform a real web search using DuckDuckGo HTML scraper."""
+        query = str(args.get("query") or "").strip()
+        if not query:
+            return {"ok": False, "error": "query is required"}
+
+        try:
+            limit = max(1, min(10, int(args.get("limit", 5) or 5)))
+        except Exception:
+            limit = 5
+
+        results = []
+        try:
+            import urllib.request
+            import urllib.parse
+            import html
+
+            encoded_query = urllib.parse.quote_plus(query)
+            url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; CodeAlchemistAgent/1.0)",
+                    "Accept": "text/html",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                content = resp.read().decode("utf-8", errors="replace")
+
+            # Parse results with regex (no BS4 needed)
+            result_blocks = re.findall(
+                r'class="result__title"[^>]*>.*?href="([^"]+)"[^>]*>([^<]+)</a>.*?class="result__snippet"[^>]*>([^<]*(?:<(?!div)[^>]*>[^<]*)*)',
+                content,
+                re.DOTALL,
+            )
+
+            for url_raw, title_raw, snippet_raw in result_blocks[:limit]:
+                # DuckDuckGo wraps URLs
+                actual_url = url_raw
+                if "uddg=" in url_raw:
+                    try:
+                        parsed_qs = urllib.parse.parse_qs(urllib.parse.urlparse(url_raw).query)
+                        actual_url = parsed_qs.get("uddg", [url_raw])[0]
+                        actual_url = urllib.parse.unquote(actual_url)
+                    except Exception:
+                        pass
+
+                title = html.unescape(re.sub(r"<[^>]+>", "", title_raw)).strip()
+                snippet = html.unescape(re.sub(r"<[^>]+>", "", snippet_raw)).strip()
+                if title and actual_url and not actual_url.startswith("javascript:"):
+                    results.append({"title": title, "url": actual_url, "snippet": snippet})
+
+        except Exception as e:
+            print(f"[web_search] DuckDuckGo scraper failed: {e}")
+
+        # Fallback: Wikipedia search API
+        if not results:
+            try:
+                import urllib.request
+                import urllib.parse
+                import json as _json
+
+                encoded_query = urllib.parse.quote_plus(query)
+                api_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={encoded_query}&limit={limit}&format=json"
+                req = urllib.request.Request(api_url, headers={"User-Agent": "CodeAlchemistAgent/1.0"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = _json.loads(resp.read().decode("utf-8"))
+                # opensearch: [query, [titles], [descriptions], [urls]]
+                for title, desc, wiki_url in zip(data[1], data[2], data[3]):
+                    results.append({"title": title, "url": wiki_url, "snippet": desc})
+            except Exception as e:
+                print(f"[web_search] Wikipedia fallback failed: {e}")
+
+        if not results:
+            return {
+                "ok": False,
+                "error": "Web search returned no results. The query may be too specific or search is temporarily unavailable.",
+                "query": query,
+                "results": [],
+            }
+
+        return {
+            "ok": True,
+            "query": query,
+            "count": len(results),
+            "results": results,
+            "recommended_fetch_urls": [r["url"] for r in results[:2]],
+        }
+
+    def _web_fetch(self, args: dict) -> dict:
+        """Fetch and extract text content from a URL."""
+        url = str(args.get("url") or "").strip()
+        if not url:
+            return {"ok": False, "error": "url is required"}
+        if not url.startswith(("http://", "https://")):
+            return {"ok": False, "error": "URL must start with http:// or https://"}
+
+        try:
+            max_chars = max(500, min(8000, int(args.get("max_chars", 4000) or 4000)))
+        except Exception:
+            max_chars = 4000
+
+        try:
+            import urllib.request
+            import html
+
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; CodeAlchemistAgent/1.0)",
+                    "Accept": "text/html,text/plain",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw = resp.read()
+                charset = "utf-8"
+                ct = resp.headers.get("Content-Type", "")
+                if "charset=" in ct:
+                    try:
+                        charset = ct.split("charset=")[-1].split(";")[0].strip()
+                    except Exception:
+                        pass
+                content = raw.decode(charset, errors="replace")
+
+            # Strip scripts and styles first
+            content = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", content, flags=re.DOTALL | re.IGNORECASE)
+            # Strip remaining HTML tags
+            text = re.sub(r"<[^>]+>", " ", content)
+            # Normalize whitespace
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\n{3,}", "\n\n", text)
+            text = html.unescape(text).strip()
+
+            truncated = len(text) > max_chars
+            return {
+                "ok": True,
+                "url": url,
+                "content": text[:max_chars],
+                "truncated": truncated,
+                "total_chars": len(text),
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"Failed to fetch {url}: {str(e)}", "url": url}
+
 
 def _make_trace_summary(tool_name: str, result: dict) -> str:
     if not isinstance(result, dict):
@@ -796,6 +972,12 @@ def _make_trace_summary(tool_name: str, result: dict) -> str:
         return f"Deleted {result.get('path', 'file')}."
     if tool_name == "search_files":
         return f"Found {len(result.get('hits') or [])} matching files."
+    if tool_name == "web_search":
+        count = result.get("count", len(result.get("results") or []))
+        return f"Found {count} web results for '{result.get('query', '')}' ."
+    if tool_name == "web_fetch":
+        chars = result.get("total_chars", 0)
+        return f"Fetched {chars} chars from {result.get('url', 'URL')}."
     return f"{tool_name} completed."
 
 

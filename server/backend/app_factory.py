@@ -18,8 +18,9 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .api.agent_router import router as agent_router
 from .runtime.core import AgentRuntime
@@ -163,6 +164,23 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def guard_wsgi_bridge_runtime_error(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except RuntimeError as exc:
+            if "CurrentThreadExecutor already quit or is broken" in str(exc or ""):
+                if request.url.path.startswith("/api/"):
+                    return JSONResponse(
+                        status_code=503,
+                        content={
+                            "error": "Temporary backend bridge issue. Please retry.",
+                            "code": "WSGI_BRIDGE_RETRY",
+                        },
+                    )
+                return PlainTextResponse("Temporary backend bridge issue. Please refresh.", status_code=503)
+            raise
 
     # ── Agent router ──────────────────────────────────────────────────────
     app.include_router(agent_router)

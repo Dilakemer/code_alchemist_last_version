@@ -1119,7 +1119,16 @@ const ChatInterface = ({
   useEffect(() => {
     if (user && authHeaders) {
       fetch(`${apiBase}/api/favorites`, { headers: authHeaders })
-        .then(res => res.json())
+        .then(async (res) => {
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
+          if (!res.ok) {
+            throw new Error(`Favorites request failed with status ${res.status}`);
+          }
+          if (!contentType.includes('application/json')) {
+            throw new Error('Favorites endpoint returned a non-JSON response');
+          }
+          return res.json();
+        })
         .then(data => {
           if (Array.isArray(data)) {
             setFavorites(new Set(data.map(f => f.history_id)));
