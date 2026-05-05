@@ -15,7 +15,13 @@ const PostCard = ({ post, onLike, onSelect, apiBase, user, authHeaders, onDelete
     const resolveAvatarUrl = () => {
         const candidate = post.author_image || post.author_profile_image || post.profile_image || post.profileImage || post.avatar;
         if (!candidate) return null;
-        return candidate.startsWith('http') ? candidate : `${apiBase}${candidate.startsWith('/') ? '' : '/'}${candidate}`;
+        return candidate.startsWith('http') || candidate.startsWith('data:') ? candidate : `${apiBase}${candidate.startsWith('/') ? '' : '/'}${candidate}`;
+    };
+
+    const resolveAttachmentUrl = (value) => {
+        if (!value) return null;
+        if (value.startsWith('http') || value.startsWith('data:')) return value;
+        return `${apiBase}${value.startsWith('/') ? '' : '/'}${value}`;
     };
 
     const authorInitial = post.author_name ? post.author_name[0].toUpperCase() : '?';
@@ -198,11 +204,11 @@ const PostCard = ({ post, onLike, onSelect, apiBase, user, authHeaders, onDelete
                     <div className="mb-4">
                         {/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(post.image_url) ? (
                             <div className="rounded-lg overflow-hidden border border-gray-800 max-h-96 bg-black/40 flex justify-center">
-                                <img src={post.image_url} alt="Post attachment" className="max-w-full h-auto max-h-96 object-contain" />
+                                <img src={resolveAttachmentUrl(post.image_url)} alt="Post attachment" className="max-w-full h-auto max-h-96 object-contain" />
                             </div>
                         ) : (
                             <a
-                                href={post.image_url}
+                                href={resolveAttachmentUrl(post.image_url)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-3 p-3 rounded-lg border border-gray-700 bg-gray-800/50 hover:bg-gray-800 transition-colors group"
@@ -318,7 +324,7 @@ const PostCard = ({ post, onLike, onSelect, apiBase, user, authHeaders, onDelete
                             {post.image_url && /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(post.image_url) && (
                                 <div className="rounded-md overflow-hidden border border-gray-700 bg-black/20 mt-2 max-h-32 flex justify-center">
                                     <img
-                                        src={post.image_url}
+                                        src={resolveAttachmentUrl(post.image_url)}
                                         alt="Post preview"
                                         className="h-full w-auto object-contain max-h-32"
                                     />

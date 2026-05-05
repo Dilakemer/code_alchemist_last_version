@@ -10,7 +10,13 @@ const CommunityPostDetail = ({ post, onBack, apiBase, authHeaders, user, onAuthR
     const resolveAvatarUrl = () => {
         const candidate = post.author_image || post.author_profile_image || post.profile_image || post.avatar;
         if (!candidate) return null;
-        return candidate.startsWith('http') ? candidate : `${apiBase}${candidate.startsWith('/') ? '' : '/'}${candidate}`;
+        return candidate.startsWith('http') || candidate.startsWith('data:') ? candidate : `${apiBase}${candidate.startsWith('/') ? '' : '/'}${candidate}`;
+    };
+
+    const resolveAttachmentUrl = (value) => {
+        if (!value) return null;
+        if (value.startsWith('http') || value.startsWith('data:')) return value;
+        return `${apiBase}${value.startsWith('/') ? '' : '/'}${value}`;
     };
 
     const authorInitial = post.author_name ? post.author_name[0].toUpperCase() : '?';
@@ -107,11 +113,11 @@ const CommunityPostDetail = ({ post, onBack, apiBase, authHeaders, user, onAuthR
                         <div className="mb-6">
                             {/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(post.image_url) ? (
                                 <div className="rounded-xl overflow-hidden border border-gray-800 shadow-lg">
-                                    <img src={post.image_url} alt="Post attachment" className="w-full max-h-[500px] object-contain bg-black/50" />
+                                    <img src={resolveAttachmentUrl(post.image_url)} alt="Post attachment" className="w-full max-h-[500px] object-contain bg-black/50" />
                                 </div>
                             ) : (
                                 <a
-                                    href={post.image_url}
+                                    href={resolveAttachmentUrl(post.image_url)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-4 p-4 rounded-xl border border-gray-700 bg-gray-800/40 hover:bg-gray-800 transition-colors group"

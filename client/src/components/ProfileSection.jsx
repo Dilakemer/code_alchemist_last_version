@@ -176,7 +176,7 @@ const ProfileSection = ({ user, apiBase, authHeaders, onUpdate, onLogout, onShow
     }
 
     const profileImageUrl = user.profile_image
-        ? (user.profile_image.startsWith('http') ? user.profile_image : `${apiBase}${user.profile_image}`)
+        ? (user.profile_image.startsWith('http') || user.profile_image.startsWith('data:') ? user.profile_image : `${apiBase}${user.profile_image}`)
         : null;
 
     return (

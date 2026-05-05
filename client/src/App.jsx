@@ -2221,7 +2221,7 @@ function App() {
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-fuchsia-600 to-purple-600 flex items-center justify-center text-xs font-bold overflow-hidden border border-gray-700">
                   {user.profile_image ? (
-                    <img src={user.profile_image.startsWith('http') ? user.profile_image : `${API_BASE}${user.profile_image}`} alt={user.display_name} className="w-full h-full object-cover" />
+                    <img src={user.profile_image.startsWith('http') || user.profile_image.startsWith('data:') ? user.profile_image : `${API_BASE}${user.profile_image}`} alt={user.display_name} className="w-full h-full object-cover" />
                   ) : (
                     user.display_name[0].toUpperCase()
                   )}

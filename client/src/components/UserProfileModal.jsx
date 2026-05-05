@@ -146,7 +146,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
         if (!u) return null;
         const candidate = u.profile_image || u.profile_image_url || u.profileImage || u.avatar || u.author_image;
         if (!candidate) return null;
-        if (candidate.startsWith('http')) return candidate;
+        if (candidate.startsWith('http') || candidate.startsWith('data:')) return candidate;
         return `${apiBase}${candidate.startsWith('/') ? '' : '/'}${candidate}`;
     };
 

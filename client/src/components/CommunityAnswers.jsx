@@ -19,6 +19,12 @@ const CommunityAnswers = ({
   const [loading, setLoading] = useState(false);
   const fileInputRef = React.useRef(null);
 
+  const resolveAttachmentUrl = (value) => {
+    if (!value) return null;
+    if (value.startsWith('http') || value.startsWith('data:')) return value;
+    return `${apiBase}${value.startsWith('/') ? '' : '/'}${value}`;
+  };
+
   const fetchAnswers = async () => {
     if (!historyId) return;
     setLoading(true);
@@ -211,14 +217,14 @@ const CommunityAnswers = ({
                 {/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(ans.image_url) ? (
                   <div className="rounded-lg overflow-hidden border border-gray-800 max-h-48 bg-black/50 flex justify-center">
                     <img
-                      src={ans.image_url.startsWith('http') ? ans.image_url : `${apiBase}${ans.image_url}`}
+                      src={resolveAttachmentUrl(ans.image_url)}
                       alt="Attachment"
                       className="max-w-full h-auto max-h-48 object-contain"
                     />
                   </div>
                 ) : (
                   <a
-                    href={ans.image_url.startsWith('http') ? ans.image_url : `${apiBase}${ans.image_url}`}
+                    href={resolveAttachmentUrl(ans.image_url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-3 p-3 rounded-lg border border-gray-700 bg-gray-800/50 hover:bg-gray-800 transition-colors group"

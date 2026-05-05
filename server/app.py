@@ -3573,8 +3573,16 @@ def _serialize_profile_image(image_value):
     if not image_value:
         return None
     image_str = str(image_value).strip()
-    if image_str.startswith('http://') or image_str.startswith('https://'):
+    if image_str.startswith('http://') or image_str.startswith('https://') or image_str.startswith('data:'):
         return image_str
+    local_path = image_str
+    if not os.path.isabs(local_path):
+        local_path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(image_str))
+    if os.path.exists(local_path):
+        mime_type = mimetypes.guess_type(local_path)[0] or 'application/octet-stream'
+        with open(local_path, 'rb') as image_file:
+            encoded = base64.b64encode(image_file.read()).decode('ascii')
+        return f'data:{mime_type};base64,{encoded}'
     return f"/api/files/{os.path.basename(image_str)}"
 
 def serialize_history(item: History) -> dict:

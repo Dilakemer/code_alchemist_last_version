@@ -133,7 +133,7 @@ const FollowingFeed = ({ apiBase, authHeaders, user, onAuthRequired, onUserClick
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-fuchsia-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
                                 {post.author?.profile_image ? (
                                     <img
-                                        src={`${apiBase}${post.author.profile_image}`}
+                                        src={post.author.profile_image.startsWith('http') || post.author.profile_image.startsWith('data:') ? post.author.profile_image : `${apiBase}${post.author.profile_image}`}
                                         alt={post.author?.display_name}
                                         className="w-full h-full object-cover"
                                     />
