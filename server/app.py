@@ -1102,7 +1102,7 @@ mimetypes.add_type('text/css', '.css')
 def health_check():
     return jsonify({'status': 'ok'}), 200
 
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 db.init_app(app)
 jwt = JWTManager(app)
 
