@@ -62,10 +62,7 @@ select,
 /* Enable GPU acceleration for smooth scrolling */
 .overflow-y-auto,
 .custom-scrollbar {
-  will-change: scroll-position;
   -webkit-overflow-scrolling: touch;
-  transform: translateZ(0);
-  backface-visibility: hidden;
 }
 
 /* Optimize animations for chat messages */
