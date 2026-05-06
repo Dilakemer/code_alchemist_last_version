@@ -16,7 +16,7 @@ const getApiBase = () => {
 };
 
 export const API_BASE = getApiBase();
-export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '522794929208-pm29ue7nga28fbq4ia9kmdm2457055vd.apps.googleusercontent.com';
 
 export const SOCKET_BASE = (typeof window !== 'undefined')
   ? (import.meta.env.VITE_API_BASE || window.location.origin)

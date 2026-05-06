@@ -17,8 +17,10 @@ import {
   Dimensions,
   Share,
 } from 'react-native';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
+import Constants from 'expo-constants';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   askQuestion, 
@@ -97,16 +99,16 @@ export default function App() {
   // Collaboration State
   const [collabToken, setCollabToken] = useState(null);
   
-  // Google Auth Hook
-  const [gRequest, gResponse, promptAsync] = Google.useAuthRequest({
-    webClientId: GOOGLE_CLIENT_ID,
-    iosClientId: IOS_CLIENT_ID,
-    androidClientId: ANDROID_CLIENT_ID,
-  });
-
   const scrollRef = useRef(null);
 
   const apiBase = useMemo(() => getApiBase(), []);
+  const isExpoGo = Constants.appOwnership === 'expo';
+  const googleRedirectUri = useMemo(
+    () => (isExpoGo
+      ? AuthSession.makeRedirectUri({ useProxy: true })
+      : AuthSession.makeRedirectUri({ scheme: 'codealchemist' })),
+    [isExpoGo]
+  );
 
   const onCollabRefresh = useMemo(() => () => {
     fetchHistory();
@@ -122,11 +124,24 @@ export default function App() {
     isStreaming: collabStreaming 
   } = useCollabSocket(collabToken, token, user?.display_name, onCollabRefresh);
 
+  const [gRequest, gResponse, promptAsync] = Google.useAuthRequest({
+    expoClientId: GOOGLE_CLIENT_ID,
+    webClientId: GOOGLE_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID || GOOGLE_CLIENT_ID,
+    androidClientId: ANDROID_CLIENT_ID || GOOGLE_CLIENT_ID,
+    redirectUri: googleRedirectUri,
+  });
+
   useEffect(() => {
     if (gResponse?.type === 'success') {
-      const { authentication } = gResponse;
-      handleGoogleExchange(authentication.idToken);
-    } else if (gResponse?.type === 'cancel' || gResponse?.type === 'error') {
+      const idToken = gResponse.authentication?.idToken || gResponse.params?.id_token || gResponse.params?.idToken;
+      if (!idToken) {
+        setBusy(false);
+        Alert.alert('Google Auth Error', 'Google oturum yanıtı alınamadı. Lütfen tekrar deneyin.');
+        return;
+      }
+      handleGoogleExchange(idToken);
+    } else if (gResponse?.type && gResponse.type !== 'success') {
       setBusy(false);
     }
   }, [gResponse]);
@@ -251,8 +266,12 @@ export default function App() {
   };
 
   const handleGoogleLoginPress = () => {
+    if (!gRequest) {
+      Alert.alert('Google Login Error', 'Google giriş isteği henüz hazır değil. Lütfen tekrar deneyin.');
+      return;
+    }
     setBusy(true);
-    promptAsync().catch(err => {
+    promptAsync({ useProxy: isExpoGo }).catch(err => {
       setBusy(false);
       Alert.alert('Google Login Error', err.message);
     });
