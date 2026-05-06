@@ -3997,7 +3997,7 @@ def check_quota_available(wallet: TokenBalance, tokens_needed: int = 1) -> tuple
         remaining = max(0, wallet.weekly_limit - wallet.weekly_used)
         return False, f"Haftalık limit aşıldı. Kalan: {remaining} token. Reset: {wallet.weekly_reset_at.isoformat() if wallet.weekly_reset_at else 'N/A'}"
     
-    # Cüzdan bakiyesi kontrolü
+    # Platform bakiyesi kontrolü
     if wallet.balance < tokens_needed:
         return False, f"Yetersiz token bakiyesi. Kalan: {wallet.balance} token"
     
@@ -4203,7 +4203,7 @@ def check_tokens(user: User, model_name: str = 'default') -> tuple[bool, int, in
 
 
 def deduct_tokens(user: User, model_name: str = "default", description: str = None, reference_id: str = None) -> tuple[bool, int]:
-    """Kullanıcının cüzdanından token düşer ve işlemi loglar.
+    """Kullanıcının platform bakiyesinden token düşer ve işlemi loglar.
     
     Returns:
         (başarılı_mı: bool, yeni_bakiye: int)
@@ -10774,7 +10774,7 @@ def admin_get_quota_defaults():
 def admin_update_quota_defaults():
     """
     Global quota varsayılanlarını günceller.
-    NOT: Bu endpoint mevcut kullanıcı cüzdanlarını TOPLU olarak günceller.
+    NOT: Bu endpoint mevcut kullanıcı platform bakiyelerini TOPLU olarak günceller.
     Body: { daily_limit?: int, weekly_limit?: int }
     """
     _, err = _require_admin()
@@ -10817,7 +10817,7 @@ def admin_update_quota_defaults():
 @app.route('/api/admin/users', methods=['GET'])
 @jwt_required()
 def admin_list_users():
-    """Tüm kullanıcıları token cüzdanı bilgileriyle listeler."""
+    """Tüm kullanıcıları platform bakiyesi bilgileriyle listeler."""
     _, err = _require_admin()
     if err:
         return err
@@ -11123,6 +11123,49 @@ def admin_stats():
     except Exception as e:
         print(f"admin_stats error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/legal/consent', methods=['POST'])
+@jwt_required(optional=True)
+def legal_consent():
+    """Kullanıcı yasal sözleşme/metin onaylarını kaydeder."""
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id) if current_user_id else None
+
+    data = request.get_json() or {}
+    consent_type = data.get('consent_type')
+    version = data.get('version', '1.0')
+    is_accepted = data.get('is_accepted', False)
+    order_id = data.get('order_id')
+    locale = data.get('locale', 'tr')
+    email = data.get('email') or (user.email if user else None)
+    
+    if not consent_type:
+        return jsonify({'error': 'consent_type is required'}), 400
+
+    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+    user_agent = request.headers.get('User-Agent', '')
+
+    try:
+        from models import LegalConsentLog
+        consent_log = LegalConsentLog(
+            user_id=user.id if user else None,
+            email=email,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            consent_type=consent_type,
+            version=version,
+            is_accepted=is_accepted,
+            order_id=order_id,
+            locale=locale
+        )
+        db.session.add(consent_log)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Consent logged successfully'})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error logging legal consent: {e}")
+        return jsonify({'error': 'Internal server error while logging consent'}), 500
 
 
 @app.route('/')

@@ -33,6 +33,14 @@ import { requestNotificationPermission } from './utils/notifications';
 import { API_BASE } from './config';
 import { useCollabSocket } from './hooks/useCollabSocket';
 
+import TermsOfUse from './components/legal/TermsOfUse';
+import PlatformBalanceTerms from './components/legal/PlatformBalanceTerms';
+import PreInformationForm from './components/legal/PreInformationForm';
+import DistanceSalesContract from './components/legal/DistanceSalesContract';
+import RefundPolicy from './components/legal/RefundPolicy';
+import KVKKPolicy from './components/legal/KVKKPolicy';
+import PrivacyPolicy from './components/legal/PrivacyPolicy';
+import CookiePolicy from './components/legal/CookiePolicy';
 function App() {
   const hasAttemptedOtp = React.useRef(false);
   const [model, setModel] = useState('auto');
@@ -70,6 +78,7 @@ function App() {
   const [showCollabShareOptions, setShowCollabShareOptions] = useState(false);
   const [usageInfo, setUsageInfo] = useState(null);
   const [tokenErrorNotice, setTokenErrorNotice] = useState(null);
+  const [legalRoute, setLegalRoute] = useState(null);
 
   // Community State
   const [activeCommunityPost, setActiveCommunityPost] = useState(null);
@@ -427,11 +436,21 @@ function App() {
         }
       };
       consumeOtp();
-    } else if (pathname === '/billing') {
-      setShowLandingPage(false); 
-      setTokenDashboardTab('upgrade');
-      setShowTokenDashboard(true);
-      window.history.replaceState({}, '', '/');
+    } else {
+      const legalRoutes = [
+        '/kullanim-kosullari', '/platform-bakiyesi-kosullari', '/on-bilgilendirme-formu',
+        '/mesafeli-satis-sozlesmesi', '/iade-ve-iptal-politikasi', '/kvkk-aydinlatma-metni',
+        '/gizlilik-politikasi', '/cerez-politikasi'
+      ];
+      if (legalRoutes.includes(pathname)) {
+        setLegalRoute(pathname);
+        setShowLandingPage(false);
+      } else if (pathname === '/billing') {
+        setShowLandingPage(false); 
+        setTokenDashboardTab('upgrade');
+        setShowTokenDashboard(true);
+        window.history.replaceState({}, '', '/');
+      }
     }
   }, [loadSharedSession]);
 
@@ -3090,7 +3109,7 @@ function App() {
         />
       )}
 
-      {showLandingPage && !user && (
+      {showLandingPage && !user && !legalRoute && (
         <div className="fixed inset-0 z-[100] overflow-y-auto bg-[#0a0a0b]">
           <LandingPage 
             onGetStarted={() => setShowLandingPage(false)}
@@ -3098,6 +3117,29 @@ function App() {
               setAuthOpen(true);
             }}
           />
+        </div>
+      )}
+
+      {/* Legal Pages */}
+      {legalRoute && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-[#0a0a0b]">
+          {legalRoute === '/kullanim-kosullari' && <TermsOfUse />}
+          {legalRoute === '/platform-bakiyesi-kosullari' && <PlatformBalanceTerms />}
+          {legalRoute === '/on-bilgilendirme-formu' && <PreInformationForm />}
+          {legalRoute === '/mesafeli-satis-sozlesmesi' && <DistanceSalesContract />}
+          {legalRoute === '/iade-ve-iptal-politikasi' && <RefundPolicy />}
+          {legalRoute === '/kvkk-aydinlatma-metni' && <KVKKPolicy />}
+          {legalRoute === '/gizlilik-politikasi' && <PrivacyPolicy />}
+          {legalRoute === '/cerez-politikasi' && <CookiePolicy />}
+          
+          <button 
+            onClick={() => { setLegalRoute(null); window.history.pushState({}, '', '/'); }}
+            className="fixed top-6 right-6 z-[110] p-2 bg-gray-800/80 hover:bg-gray-700/80 rounded-full text-gray-300 hover:text-white transition-all border border-gray-600/50 backdrop-blur-md"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
 

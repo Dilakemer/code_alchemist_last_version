@@ -435,7 +435,7 @@ class ProjectFile(db.Model):
 # ============================================================
 
 class TokenBalance(db.Model):
-    """Kullanıcının token cüzdanı — her kullanıcı için tek kayıt."""
+    """Kullanıcının token platform bakiyesi — her kullanıcı için tek kayıt."""
     __tablename__ = 'token_balance'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -538,4 +538,25 @@ class TokenPurchase(db.Model):
     def __repr__(self):
         return f'<TokenPurchase user_id={self.user_id} session={self.stripe_checkout_session_id} status={self.status} auto_renew={self.auto_renew}>'
 
+
+class LegalConsentLog(db.Model):
+    """Kullanıcı sözleşme ve aydınlatma metinleri onay kayıtları."""
+    __tablename__ = 'legal_consent_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)  # Can be null if pre-registration
+    email = db.Column(db.String(255), nullable=True, index=True)
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(512), nullable=True)
+    consent_type = db.Column(db.String(100), nullable=False, index=True)  # e.g., 'terms_of_use', 'kvkk', 'commercial_message'
+    version = db.Column(db.String(20), nullable=False)
+    is_accepted = db.Column(db.Boolean, nullable=False, default=False)
+    order_id = db.Column(db.String(128), nullable=True)  # For Iyzico payments
+    locale = db.Column(db.String(10), default='tr')
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('legal_consents', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<LegalConsentLog user_id={self.user_id} type={self.consent_type} accepted={self.is_accepted}>'
 

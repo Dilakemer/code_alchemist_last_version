@@ -13,6 +13,8 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acceptCommercial, setAcceptCommercial] = useState(false);
   const googleButtonRef = useRef(null);
   const onSuccessRef = useRef(onSuccess);
   const apiBaseRef = useRef(apiBase);
@@ -120,9 +122,15 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
-    if (authMode === 'register' && !isPasswordStrong(password)) {
-      setError('Password must be at least 8 characters long and contain at least one uppercase and one lowercase letter.');
-      return;
+    if (authMode === 'register') {
+      if (!acceptTerms) {
+        setError('Üyelik ve Kullanım Koşulları ile KVKK Aydınlatma Metni\'ni onaylamanız gerekmektedir.');
+        return;
+      }
+      if (!isPasswordStrong(password)) {
+        setError('Password must be at least 8 characters long and contain at least one uppercase and one lowercase letter.');
+        return;
+      }
     }
     const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
     try {
@@ -134,9 +142,26 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
       const data = await res.json();
       if (res.ok) {
         if (authMode === 'register') {
+          // Log consents asynchronously
+          fetch(`${apiBase}/api/legal/consent`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ consent_type: 'register_terms_kvkk', version: '1.0', is_accepted: acceptTerms, email: email })
+          }).catch(e => console.error("Consent log error:", e));
+
+          if (acceptCommercial) {
+            fetch(`${apiBase}/api/legal/consent`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ consent_type: 'commercial_communication', version: '1.0', is_accepted: true, email: email })
+            }).catch(e => console.error("Consent log error:", e));
+          }
+
           setAuthMode('login');
           setSuccessMessage('Registration successful! Please login.');
           setPassword('');
+          setAcceptTerms(false);
+          setAcceptCommercial(false);
         } else {
           onSuccess(data);
         }
@@ -297,6 +322,44 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
               </div>
             </div>
 
+            {authMode === 'register' && (
+              <div className="space-y-3 mt-4">
+                <label className="flex items-start gap-2 cursor-pointer group">
+                  <div className="relative flex items-center justify-center mt-0.5">
+                    <input
+                      type="checkbox"
+                      className="peer appearance-none w-4 h-4 border border-gray-600 rounded bg-black/50 checked:bg-fuchsia-500 checked:border-fuchsia-500 cursor-pointer transition-all"
+                      checked={acceptTerms}
+                      onChange={(e) => setAcceptTerms(e.target.checked)}
+                    />
+                    <svg className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+                  <span className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors leading-tight select-none">
+                    <a href="/kullanim-kosullari" target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 hover:text-fuchsia-300 underline" onClick={e => e.stopPropagation()}>Üyelik ve Kullanım Koşulları</a>'nı ve <a href="/kvkk-aydinlatma-metni" target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 hover:text-fuchsia-300 underline" onClick={e => e.stopPropagation()}>KVKK Aydınlatma Metni</a>'ni okudum, anladım ve kabul ediyorum.
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-2 cursor-pointer group">
+                  <div className="relative flex items-center justify-center mt-0.5">
+                    <input
+                      type="checkbox"
+                      className="peer appearance-none w-4 h-4 border border-gray-600 rounded bg-black/50 checked:bg-fuchsia-500 checked:border-fuchsia-500 cursor-pointer transition-all"
+                      checked={acceptCommercial}
+                      onChange={(e) => setAcceptCommercial(e.target.checked)}
+                    />
+                    <svg className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+                  <span className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors leading-tight select-none">
+                    Kampanyalardan ve yeniliklerden haberdar olmak için tarafıma elektronik ileti gönderilmesini kabul ediyorum.
+                  </span>
+                </label>
+              </div>
+            )}
+
             <button
               type="submit"
               className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white py-2.5 rounded-lg font-bold shadow-lg shadow-purple-900/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] mt-2"
@@ -414,7 +477,7 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
                 </button>
               </p>
               <p>
-                Don't have an account? <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('register'); setEmail(''); setPassword(''); setDisplayName(''); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Register</button>
+                Don't have an account? <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('register'); setEmail(''); setPassword(''); setDisplayName(''); setAcceptTerms(false); setAcceptCommercial(false); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Register</button>
               </p>
             </>
           )}

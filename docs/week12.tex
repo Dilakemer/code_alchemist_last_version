@@ -7,42 +7,74 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{longtable}
 
 \geometry{margin=1in}
 
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
 \lstset{
-  backgroundcolor=\color{gray!10},
+  backgroundcolor=\color{backcolour},
   basicstyle=\ttfamily\footnotesize,
   breaklines=true,
   frame=single,
   rulecolor=\color{gray!40},
   keywordstyle=\color{blue!70},
-  commentstyle=\color{green!50!black},
-  stringstyle=\color{red!60},
+  commentstyle=\color{codegreen},
+  stringstyle=\color{codepurple},
+  numberstyle=\tiny\color{codegray},
+  numbers=left,
+  numbersep=5pt,
   showstringspaces=false,
-  tabsize=2
+  tabsize=2,
+  captionpos=b,
+  keepspaces=true,
+  breakatwhitespace=false
 }
 
-\title{\textbf{Code Alchemist --- Hafta 12 Geliştirme Raporu} \\[0.3em]
-\large Token Ekonomisi, Kota Yönetimi, İletişim Altyapısı ve Google OAuth}
+% ----------------------------------------------------------------
+\title{%
+  \textbf{Code Alchemist --- Hafta 12 Geli\c{s}tirme Raporu} \\[0.3em]
+  \large Token Ekonomisi, Kota Y\"{o}netimi, \.{I}leti\c{s}im Altyap{\i}s{\i},
+         Google OAuth, Y\"{u}k Testi \&\ Hukuki Belgeler Paketi%
+}
 \author{Dila Kemer}
-\date{Mayıs 2026}
+\date{May{\i}s 2026}
+% ----------------------------------------------------------------
 
 \begin{document}
 \maketitle
 \tableofcontents
 \newpage
 
+% ================================================================
+\part{Teknik Geli\c{s}tirme Raporu}
+% ================================================================
+
 % ============================================================
-\section{Giriş}
+\section{Giri\c{s}}
 % ============================================================
-Bu doküman, Code Alchemist platformunun 12.\ hafta geliştirme döngüsünde gerçekleştirilen dört ana çalışma alanını detaylandırmaktadır:
+Bu dok\"{u}man, Code Alchemist platformunun 12.\ hafta geli\c{s}tirme d\"{o}ng\"{u}s\"{u}nde ger\c{c}ekle\c{s}tirilen be\c{s} ana
+\c{c}al{\i}\c{s}ma alan{\i}n{\i} detayland{\i}rmaktad{\i}r:
 
 \begin{enumerate}
-  \item \textbf{Token Ekonomisi ve Kota Sistemi} --- Kullanıcı bazlı günlük/haftalık limit yönetimi, tek seferlik 100 token kayıt bonusu ve satın alma tabanlı otomatik yenileme toggle mekanizması.
-  \item \textbf{Admin Panel Endpoint'leri} --- Yönetici yetkisiyle kota varsayılanlarını değiştirme, kullanıcı bazlı limit güncelleme, token bağışlama ve zorunlu yenileme tetikleme.
-  \item \textbf{E-posta Altyapısı} --- Cloudflare Email Routing ile \texttt{info@codealchemist.com.tr} profesyonel e-posta yönlendirmesi.
-  \item \textbf{Google OAuth Entegrasyonu} --- Landing page üzerinden Google ile giriş yapma özelliği.
+  \item \textbf{Token Ekonomisi ve Kota Sistemi} --- Kullan{\i}c{\i} bazl{\i} g\"{u}nl\"{u}k/haftal{\i}k limit y\"{o}netimi,
+        tek seferlik 100 token kay{\i}t bonusu ve sat{\i}n alma tabanl{\i} otomatik yenileme toggle mekanizmas{\i}.
+  \item \textbf{Admin Panel Endpoint'leri} --- Y\"{o}netici yetkisiyle kota varsay{\i}lanlar{\i}n{\i} de\u{g}i\c{s}tirme,
+        kullan{\i}c{\i} bazl{\i} limit g\"{u}ncelleme, token ba\u{g}{\i}\c{s}lama ve zorunlu yenileme tetikleme.
+  \item \textbf{E-posta Altyap{\i}s{\i}} --- Cloudflare Email Routing ile \texttt{info@codealchemist.com.tr}
+        profesyonel e-posta y\"{o}nlendirmesi.
+  \item \textbf{Google OAuth Entegrasyonu} --- Landing page \"{u}zerinden Google ile giri\c{s} yapma \"{o}zelli\u{g}i.
+  \item \textbf{Y\"{u}k Testi (Locust)} --- Locust framework ile API endpoint'lerinin performans ve dayan{\i}kl{\i}l{\i}k
+        analizi; tespit edilen hatalar ve uygulanan d\"{u}zeltmeler.
 \end{enumerate}
 
 % ============================================================
@@ -50,19 +82,23 @@ Bu doküman, Code Alchemist platformunun 12.\ hafta geliştirme döngüsünde ge
 % ============================================================
 
 \subsection{Genel Mimari}
-Token ekonomisi, \texttt{TokenBalance} modeli üzerinden yönetilmektedir. Her kullanıcının tek bir cüzdan kaydı (\texttt{token\_balance} tablosu) bulunur ve bu kayıt bakiye, harcama, günlük/haftalık kota ve aylık yenileme bilgilerini barındırır.
+Token ekonomisi, \texttt{TokenBalance} modeli \"{u}zerinden y\"{o}netilmektedir. Her kullan{\i}c{\i}n{\i}n tek bir
+c\"{u}zdan kayd{\i} (\texttt{token\_balance} tablosu) bulunur ve bu kay{\i}t bakiye, harcama,
+g\"{u}nl\"{u}k/haftal{\i}k kota ve ayl{\i}k yenileme bilgilerini bar{\i}nd{\i}r{\i}r.
 
-\subsection{Tek Seferlik 100 Token Kayıt Bonusu}
-Yeni kayıt olan her kullanıcıya \textbf{bir defalık 100 token} verilmektedir. Bu bonus \textbf{otomatik olarak yenilenmez}; kullanıcının ek token elde etmesi için paket satın alması gerekmektedir.
+\subsection{Tek Seferlik 100 Token Kay{\i}t Bonusu}
+Yeni kay{\i}t olan her kullan{\i}c{\i}ya \textbf{bir defal{\i}k 100 token} verilmektedir. Bu bonus
+\textbf{otomatik olarak yenilenmez}; kullan{\i}c{\i}n{\i}n ek token elde etmesi i\c{c}in paket
+sat{\i}n almas{\i} gerekmektedir.
 
 \subsubsection{Teknik Uygulama}
-Sabit değer \texttt{app.py} dosyasında tanımlıdır:
+Sabit de\u{g}er \texttt{app.py} dosyas{\i}nda tan{\i}ml{\i}d{\i}r:
 
-\begin{lstlisting}[language=Python, caption={Signup grant sabiti (app.py satır 465)}]
+\begin{lstlisting}[language=Python, caption={Signup grant sabiti (app.py sat{\i}r 465)}]
 SIGNUP_GRANT_TOKENS = 100
 \end{lstlisting}
 
-Cüzdan oluşturma fonksiyonu, kullanıcının ilk erişiminde çağrılır:
+C\"{u}zdan olu\c{s}turma fonksiyonu, kullan{\i}c{\i}n{\i}n ilk eri\c{s}iminde \c{c}a\u{g}r{\i}l{\i}r:
 
 \begin{lstlisting}[language=Python, caption={get\_or\_create\_token\_balance fonksiyonu}]
 def get_or_create_token_balance(user: User) -> TokenBalance:
@@ -78,36 +114,38 @@ def get_or_create_token_balance(user: User) -> TokenBalance:
             user_id=user.id,
             amount=SIGNUP_GRANT_TOKENS,
             type='signup_grant',
-            description=f'Yeni kullanici hos geldin bonusu'
+            description='Yeni kullanici hos geldin bonusu'
         )
         db.session.add(grant_tx)
         db.session.commit()
     return wallet
 \end{lstlisting}
 
-\textbf{Önemli:} Aylık otomatik grant sistemi kaldırılmıştır. Yorum satırında belirtildiği üzere, yenileme yalnızca paket satın alma döngüsünde gerçekleşir.
+\textbf{\"{O}nemli:} Ayl{\i}k otomatik grant sistemi kald{\i}r{\i}lm{\i}\c{s}t{\i}r. Yenileme yaln{\i}zca paket sat{\i}n alma
+d\"{o}ng\"{u}s\"{u}nde ger\c{c}ekle\c{s}ir.
 
-\subsection{Günlük ve Haftalık Kota Sistemi}
+\subsection{G\"{u}nl\"{u}k ve Haftal{\i}k Kota Sistemi}
 
-\subsubsection{Varsayılan Limitler}
+\subsubsection{Varsay{\i}lan Limitler}
 \begin{center}
 \begin{tabular}{|l|c|l|}
 \hline
-\textbf{Kota Türü} & \textbf{Varsayılan} & \textbf{Açıklama} \\
+\textbf{Kota T\"{u}r\"{u}} & \textbf{Varsay{\i}lan} & \textbf{A\c{c}{\i}klama} \\
 \hline
-Günlük limit (\texttt{daily\_limit}) & 200 token & Her gece 00:00 UTC sıfırlanır \\
-Haftalık limit (\texttt{weekly\_limit}) & 1000 token & Her Pazartesi 03:00 UTC sıfırlanır \\
+G\"{u}nl\"{u}k limit (\texttt{daily\_limit})   & 200 token  & Her gece 00:00 UTC s{\i}f{\i}rlan{\i}r \\
+Haftal{\i}k limit (\texttt{weekly\_limit}) & 1000 token & Her Pazartesi 03:00 UTC s{\i}f{\i}rlan{\i}r \\
 \hline
 \end{tabular}
 \end{center}
 
-\subsubsection{Kota Kontrol Mekanizması}
-Her AI isteği öncesinde \texttt{check\_quota\_available()} fonksiyonu çağrılır. Kontrol sırası:
+\subsubsection{Kota Kontrol Mekanizmas{\i}}
+Her AI iste\u{g}i \"{o}ncesinde \texttt{check\_quota\_available()} fonksiyonu \c{c}a\u{g}r{\i}l{\i}r.
+Kontrol s{\i}ras{\i}:
 
 \begin{enumerate}
-  \item \textbf{Günlük limit} --- \texttt{daily\_used + tokens\_needed > daily\_limit} ise istek reddedilir.
-  \item \textbf{Haftalık limit} --- \texttt{weekly\_used + tokens\_needed > weekly\_limit} ise istek reddedilir.
-  \item \textbf{Bakiye kontrolü} --- \texttt{balance < tokens\_needed} ise istek reddedilir.
+  \item \textbf{G\"{u}nl\"{u}k limit} --- \texttt{daily\_used + tokens\_needed > daily\_limit} ise istek reddedilir.
+  \item \textbf{Haftal{\i}k limit} --- \texttt{weekly\_used + tokens\_needed > weekly\_limit} ise istek reddedilir.
+  \item \textbf{Bakiye kontrol\"{u}} --- \texttt{balance < tokens\_needed} ise istek reddedilir.
 \end{enumerate}
 
 \begin{lstlisting}[language=Python, caption={Kota kontrol fonksiyonu}]
@@ -122,161 +160,146 @@ def check_quota_available(wallet, tokens_needed=1):
     return True, "OK"
 \end{lstlisting}
 
-\subsubsection{Token Harcama ve Kota Güncelleme}
-\begin{lstlisting}[language=Python, caption={Token düşme fonksiyonu}]
+\subsubsection{Token Harcama ve Kota G\"{u}ncelleme}
+\begin{lstlisting}[language=Python, caption={Token d\"{u}\c{s}me fonksiyonu}]
 def deduct_tokens_and_update_quota(wallet, amount):
     reset_quota_if_needed(wallet)
-    wallet.balance -= amount
+    wallet.balance    -= amount
     wallet.total_spent += amount
     wallet.weekly_used += amount
-    wallet.daily_used += amount
+    wallet.daily_used  += amount
     db.session.commit()
 \end{lstlisting}
 
 \subsection{Otomatik Yenileme (Auto-Renewal) Toggle}
 
-\subsubsection{İş Kuralları}
+\subsubsection{\.{I}\c{s} Kurallar{\i}}
 \begin{itemize}
-  \item Yalnızca en az bir paket satın almış kullanıcılar otomatik yenilemeyi aktif edebilir.
-  \item Hediye (signup grant) tokenları otomatik yenilenemez.
-  \item Yenileme günü, kullanıcının üyelik tarihine (kayıt olduğu gün) göre belirlenir (maks.\ 28).
-  \item Mevcut sistem \textbf{Stripe üzerinden otomatik ödeme almaz}; yenileme, satın alınan token miktarını bakiyeye ekler.
+  \item Yaln{\i}zca en az bir paket sat{\i}n alm{\i}\c{s} kullan{\i}c{\i}lar otomatik yenilemeyi aktif edebilir.
+  \item Hediye (signup grant) tokenlar{\i} otomatik yenilenemez.
+  \item Yenileme g\"{u}n\"{u}, kullan{\i}c{\i}n{\i}n \"{u}yelik tarihine g\"{o}re belirlenir (maks.\ 28).
+  \item Mevcut sistem \textbf{Stripe \"{u}zerinden otomatik \"{o}deme almaz}; yenileme, sat{\i}n al{\i}nan token
+        miktar{\i}n{\i} bakiyeye ekler.
 \end{itemize}
 
 \subsubsection{Backend Endpoint'leri}
 
 \paragraph{GET /api/tokens/renewal-status}
-Kullanıcının yenileme durumunu sorgular.
-
 \begin{lstlisting}[language=Python, caption={Renewal status GET endpoint}]
 @app.route('/api/tokens/renewal-status', methods=['GET'])
 @jwt_required()
 def get_renewal_status():
-    user = get_current_user()
+    user   = get_current_user()
     wallet = get_or_create_token_balance(user)
     has_purchase = TokenPurchase.query.filter_by(
         user_id=user.id, status='completed'
     ).first() is not None
     return jsonify({
         'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
-        'monthly_renewal_day': wallet.monthly_renewal_day,
-        'last_renewal_at': wallet.last_renewal_at,
-        'can_enable': has_purchase
+        'monthly_renewal_day':     wallet.monthly_renewal_day,
+        'last_renewal_at':         wallet.last_renewal_at,
+        'can_enable':              has_purchase
     })
 \end{lstlisting}
 
 \paragraph{PUT /api/tokens/renewal-status}
-Kullanıcının yenileme durumunu günceller. Satın alma geçmişi yoksa 400 hatası döner.
-
 \begin{lstlisting}[language=Python, caption={Renewal status PUT endpoint}]
 @app.route('/api/tokens/renewal-status', methods=['PUT'])
 @jwt_required()
 def update_renewal_status():
-    user = get_current_user()
-    data = request.get_json(silent=True) or {}
+    user    = get_current_user()
+    data    = request.get_json(silent=True) or {}
     enabled = data.get('enabled')
     if enabled:
         has_purchase = TokenPurchase.query.filter_by(
             user_id=user.id, status='completed'
         ).first()
         if not has_purchase:
-            return jsonify({
-                'error': 'Paket satin almaniz gereklidir.'
-            }), 400
+            return jsonify({'error': 'Paket satin almaniz gereklidir.'}), 400
     wallet = get_or_create_token_balance(user)
     wallet.monthly_renewal_enabled = bool(enabled)
     if wallet.monthly_renewal_enabled and not wallet.monthly_renewal_day:
-        wallet.monthly_renewal_day = min(28, user.created_at.day if user.created_at else _utcnow().day)
+        wallet.monthly_renewal_day = min(
+            28,
+            user.created_at.day if user.created_at else _utcnow().day
+        )
     db.session.commit()
     return jsonify({
-        'success': True,
+        'success':                 True,
         'monthly_renewal_enabled': wallet.monthly_renewal_enabled,
-        'monthly_renewal_day': wallet.monthly_renewal_day
+        'monthly_renewal_day':     wallet.monthly_renewal_day
     })
 \end{lstlisting}
 
-\subsubsection{Frontend Toggle Bileşeni}
-\texttt{TokenDashboardModal.jsx} dosyasındaki Overview sekmesine eklenen toggle bileşeni:
-
+\subsubsection{Frontend Toggle Bile\c{s}eni}
+\texttt{TokenDashboardModal.jsx} dosyas{\i}ndaki Overview sekmesine eklenen toggle bile\c{s}eni:
 \begin{itemize}
-  \item \texttt{renewalStatus} state'i: \texttt{\{enabled, day, canEnable\}} yapısında tutulur.
-  \item \texttt{canEnable} false ise toggle butonu \texttt{disabled} ve soluk (\texttt{opacity-50}) görünür.
-  \item Altında ``Otomatik yenilemeyi açmak için bir paket satın almalısınız'' uyarısı gösterilir.
-  \item Toggle aktif edildiğinde \texttt{PUT /api/tokens/renewal-status} çağrılır.
+  \item \texttt{renewalStatus} state'i: \texttt{\{enabled, day, canEnable\}} yap{\i}s{\i}nda tutulur.
+  \item \texttt{canEnable} false ise toggle butonu \texttt{disabled} ve soluk (\texttt{opacity-50}) g\"{o}r\"{u}n\"{u}r.
+  \item Toggle aktif edildi\u{g}inde \texttt{PUT /api/tokens/renewal-status} \c{c}a\u{g}r{\i}l{\i}r.
 \end{itemize}
 
-\subsection{Aylık Yenileme Mekanizması}
-\texttt{check\_and\_apply\_monthly\_renewal()} fonksiyonu, satın alma kaydındaki \texttt{auto\_renew=True} ve \texttt{renewal\_day} bilgisine göre çalışır:
-
-\begin{lstlisting}[language=Python, caption={Aylık yenileme kontrolü}]
+\subsection{Ayl{\i}k Yenileme Mekanizmas{\i}}
+\begin{lstlisting}[language=Python, caption={Ayl{\i}k yenileme kontrol\"{u}}]
 def check_and_apply_monthly_renewal(user_id):
     purchase = TokenPurchase.query.filter_by(
         user_id=user_id, status='completed', auto_renew=True
     ).order_by(TokenPurchase.completed_at.desc()).first()
     if not purchase or not purchase.renewal_day:
         return False
-    # Sonraki yenileme tarihini hesapla
-    # Tarih geldiyse token ekle ve logla
     if now >= next_renewal_date:
         wallet.balance += purchase.tokens_granted
         purchase.last_renewal_at = now
-        # TokenTransaction kaydı olustur
         db.session.commit()
         return True
     return False
 \end{lstlisting}
 
 % ============================================================
-\section{Veritabanı Model Güncellemeleri}
+\section{Veritaban{\i} Model G\"{u}ncellemeleri}
 % ============================================================
 
 \subsection{TokenBalance Modeli}
-\texttt{models.py} dosyasındaki \texttt{TokenBalance} modeline eklenen yeni alanlar:
-
 \begin{center}
 \begin{tabular}{|l|l|l|}
 \hline
-\textbf{Alan} & \textbf{Tip} & \textbf{Varsayılan} \\
+\textbf{Alan} & \textbf{Tip} & \textbf{Varsay{\i}lan} \\
 \hline
-\texttt{weekly\_limit} & INTEGER & 1000 \\
-\texttt{weekly\_used} & INTEGER & 0 \\
-\texttt{weekly\_reset\_at} & TIMESTAMP & NULL \\
-\texttt{daily\_limit} & INTEGER & 200 \\
-\texttt{daily\_used} & INTEGER & 0 \\
-\texttt{daily\_reset\_at} & TIMESTAMP & NULL \\
-\texttt{monthly\_renewal\_enabled} & BOOLEAN & FALSE \\
-\texttt{monthly\_renewal\_day} & INTEGER & NULL \\
-\texttt{last\_renewal\_at} & TIMESTAMP & NULL \\
+\texttt{weekly\_limit}             & INTEGER   & 1000  \\
+\texttt{weekly\_used}              & INTEGER   & 0     \\
+\texttt{weekly\_reset\_at}         & TIMESTAMP & NULL  \\
+\texttt{daily\_limit}              & INTEGER   & 200   \\
+\texttt{daily\_used}               & INTEGER   & 0     \\
+\texttt{daily\_reset\_at}          & TIMESTAMP & NULL  \\
+\texttt{monthly\_renewal\_enabled} & BOOLEAN   & FALSE \\
+\texttt{monthly\_renewal\_day}     & INTEGER   & NULL  \\
+\texttt{last\_renewal\_at}         & TIMESTAMP & NULL  \\
 \hline
 \end{tabular}
 \end{center}
 
 \subsection{TokenPurchase Modeli}
-Aylık yenileme desteği için eklenen alanlar:
-
 \begin{center}
 \begin{tabular}{|l|l|l|}
 \hline
-\textbf{Alan} & \textbf{Tip} & \textbf{Varsayılan} \\
+\textbf{Alan} & \textbf{Tip} & \textbf{Varsay{\i}lan} \\
 \hline
-\texttt{auto\_renew} & BOOLEAN & FALSE \\
-\texttt{renewal\_day} & INTEGER & NULL \\
-\texttt{last\_renewal\_at} & TIMESTAMP & NULL \\
+\texttt{auto\_renew}       & BOOLEAN   & FALSE \\
+\texttt{renewal\_day}      & INTEGER   & NULL  \\
+\texttt{last\_renewal\_at} & TIMESTAMP & NULL  \\
 \hline
 \end{tabular}
 \end{center}
 
-\subsection{Veritabanı Migration}
-Mevcut Supabase (PostgreSQL) veritabanına eksik sütunlar \texttt{ALTER TABLE} komutlarıyla eklenmiştir. Migration, Docker konteynırı içinden Python scripti aracılığıyla çalıştırılmıştır:
-
-\begin{lstlisting}[language=Python, caption={Migration scripti (Docker exec ile çalıştırıldı)}]
+\subsection{Veritaban{\i} Migration}
+\begin{lstlisting}[language=Python, caption={Migration scripti}]
 from sqlalchemy import text
 cols = [
-    ('token_balance', 'weekly_limit', 'INTEGER DEFAULT 1000'),
-    ('token_balance', 'weekly_used', 'INTEGER DEFAULT 0'),
+    ('token_balance', 'weekly_limit',  'INTEGER DEFAULT 1000'),
+    ('token_balance', 'weekly_used',   'INTEGER DEFAULT 0'),
     # ... diger alanlar
-    ('token_purchase', 'auto_renew', 'BOOLEAN DEFAULT FALSE'),
-    ('token_purchase', 'renewal_day', 'INTEGER'),
+    ('token_purchase', 'auto_renew',      'BOOLEAN DEFAULT FALSE'),
+    ('token_purchase', 'renewal_day',     'INTEGER'),
     ('token_purchase', 'last_renewal_at', 'TIMESTAMP')
 ]
 for table, col, col_type in cols:
@@ -287,89 +310,67 @@ for table, col, col_type in cols:
 \end{lstlisting}
 
 % ============================================================
-\section{Admin Panel ve Yönetim Endpoint'leri}
+\section{Admin Panel ve Y\"{o}netim Endpoint'leri}
 % ============================================================
 
 \subsection{Yetkilendirme}
-Tüm admin endpoint'leri \texttt{@jwt\_required()} ve \texttt{\_require\_admin()} kontrolünden geçer. Kullanıcının \texttt{is\_admin=True} olması gereklidir.
+T\"{u}m admin endpoint'leri \texttt{@jwt\_required()} ve \texttt{\_require\_admin()} kontrol\"{u}nden ge\c{c}er.
+Kullan{\i}c{\i}n{\i}n \texttt{is\_admin=True} olmas{\i} gereklidir.
 
-\subsection{Endpoint Özeti}
-
+\subsection{Endpoint \"{O}zeti}
 \begin{center}
 \begin{tabular}{|l|l|p{5.5cm}|}
 \hline
-\textbf{Method} & \textbf{Endpoint} & \textbf{Açıklama} \\
+\textbf{Method} & \textbf{Endpoint} & \textbf{A\c{c}{\i}klama} \\
 \hline
-GET & \texttt{/api/admin/quota/defaults} & Global kota varsayılanlarını döndürür \\
-PUT & \texttt{/api/admin/quota/defaults} & Tüm kullanıcıların limitlerini toplu günceller \\
-GET & \texttt{/api/admin/users} & Kullanıcı listesi (sayfalama ve arama destekli) \\
-GET & \texttt{/api/admin/users/:id/quota} & Belirli kullanıcının kota detayı \\
-PUT & \texttt{/api/admin/users/:id/quota} & Kullanıcı bazlı limit güncelleme \\
-POST & \texttt{/api/admin/users/:id/grant-tokens} & Manuel token bağışlama \\
-POST & \texttt{/api/admin/users/:id/reset-quota} & Günlük/haftalık sayaçları sıfırlama \\
-POST & \texttt{/api/admin/users/:id/force-renewal} & Aylık yenilemeyi anında tetikleme \\
+GET  & \texttt{/api/admin/quota/defaults}         & Global kota varsay{\i}lanlar{\i}n{\i} d\"{o}nd\"{u}r\"{u}r \\
+PUT  & \texttt{/api/admin/quota/defaults}         & T\"{u}m kullan{\i}c{\i}lar{\i}n limitlerini toplu g\"{u}nceller \\
+GET  & \texttt{/api/admin/users}                  & Kullan{\i}c{\i} listesi (sayfalama destekli) \\
+GET  & \texttt{/api/admin/users/:id/quota}        & Belirli kullan{\i}c{\i}n{\i}n kota detay{\i} \\
+PUT  & \texttt{/api/admin/users/:id/quota}        & Kullan{\i}c{\i} bazl{\i} limit g\"{u}ncelleme \\
+POST & \texttt{/api/admin/users/:id/grant-tokens} & Manuel token ba\u{g}{\i}\c{s}lama \\
+POST & \texttt{/api/admin/users/:id/reset-quota}  & G\"{u}nl\"{u}k/haftal{\i}k say{\i}\c{c}lar{\i} s{\i}f{\i}rlama \\
+POST & \texttt{/api/admin/users/:id/force-renewal}& Ayl{\i}k yenilemeyi tetikleme \\
 \hline
 \end{tabular}
 \end{center}
 
-\subsection{Frontend Admin Paneli}
-\texttt{AdminQuotaPanel.jsx} bileşeni, \texttt{App.jsx} header kısmına eklenen \textbf{🛡️ Admin} butonuyla erişilebilir hale getirilmiştir. Panel, platform istatistikleri, kullanıcı listesi ve bireysel kota yönetimi işlevlerini sunmaktadır.
-
 % ============================================================
-\section{E-posta Yapılandırması (Cloudflare Email Routing)}
+\section{E-posta Yap{\i}land{\i}rmas{\i} (Cloudflare Email Routing)}
 % ============================================================
 
-\subsection{Platform Seçimi}
-Zoho Mail denemesi yapılmış, teknik kısıtlamalar nedeniyle \textbf{Cloudflare Email Routing} çözümüne geçilmiştir. Cloudflare hesabı mevcut Gmail adresi (\texttt{dilakemer1@gmail.com}) üzerinden aktif edilmiştir.
+\subsection{Platform Se\c{c}imi}
+Zoho Mail denemesi yap{\i}lm{\i}\c{s}, teknik k{\i}s{\i}tlamalar nedeniyle \textbf{Cloudflare Email Routing}
+\c{c}\"{o}z\"{u}m\"{u}ne ge\c{c}ilmi\c{s}tir.
 
-\subsection{DNS ve Nameserver Yönetimi}
-Alan adının yönetim yetkisi İsimtescil üzerinden Cloudflare'e devredilmiştir:
-
+\subsection{DNS ve Nameserver Y\"{o}netimi}
+Alan ad{\i}n{\i}n y\"{o}netim yetkisi \.{I}simtescil \"{u}zerinden Cloudflare'e devredilmi\c{s}tir:
 \begin{itemize}
-  \item \textbf{Eski Nameserver'lar:} \texttt{tr.dnsenable.com}, \texttt{eu.dnsenable.com} (silindi)
-  \item \textbf{Yeni Nameserver'lar:}
-  \begin{enumerate}
-    \item \texttt{aitana.ns.cloudflare.com}
-    \item \texttt{tom.ns.cloudflare.com}
-  \end{enumerate}
+  \item \textbf{Eski Nameserver'lar:} \texttt{tr.dnsenable.com}, \texttt{eu.dnsenable.com}
+  \item \textbf{Yeni Nameserver'lar:} \texttt{aitana.ns.cloudflare.com}, \texttt{tom.ns.cloudflare.com}
 \end{itemize}
 
-\subsection{E-posta Yönlendirme Kurulumu}
+\subsection{E-posta Y\"{o}nlendirme}
 \begin{itemize}
-  \item \textbf{Özel Adres:} \texttt{info@codealchemist.com.tr}
-  \item \textbf{Hedef Adres:} Gelen tüm e-postalar \texttt{dilakemer1@gmail.com} adresine yönlendirilmektedir.
-  \item \textbf{Doğrulama:} Hedef e-posta adresine gönderilen onay bağlantısı ile tamamlanmıştır.
+  \item \textbf{\"{O}zel Adres:} \texttt{info@codealchemist.com.tr}
+  \item \textbf{Hedef Adres:} \texttt{dilakemer1@gmail.com}
+  \item \textbf{SPF Kayd{\i}:} \texttt{v=spf1 include:\_spf.mx.cloudflare.net \textasciitilde all}
+  \item \textbf{DKIM Kayd{\i}:} Dijital imza do\u{g}rulama kayd{\i} eklenmi\c{s}tir.
 \end{itemize}
-
-\subsection{Güvenlik ve Teslimat DNS Kayıtları}
-\begin{itemize}
-  \item \textbf{MX Kayıtları:} 3 adet MX kaydı ile e-posta trafiği Cloudflare'e yönlendirilmiştir.
-  \item \textbf{SPF Kaydı:} \texttt{v=spf1 include:\_spf.mx.cloudflare.net \textasciitilde all}
-  \item \textbf{DKIM Kaydı:} Dijital imza doğrulama kaydı eklenmiştir.
-\end{itemize}
-
-\subsection{Landing Page Entegrasyonu}
-\texttt{LandingPage.jsx} footer bölümüne ``BİZE ULAŞIN'' başlığı ve \texttt{info@codealchemist.com.tr} e-posta bağlantısı eklenmiştir.
 
 % ============================================================
 \section{Google OAuth Entegrasyonu}
 % ============================================================
 
-\subsection{Yapılandırma}
-Google Cloud Console üzerinden OAuth 2.0 istemci kimliği oluşturulmuştur.
-
+\subsection{Yap{\i}land{\i}rma}
+Google Cloud Console \"{u}zerinden OAuth 2.0 istemci kimli\u{g}i olu\c{s}turulmu\c{s}tur.
 \begin{itemize}
-  \item \textbf{Client ID:} \texttt{.env} ve \texttt{client/.env.local} dosyalarında \texttt{GOOGLE\_CLIENT\_ID} olarak tanımlıdır.
-  \item \textbf{Frontend:} \texttt{VITE\_GOOGLE\_CLIENT\_ID} ortam değişkeni ile Vite build sürecine enjekte edilir.
+  \item \textbf{Client ID:} \texttt{.env} dosyas{\i}nda \texttt{GOOGLE\_CLIENT\_ID} olarak tan{\i}ml{\i}d{\i}r.
+  \item \textbf{Frontend:} \texttt{VITE\_GOOGLE\_CLIENT\_ID} Vite build s\"{u}recine enjekte edilir.
 \end{itemize}
 
-\subsection{Backend Endpoint}
-\texttt{POST /api/auth/google} endpoint'i, Google'dan alınan \texttt{credential} (JWT token) değerini doğrular ve kullanıcıyı oluşturur ya da giriş yapar.
-
-\subsection{Frontend Bileşeni}
-\texttt{AuthModal.jsx} dosyasında Google Identity Services (GIS) kütüphanesi kullanılarak ``Continue with Google'' butonu render edilmektedir. Buton yalnızca login modunda ve \texttt{GOOGLE\_CLIENT\_ID} tanımlıysa gösterilir.
-
-\begin{lstlisting}[language=JavaScript, caption={Google buton render mantığı}]
+\subsection{Frontend Bile\c{s}eni}
+\begin{lstlisting}[language=JavaScript, caption={Google buton render mant{\i}\u{g}{\i}}]
 {authMode === 'login' && GOOGLE_CLIENT_ID && (
   <>
     <div className="flex items-center gap-3 py-1.5">
@@ -383,16 +384,13 @@ Google Cloud Console üzerinden OAuth 2.0 istemci kimliği oluşturulmuştur.
 \end{lstlisting}
 
 % ============================================================
-\section{Docker ve Dağıtım Güncellemeleri}
+\section{Docker ve Da\u{g}{\i}t{\i}m G\"{u}ncellemeleri}
 % ============================================================
 
-\subsection{Backend Port Değişikliği}
-\texttt{docker-compose.backend.yml} dosyasında port eşlemesi \texttt{5001:5000} olarak güncellenmiş, yerel test ortamında backend'e \texttt{http://localhost:5001} üzerinden erişim sağlanmıştır.
+Backend portu \texttt{5001:5000} olarak g\"{u}ncellenmi\c{s}tir. Client Dockerfile'a Vite ortam
+de\u{g}i\c{s}kenlerini aktarmak i\c{c}in \texttt{ARG}/\texttt{ENV} direktifleri eklenmi\c{s}tir:
 
-\subsection{Client Dockerfile Güncellemesi}
-Vite ortam değişkenlerinin build aşamasında geçirilmesi için \texttt{ARG} ve \texttt{ENV} direktifleri eklenmiştir:
-
-\begin{lstlisting}[caption={Client Dockerfile güncellemesi}]
+\begin{lstlisting}[caption={Client Dockerfile g\"{u}ncellemesi}]
 ARG VITE_GOOGLE_CLIENT_ID
 ARG VITE_API_BASE
 ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
@@ -401,19 +399,556 @@ RUN npm run build
 \end{lstlisting}
 
 % ============================================================
-\section{Sonuç ve Değerlendirme}
+\section{Y\"{u}k Testi --- Locust}
 % ============================================================
 
-Hafta 12 geliştirme döngüsünde tamamlanan işler özetle:
+\subsection{Test Senaryosu}
+\begin{itemize}
+  \item \textbf{POST /api/login} --- JWT token alma (her kullan{\i}c{\i} ba\c{s}lang{\i}\c{c}ta).
+  \item \textbf{POST /api/chat} --- Mesaj g\"{o}nderme sim\"{u}lasyonu (3x a\u{g}{\i}rl{\i}k).
+  \item \textbf{GET /api/projects} --- Listeleme endpoint'i (1x a\u{g}{\i}rl{\i}k).
+\end{itemize}
+
+\subsection{Test Sonu\c{c}lar{\i}}
+\begin{center}
+\begin{tabular}{|l|l|r|r|r|r|r|}
+\hline
+\textbf{Tip} & \textbf{Endpoint} & \textbf{\#\.{I}stek} & \textbf{\#Hata} & \textbf{Median (ms)} & \textbf{Ort. (ms)} & \textbf{Hata/s} \\
+\hline
+POST & /api/chat     & 36 & 36 & 46 & 46.2 & 1.5 \\
+POST & /api/login    &  4 &  4 &  9 & 11.5 & 0.0 \\
+GET  & /api/projects & 11 & 11 &  4 &  3.8 & 0.5 \\
+\hline
+     & \textbf{Toplam} & \textbf{51} & \textbf{51} & 46 & 34.3 & 2.0 \\
+\hline
+\end{tabular}
+\end{center}
+
+Genel ba\c{s}ar{\i}s{\i}zl{\i}k oran{\i}: \%100.
+
+\subsection{Tespit Edilen Hatalar}
+
+\paragraph{Hata 1: \c{C}ift Slash URL}
+Host sonundaki \texttt{/} ile endpoint ba\c{s}{\i}ndaki \texttt{/} birle\c{s}ince \texttt{//api/chat} olu\c{s}maktad{\i}r.
+
+\paragraph{Hata 2: Login Domino Etkisi}
+Login ba\c{s}ar{\i}s{\i}z oldu\u{g}u i\c{c}in t\"{u}m istekler \texttt{401 Unauthorized} alm{\i}\c{s}t{\i}r.
+
+\paragraph{Hata 3: Token Kontrols\"{u}z \.{I}stekler}
+Token olmadan istek g\"{o}nderilmesi gereksiz 401 \"{u}retmi\c{s}tir.
+
+\paragraph{Hata 4: Kullan{\i}lmayan De\u{g}i\c{s}ken}
+\texttt{random\_id} tan{\i}mlanm{\i}\c{s} fakat hi\c{c} kullan{\i}lmam{\i}\c{s}t{\i}r.
+
+\subsection{D\"{u}zeltilmi\c{s} Test Kodu}
+
+\begin{lstlisting}[language=Python, caption={D\"{u}zeltilmi\c{s} locustfile.py}]
+from locust import HttpUser, task, between
+
+class AlchemistUser(HttpUser):
+    wait_time = between(1, 3)
+    token = None
+
+    def on_start(self):
+        with self.client.post(
+            "/api/login",
+            json={"email": "test@example.com", "password": "password123"},
+            catch_response=True
+        ) as response:
+            if response.status_code == 200:
+                data = response.json()
+                self.token = data.get("access_token")
+                if self.token:
+                    self.client.headers.update(
+                        {"Authorization": f"Bearer {self.token}"}
+                    )
+                    response.success()
+                else:
+                    response.failure(f"Token bulunamadi: {data}")
+            else:
+                response.failure(
+                    f"Login hatasi | HTTP {response.status_code} | {response.text}"
+                )
+
+    @task(3)
+    def send_message(self):
+        if not self.token:
+            return
+        with self.client.post(
+            "/api/chat",
+            json={"message": "Bu bir yuk testi mesajidir."},
+            catch_response=True
+        ) as response:
+            if response.status_code == 200:
+                response.success()
+            else:
+                response.failure(
+                    f"Chat hatasi | HTTP {response.status_code} | {response.text}"
+                )
+
+    @task(1)
+    def view_projects(self):
+        if not self.token:
+            return
+        with self.client.get("/api/projects", catch_response=True) as response:
+            if response.status_code == 200:
+                response.success()
+            else:
+                response.failure(
+                    f"Projects hatasi | HTTP {response.status_code} | {response.text}"
+                )
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Do\u{g}ru ba\c{s}latma komutu}]
+locust -f locustfile.py --host=http://localhost:5001
+\end{lstlisting}
+
+% ================================================================
+\part{Performans Darbo\u{g}az{\i} Analizi}
+% ================================================================
+
+% ============================================================
+\section{Giri\c{s}}
+% ============================================================
+Locust \"{u}zerinde ger\c{c}ekle\c{s}tirilen stres testleri neticesinde, sistemin d\"{u}\c{s}\"{u}k y\"{u}k alt{\i}nda dahi
+y\"{u}ksek yan{\i}t s\"{u}relerine (latency) sahip oldu\u{g}u ve \texttt{POST /api/auth/login} gibi hafif
+i\c{s}lemlerin, \texttt{POST /api/ask} gibi a\u{g}{\i}r i\c{s}lemler taraf{\i}ndan blokland{\i}\u{g}{\i} tespit edilmi\c{s}tir.
+
+% ============================================================
+\section{Sorunun Temel Kayna\u{g}{\i} (K\"{o}k Neden)}
+% ============================================================
+Sistem mimarisinde Flask (WSGI) uygulamas{\i}, FastAPI (ASGI) i\c{c}erisinde \texttt{WsgiToAsgi}
+k\"{o}pr\"{u}s\"{u} ile \c{c}al{\i}\c{s}t{\i}r{\i}lmaktad{\i}r. Temel sorunlar:
 
 \begin{itemize}
-  \item Yeni kullanıcılara \textbf{tek seferlik 100 token} verilmesi ve aylık otomatik grant sisteminin kaldırılması.
-  \item \textbf{Günlük (200) ve haftalık (1000)} token kota sistemi ile aşım koruması.
-  \item Paket satın alan kullanıcılar için üyelik tarihini baz alan \textbf{Auto-Renewal toggle} mekanizması; satın almayan kullanıcılar için toggle devre dışı.
-  \item 8 adet \textbf{admin endpoint} ile kapsamlı kota ve kullanıcı yönetimi.
-  \item \textbf{Cloudflare Email Routing} ile profesyonel e-posta altyapısı.
-  \item \textbf{Google OAuth} ile hızlı giriş desteği.
-  \item Supabase PostgreSQL'e \textbf{sütun migration}'ı ile geriye dönük uyumluluk.
+  \item \textbf{Thread Pool Starvation:} \texttt{WsgiToAsgi} her senkron iste\u{g}i asyncio'nun varsay{\i}lan
+        i\c{s} par\c{c}ac{\i}\u{g}{\i} havuzuna g\"{o}nderir; kapasite genellikle 30--40 ile s{\i}n{\i}rl{\i}d{\i}r.
+  \item \textbf{Bloklay{\i}c{\i} \.{I}\c{s}lemler:} LLM yan{\i}t{\i} bekleyen \texttt{/api/ask} bir i\c{s} par\c{c}ac{\i}\u{g}{\i}n{\i}
+        10--60 saniye boyunca i\c{s}gal eder.
+  \item \textbf{Kilitlenme:} Havuz doldu\u{g}unda milisaniyelik login istekleri bile kuyrukta bekler;
+        bu durum Locust'ta g\"{o}r\"{u}len 67 saniyelik yan{\i}t s\"{u}relerini a\c{c}{\i}klar.
 \end{itemize}
+
+% ============================================================
+\section{\"{O}nerilen De\u{g}i\c{s}iklikler}
+% ============================================================
+
+\subsection{\.{I}\c{s} Par\c{c}ac{\i}\u{g}{\i} Havuzu Kapasitesinin Art{\i}r{\i}lmas{\i}}
+\begin{lstlisting}[language=Python, caption={Thread Pool G\"{u}ncellemesi}]
+from alphabet.concurrency import set_default_executor
+from concurrent.futures import ThreadPoolExecutor
+
+executor = ThreadPoolExecutor(max_workers=200)
+set_default_executor(executor)
+\end{lstlisting}
+
+\subsection{Veritaban{\i} Ba\u{g}lant{\i} Havuzu Optimizasyonu}
+\begin{lstlisting}[language=Python, caption={DB Connection Pool G\"{u}ncellemesi}]
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size':    50,
+    'max_overflow': 150,
+    'pool_timeout': 30
+}
+\end{lstlisting}
+
+% ============================================================
+\section{Do\u{g}rulama ve Sonu\c{c}}
+% ============================================================
+\begin{enumerate}
+  \item \textbf{Locust Testi:} 100 e\c{s}zamanl{\i} kullan{\i}c{\i} ile test tekrarlanacakt{\i}r.
+  \item \textbf{Hedef Metrik:} \texttt{/api/auth/login} s\"{u}resi y\"{u}k alt{\i}nda 500\,ms alt{\i}nda kalmal{\i}d{\i}r.
+  \item \textbf{Hata Oran{\i}:} DB ba\u{g}lant{\i} timeout hatalar{\i}n{\i}n olu\c{s}mad{\i}\u{g}{\i} teyit edilecektir.
+\end{enumerate}
+
+% ================================================================
+\part{Hukuki Belgeler Paketi}
+% ================================================================
+
+\begin{center}
+\large\textbf{CODE ALCHEMIST --- HUK\.{U}K\.{I} BELGELER PAKET\.{I}} \\[0.5em]
+\normalsize
+Kullan{\i}m Ko\c{s}ullar{\i} \textbullet\ Platform Bakiyesi \textbullet\ \"{O}n Bilgilendirme
+\textbullet\ Mesafeli Sat{\i}\c{s} \\
+\.{I}ade Politikas{\i} \textbullet\ KVKK Ayd{\i}nlatma \textbullet\ Gizlilik
+\textbullet\ \c{C}erez Politikas{\i}
+\end{center}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{\c{S}irket Unvan{\i}} & CODE ALCHEMIST TEKNOLOJ\.{I} L\.{I}M\.{I}TED \c{S}\.{I}RKET\.{I} \\
+\textbf{K{\i}sa Ad{\i}}       & Code Alchemist \\
+\textbf{Adres}                 & \.{I}zmir, T\"{u}rkiye \\
+\textbf{E-posta}               & info@codealchemist.com.tr \\
+\textbf{Web Sitesi}            & www.code-alchemist-last-version.onrender.com \\
+\textbf{Y\"{u}r\"{u}rl\"{u}k Tarihi} & 06.05.2026 \\
+\hline
+\end{tabular}
+\end{center}
+
+\vspace{0.5em}
+\textit{Bu belge paketi, avukat denetiminden ge\c{c}irilmeden yay{\i}na al{\i}nmamal{\i}d{\i}r.}
+
+% ============================================================
+\section{\"{U}yelik ve Kullan{\i}m Ko\c{s}ullar{\i}}
+% ============================================================
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+\subsection*{Madde 1 --- Taraflar}
+\.{I}\c{s}bu S\"{o}zle\c{s}me (``S\"{o}zle\c{s}me''), CODE ALCHEMIST TEKNOLOJ\.{I} L\.{I}M\.{I}TED \c{S}\.{I}RKET\.{I}
+(``\c{S}irket'') ile www.code-alchemist-last-version.onrender.com alan adl{\i} internet sitesini
+kullanan ki\c{s}i (``Kullan{\i}c{\i}'') aras{\i}nda elektronik ortamda kurulmu\c{s}tur.
+
+\subsection*{Madde 2 --- Konu}
+Bu S\"{o}zle\c{s}me, Kullan{\i}c{\i}'n{\i}n Platform'a \"{u}yeli\u{g}i, eri\c{s}imi, hizmetlerden yararlanmas{\i}
+ve taraflar{\i}n hak ile y\"{u}k\"{u}ml\"{u}l\"{u}klerini d\"{u}zenler.
+
+\subsection*{Madde 3 --- Tan{\i}mlar}
+\begin{itemize}
+  \item \textbf{Platform:} Code Alchemist internet sitesi, paneli, API'leri ve ili\c{s}kili dijital hizmetler.
+  \item \textbf{Hesap:} Kullan{\i}c{\i}'ya ait \"{u}yelik hesab{\i}.
+  \item \textbf{Platform Bakiyesi:} Yaln{\i}zca Platform i\c{c}i belirli hizmetlerde kullan{\i}labilen, nakde
+        \c{c}evrilemeyen, devredilemeyen, faiz i\c{s}letilmeyen \"{o}n \"{o}deme niteli\u{g}indeki kullan{\i}m bakiyesi.
+  \item \textbf{Hizmet:} Platform taraf{\i}ndan sunulan \"{u}cretli/\"{u}cretsiz yaz{\i}l{\i}m, \"{u}yelik, API,
+        dijital ara\c{c}, i\c{c}erik \"{u}retim/analiz ve benzeri hizmetler.
+\end{itemize}
+
+\subsection*{Madde 4 --- \"{U}yelik}
+4.1. Kullan{\i}c{\i}, kay{\i}t s{\i}ras{\i}nda verdi\u{g}i bilgilerin do\u{g}ru ve g\"{u}ncel oldu\u{g}unu kabul eder.\\
+4.2. Kullan{\i}c{\i}, 18 ya\c{s}{\i}n{\i} doldurdu\u{g}unu veya yasal temsilci onayna sahip oldu\u{g}unu beyan eder.\\
+4.3. \c{S}irket, gerekli g\"{o}rd\"{u}\u{g}\"{u} hallerde kimlik/do\u{g}rulama/fatura bilgisi talep edebilir.
+
+\subsection*{Madde 5 --- Hesap G\"{u}venli\u{g}i}
+5.1. \c{S}ifre ve hesap eri\c{s}im bilgilerinin g\"{u}venli\u{g}inden Kullan{\i}c{\i} sorumludur.\\
+5.2. Hesap \"{u}zerinden yap{\i}lan i\c{s}lemler, aksi ispat edilene kadar Kullan{\i}c{\i}'ya ait say{\i}l{\i}r.\\
+5.3. Yetkisiz eri\c{s}im \c{s}\"{u}phesinde Kullan{\i}c{\i} derhal \c{S}irket'e bildirim yapmal{\i}d{\i}r.
+
+\subsection*{Madde 6 --- Hizmetlerin Kapsam{\i}}
+6.1. \c{S}irket, hizmetlerin kapsam{\i}n{\i}, teknik \"{o}zelliklerini, limitlerini ve fiyatlar{\i}n{\i} de\u{g}i\c{s}tirebilir.\\
+6.2. Hizmetler ``oldu\u{g}u gibi'' ve ``mevcut oldu\u{g}u \"{o}l\c{c}\"{u}de'' sunulur.\\
+6.3. \c{S}irket, bak{\i}m, g\"{u}venlik veya teknik zorunluluk halinde hizmetleri ge\c{c}ici olarak durdurabilir.
+
+\subsection*{Madde 7 --- \"{U}cretlendirme ve \"{O}deme}
+7.1. Baz{\i} hizmetler \"{u}cretlidir.\\
+7.2. \"{O}demeler Iyzico ve/veya \c{S}irket'in belirleyece\u{g}i di\u{g}er \"{o}deme y\"{o}ntemleri ile tahsil edilebilir.\\
+7.3. Kullan{\i}c{\i}, \"{o}deme bilgilerinin kendisine ait ve hukuka uygun oldu\u{g}unu kabul eder.\\
+7.4. \c{S}\"{u}pheli i\c{s}lem, chargeback, sahtecilik veya k\"{o}t\"{u}ye kullan{\i}m halinde \c{S}irket hizmeti
+askıya alabilir.
+
+\subsection*{Madde 8 --- Platform Bakiyesi}
+8.1. Kullan{\i}c{\i}, Platform i\c{c}i hizmetlerde kullanmak \"{u}zere Platform Bakiyesi y\"{u}kleyebilir.\\
+8.2. Platform Bakiyesi; \"{u}\c{c}\"{u}nc\"{u} ki\c{s}ilere devredilemez, nakde \c{c}evrilemez, faiz/getiri
+sa\u{g}lamaz ve elektronik para, mevduat veya yat{\i}r{\i}m arac{\i} de\u{g}ildir.\\
+8.3. Detaylar ayr{\i}ca ``Platform Bakiyesi Kullan{\i}m Ko\c{s}ullar{\i}''nda d\"{u}zenlenir.
+
+\subsection*{Madde 9 --- Yasakl{\i} Kullan{\i}mlar}
+Kullan{\i}c{\i} a\c{s}a\u{g}{\i}daki fiillerde bulunamaz:
+\begin{itemize}
+  \item Hukuka ayk{\i}r{\i} kullan{\i}m
+  \item Doland{\i}r{\i}c{\i}l{\i}k, sahtecilik, chargeback k\"{o}t\"{u}ye kullan{\i}m{\i}
+  \item Sistem g\"{u}venli\u{g}ini ihlal ve zararl{\i} yaz{\i}l{\i}m y\"{u}kleme
+  \item Telif/marka/ki\c{s}ilik hakk{\i} ihlali
+  \item Ba\c{s}kas{\i}na ait veri, kart veya hesap kullan{\i}m{\i}
+  \item Spam, scraping, bot, reverse engineering
+  \item Mevzuata ayk{\i}r{\i} ki\c{s}isel veri i\c{s}leme/payla\c{s}ma
+\end{itemize}
+
+\subsection*{Madde 10 --- Fikri M\"{u}lkiyet}
+10.1. Platform'a ait yaz{\i}l{\i}m, tasar{\i}m, marka, logo ve di\u{g}er unsurlar \"{u}zerindeki haklar
+\c{S}irket'e veya lisans verenlerine aittir.\\
+10.2. Kullan{\i}c{\i}'ya yaln{\i}zca s{\i}n{\i}rl{\i}, geri al{\i}nabilir, devredilemez kullan{\i}m hakk{\i} tan{\i}n{\i}r.
+
+\subsection*{Madde 11 --- Kullan{\i}c{\i} \.{I}\c{c}eri\u{g}i ve \c{C}{\i}kt{\i}lar}
+11.1. Kullan{\i}c{\i} taraf{\i}ndan y\"{u}klenen veri, dosya ve i\c{c}eriklerden Kullan{\i}c{\i} sorumludur.\\
+11.2. Platform \c{c}{\i}kt{\i}lar{\i}n{\i}n do\u{g}rulu\u{g}u ve hukuka uygunlu\u{g}u garanti edilmez.
+
+\subsection*{Madde 12 --- Ki\c{s}isel Veriler}
+Ki\c{s}isel veriler, KVKK Ayd{\i}nlatma Metni uyar{\i}nca i\c{s}lenir.
+
+\subsection*{Madde 13 --- Hesab{\i}n Ask{\i}ya Al{\i}nmas{\i} / Sonland{\i}r{\i}lmas{\i}}
+\c{S}irket; hukuka ayk{\i}r{\i}l{\i}k, g\"{u}venlik riski, \"{o}deme problemi veya k\"{o}t\"{u}ye kullan{\i}m halinde
+hesab{\i} ask{\i}ya alabilir veya kapatabilir.
+
+\subsection*{Madde 14 --- Sorumlulu\u{g}un S{\i}n{\i}rland{\i}r{\i}lmas{\i}}
+\c{S}irket'in sorumlulu\u{g}u, zorunlu haller sakl{\i} kalmak kayd{\i}yla, Kullan{\i}c{\i}'n{\i}n son 12 ayda
+ilgili hizmet i\c{c}in \"{o}dedi\u{g}i toplam tutarla s{\i}n{\i}rl{\i}d{\i}r.
+
+\subsection*{Madde 15 --- Delil S\"{o}zle\c{s}mesi}
+Taraflar; \c{S}irket sistem kay{\i}tlar{\i}, loglar, veri taban{\i} kay{\i}tlar{\i} ve elektronik kay{\i}tlar{\i}n
+delil niteli\u{g}inde oldu\u{g}unu kabul eder.
+
+\subsection*{Madde 16 --- Uygulanacak Hukuk ve Yetki}
+T\"{u}rkiye Cumhuriyeti hukuku uygulan{\i}r. T\"{u}ketici olmayan uyu\c{s}mazl{\i}klarda \.{I}zmir
+Mahkemeleri ve \.{I}cra Daireleri yetkilidir.
+
+\subsection*{Madde 17 --- Y\"{u}r\"{u}rl\"{u}k}
+Kullan{\i}c{\i}'n{\i}n elektronik onayi ile y\"{u}r\"{u}rl\"{u}e girer.
+
+% ============================================================
+\section{Platform Bakiyesi Kullan{\i}m Ko\c{s}ullar{\i}}
+% ============================================================
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+\subsection*{Madde 1 --- Ama\c{c}}
+Bu metin, Kullan{\i}c{\i} taraf{\i}ndan Platform'a y\"{u}klenen ve yaln{\i}zca Platform i\c{c}inde belirli
+hizmetlerde kullan{\i}labilen Platform Bakiyesi'nin kullan{\i}m ko\c{s}ullar{\i}n{\i} d\"{u}zenler.
+
+\subsection*{Madde 2 --- Hukuki Nitelik}
+2.1. Platform Bakiyesi; banka hesab{\i}, \"{o}deme hesab{\i}, mevduat, yat{\i}r{\i}m hesab{\i} veya elektronik
+para de\u{g}ildir.\\
+2.2. Yaln{\i}zca Platform i\c{c}i hizmet kullan{\i}m{\i}na y\"{o}nelik \"{o}n \"{o}deme niteliyndedir.\\
+2.3. Platform Bakiyesi'ne faiz veya getiri i\c{s}letilmez.
+
+\subsection*{Madde 3 --- Bakiye Y\"{u}kleme}
+3.1. Kullan{\i}c{\i}, Iyzico ve/veya \c{S}irket'in belirledi\u{g}i y\"{o}ntemlerle bakiye y\"{u}kleyebilir.\\
+3.2. \c{S}irket asgari ve azami y\"{u}kleme tutar{\i} belirleyebilir.\\
+3.3. Ba\c{s}ar{\i}s{\i}z, \c{s}\"{u}pheli veya ters ibraza konu \"{o}demeler bakiyeye yans{\i}t{\i}lmayabilir.
+
+\subsection*{Madde 4 --- Kullan{\i}m Alan{\i}}
+Platform Bakiyesi nakde \c{c}evrilemez, banka hesab{\i}na \c{c}ekilemez, ba\c{s}ka kullan{\i}c{\i}ya
+g\"{o}nderilemez, devredilemez, sat{\i}lamaz ve temlik edilemez.
+
+\subsection*{Madde 5 --- Bakiye T\"{u}ketimi}
+Kullan{\i}lan hizmet bedelleri sistem taraf{\i}ndan Platform Bakiyesi'nden d\"{u}\c{s}\"{u}l\"{u}r. \.{I}\c{s}lem
+kay{\i}tlar{\i}nda Platform kay{\i}tlar{\i} esas al{\i}n{\i}r.
+
+\subsection*{Madde 6 --- Promosyon / Bonus Bakiye}
+Bonus/promosyon bakiyeler iade edilmez, nakde \c{c}evrilemez, devredilemez ve belirli
+s\"{u}reyle s{\i}n{\i}rl{\i} olabilir.
+
+\subsection*{Madde 7 --- \.{I}ade}
+7.1. Kullan{\i}lmam{\i}\c{s} ve kampanya d{\i}\c{s}{\i} sat{\i}n al{\i}nm{\i}\c{s} bakiyeler i\c{c}in iade talepleri
+\.{I}ade ve \.{I}ptal Politikas{\i} \c{c}er\c{c}evesinde de\u{g}erlendirilir.\\
+7.2. Kullan{\i}lm{\i}\c{s} bakiyeler iade edilmez.\\
+7.3. Sahtecilik, chargeback veya sistem suistimali \c{s}\"{u}phesinde iade yap{\i}lmayabilir.
+
+\subsection*{Madde 8 --- Hatal{\i} Kay{\i}tlar}
+\c{S}irket, teknik hata veya sistem a\c{c}{\i}\u{g}{\i} nedeniyle olu\c{s}an fazla bakiyeyi d\"{u}zeltme hakk{\i}n{\i} sakl{\i} tutar.
+
+% ============================================================
+\section{\"{O}n Bilgilendirme Formu}
+% ============================================================
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+\subsection*{Madde 1 --- Sat{\i}c{\i} Bilgileri}
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Unvan}        & CODE ALCHEMIST TEKNOLOJ\.{I} L\.{I}M\.{I}TED \c{S}\.{I}RKET\.{I} \\
+\textbf{Adres}        & \.{I}zmir, T\"{u}rkiye \\
+\textbf{E-posta}      & info@codealchemist.com.tr \\
+\textbf{Web Sitesi}   & www.code-alchemist-last-version.onrender.com \\
+\textbf{MERS\.{I}S / VKN} & [Yetkili makamdan temin edilecektir] \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection*{Madde 2 --- Hizmetin Temel Nitelikleri}
+Code Alchemist \"{u}zerinden sunulan hizmet; dijital \"{u}yelik, abonelik, API eri\c{s}imi, yaz{\i}l{\i}m
+kullan{\i}m hakk{\i}, dijital ara\c{c} kullan{\i}m{\i}, Platform Bakiyesi y\"{u}klemesi veya di\u{g}er \c{c}evri\c{c}i
+hizmetlerden olu\c{s}abilir. Siparişe ili\c{s}kin temel bilgiler \"{o}deme \"{o}ncesinde g\"{o}sterilir.
+
+\subsection*{Madde 3 --- Toplam Bedel}
+Toplam \"{u}cret, vergiler dahil bilgisiyle sipari\c{s} ekran{\i}nda a\c{c}{\i}k\c{c}a belirtilir.
+
+\subsection*{Madde 4 --- \"{O}deme ve \.{I}fa}
+\"{O}deme Iyzico veya belirtilen y\"{o}ntemlerle al{\i}n{\i}r. Dijital hizmet \"{o}deme onayn{\i} takiben
+Kullan{\i}c{\i} hesab{\i}na tan{\i}mlanabilir.
+
+\subsection*{Madde 5 --- Cayma Hakk{\i}}
+Elektronik ortamda an{\i}nda ifa edilen dijital hizmetler bak{\i}m{\i}ndan cayma hakk{\i} istisnas{\i}
+uygulanabilir. Kullan{\i}c{\i} \"{o}deme \"{o}ncesinde bu konuda ayr{\i}ca bilgilendirilir.
+
+\subsection*{Madde 6 --- \.{I}ptal / \.{I}ade}
+\.{I}ptal ve iade ko\c{s}ullar{\i} \.{I}ade ve \.{I}ptal Politikas{\i}'nda d\"{u}zenlenmi\c{s}tir.
+
+\subsection*{Madde 7 --- Ba\c{s}vuru Yollar{\i}}
+T\"{u}keticiler, uyu\c{s}mazl{\i}k halinde ilgili T\"{u}ketici Hakem Heyeti veya T\"{u}ketici
+Mahkemesi'ne ba\c{s}vurabilir.
+
+% ============================================================
+\section{Mesafeli Sat{\i}\c{s} S\"{o}zle\c{s}mesi}
+% ============================================================
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+\subsection*{Madde 1 --- Taraflar}
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Sat{\i}c{\i} Unvan{\i}} & CODE ALCHEMIST TEKNOLOJ\.{I} L\.{I}M\.{I}TED \c{S}\.{I}RKET\.{I} \\
+\textbf{Sat{\i}c{\i} Adresi}   & \.{I}zmir, T\"{u}rkiye \\
+\textbf{Sat{\i}c{\i} E-posta}  & info@codealchemist.com.tr \\
+\textbf{Al{\i}c{\i}}           & Platform \"{u}zerinden sipari\c{s} veren Kullan{\i}c{\i} \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection*{Madde 2 --- Konu}
+Bu s\"{o}zle\c{s}me, Al{\i}c{\i}'n{\i}n elektronik ortamda sipari\c{s} verdi\u{g}i dijital hizmet, \"{u}yelik,
+abonelik veya Platform Bakiyesi y\"{u}kleme i\c{s}leminin sat{\i}\c{s}{\i}na ili\c{s}kin taraflar{\i}n hak
+ve y\"{u}k\"{u}ml\"{u}l\"{u}klerini d\"{u}zenler.
+
+\subsection*{Madde 3--4 --- Sipari\c{s} ve \"{O}deme}
+Sipari\c{s} konusu hizmetin t\"{u}r\"{u}, bedeli ve ödeme \c{s}ekli sipari\c{s} \"{o}zetinde belirtilir.
+Al{\i}c{\i}, sipari\c{s} bedelini se\c{c}ti\u{g}i \"{o}deme y\"{o}ntemi ile \"{o}der.
+
+\subsection*{Madde 5 --- \.{I}fa}
+Dijital hizmetler, \"{o}deme onayn{\i} takiben hesaba tan{\i}mlan{\i}r ve kullan{\i}ma sunulur.
+
+\subsection*{Madde 6 --- Cayma Hakk{\i} \.{I}stisnas{\i}}
+Al{\i}c{\i}, dijital hizmetin ifas{\i}na derhal ba\c{s}lanmas{\i}n{\i} talep etti\u{g}inde mevzuat kapsam{\i}nda
+cayma hakk{\i}n{\i} kaybedebilece\u{g}ini kabul eder.
+
+\subsection*{Madde 7--8 --- \.{I}ptal, \.{I}ade ve Uyu\c{s}mazl{\i}k}
+\.{I}ptal ve iade \c{s}artlar{\i} \.{I}ade ve \.{I}ptal Politikas{\i}'na tabidir. T\"{u}ketici olmayan
+uyu\c{s}mazl{\i}klarda \.{I}zmir Mahkemeleri ve \.{I}cra Daireleri yetkilidir.
+
+% ============================================================
+\section{\.{I}ade, \.{I}ptal ve Cayma Politikas{\i}}
+% ============================================================
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+\subsection*{Madde 1 --- Genel}
+Bu politika, Code Alchemist \"{u}zerinden sat{\i}n al{\i}nan dijital hizmetler, abonelikler ve
+Platform Bakiyesi i\c{c}in uygulan{\i}r.
+
+\subsection*{Madde 2 --- Dijital Hizmetler}
+Dijital hizmetin ifas{\i}na kullan{\i}c{\i}n{\i}n onayi ile ba\c{s}lanm{\i}\c{s}sa, ilgili mevzuat
+kapsam{\i}ndaki cayma hakk{\i} istisnalar{\i} uygulanabilir.
+
+\subsection*{Madde 3 --- Abonelikler}
+3.1. Abonelikler se\c{c}ilen d\"{o}nem boyunca ge\c{c}erlidir.\\
+3.2. Otomatik yenileme varsa \"{o}deme \"{o}ncesinde kullan{\i}c{\i}ya a\c{c}{\i}k\c{c}a bildirilir.\\
+3.3. Kullan{\i}c{\i}, yenilemeyi hesap ayarlar{\i}ndan veya destek \"{u}zerinden kapatabilir.\\
+3.4. \.{I}\c{c}inde bulunulan abonelik d\"{o}nemine ili\c{s}kin \"{u}cret iadesi, hizmetin kullan{\i}lm{\i}\c{s}
+olmas{\i} halinde yap{\i}lmayabilir.
+
+\subsection*{Madde 4 --- Platform Bakiyesi}
+4.1. Kullan{\i}lmam{\i}\c{s}, promosyon d{\i}\c{s}{\i} ve ger\c{c}ek \"{o}deme ile y\"{u}klenmi\c{s} bakiyeler i\c{c}in
+14 g\"{u}n i\c{c}inde yap{\i}lan iade talepleri de\u{g}erlendirilebilir.\\
+4.2. Kullan{\i}lm{\i}\c{s} bakiyeler iade edilmez.\\
+4.3. Bonus/promosyon bakiyeler iade edilmez.\\
+4.4. Chargeback, doland{\i}r{\i}c{\i}l{\i}k veya \c{s}\"{u}pheli i\c{s}lem halinde iade reddedilebilir.
+
+\subsection*{Madde 5 --- Teknik Sorunlar}
+\c{S}irket kaynakl{\i} ve hizmetin hi\c{c} sunulamamas{\i} sonucunu do\u{g}uran teknik sorunlarda;
+yeniden tan{\i}mlama, \"{u}cretsiz s\"{u}re uzat{\i}m{\i}, k{\i}smi iade veya tam iade se\c{c}eneklerinden
+uygun olan{\i} uygulanabilir.
+
+\subsection*{Madde 6 --- Ba\c{s}vuru}
+\.{I}ade/iptal talepleri \texttt{info@codealchemist.com.tr} adresine sipari\c{s} numaras{\i} ile
+iletilmelidir.
+
+% ============================================================
+\section{Ki\c{s}isel Verilerin Korunmas{\i} Ayd{\i}nlatma Metni}
+% ============================================================
+\textbf{Veri Sorumlusu:} CODE ALCHEMIST TEKNOLOJ\.{I} L\.{I}M\.{I}TED \c{S}\.{I}RKET\.{I}\\
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+\subsection*{Madde 1 --- \.{I}\c{s}lenen Veriler}
+\begin{itemize}
+  \item Ad-soyad, e-posta, telefon
+  \item Hesap ve \"{u}yelik bilgileri
+  \item Fatura bilgileri
+  \item IP, log, cihaz, taray{\i}c{\i} verileri
+  \item \.{I}\c{s}lem g\"{u}venli\u{g}i verileri ve destek kay{\i}tlar{\i}
+  \item Kullan{\i}m verileri ve \"{o}deme i\c{s}lemine ili\c{s}kin s{\i}n{\i}rl{\i} bilgiler
+\end{itemize}
+
+\subsection*{Madde 2 --- \.{I}\c{s}leme Ama\c{c}lar{\i}}
+\begin{itemize}
+  \item \"{U}yelik ve hesap y\"{o}netimi
+  \item Hizmetlerin sunulmas{\i} ve \"{o}deme s\"{u}re\c{c}leri
+  \item M\"{u}\c{s}teri destek hizmetleri
+  \item Bilgi g\"{u}venli\u{g}i ve sahtecilin \"{o}nlenmesi
+  \item Faturaland{\i}rma, muhasebe ve s\"{o}zle\c{s}mesel y\"{u}k\"{u}ml\"{u}l\"{u}klerin yerine getirilmesi
+  \item Hukuki y\"{u}k\"{u}ml\"{u}l\"{u}klerin yerine getirilmesi
+  \item \.{I}zin varsa pazarlama faaliyetleri
+\end{itemize}
+
+\subsection*{Madde 3 --- Hukuki Sebepler}
+Verileriniz KVKK m.5 ve m.6 kapsam{\i}nda; s\"{o}zle\c{s}menin kurulmas{\i}/ifas{\i}, hukuki
+y\"{u}k\"{u}ml\"{u}l\"{u}k, me\c{s}ru menfaat ve a\c{c}{\i}k r{\i}za sebeplerine dayan{\i}larak i\c{s}lenebilir.
+
+\subsection*{Madde 4 --- Aktarım}
+Verileriniz; \"{o}deme kurulu\c{s}lar{\i}na (Iyzico dahil), hosting/bulut sa\u{g}lay{\i}c{\i}lar{\i}na,
+e-posta ve ileti\c{s}im altyap{\i}lar{\i}na, muhasebe/fatura entegrasyonlar{\i}na, hukuk/dan{\i}\c{s}manl{\i}k
+hizmeti al{\i}nan taraflara ve yetkili kamu kurum ve kurulu\c{s}lar{\i}na mevzuata uygun \c{s}ekilde
+aktarılabilir.
+
+\subsection*{Madde 5 --- Toplama Y\"{o}ntemi}
+Veriler; \"{u}yelik formlar{\i}, sipari\c{s} ekranlar{\i}, \c{c}erezler, log kay{\i}tlar{\i}, destek talepleri,
+e-posta ve otomatik sistemler arac{\i}l{\i}\u{g}{\i}yla toplanabilir.
+
+\subsection*{Madde 6 --- Haklar{\i}n{\i}z}
+KVKK m.11 uyar{\i}nca; verilerinizin i\c{s}lenip i\c{s}lenmedi\u{g}ini \"{o}\u{g}renme, bilgi talep etme,
+i\c{s}leme amac{\i}n{\i} \"{o}\u{g}renme, aktarılan ki\c{s}ileri \"{o}\u{g}renme, d\"{u}zeltme/silme talep etme,
+itiraz etme ve zarar halinde tazminat talep etme haklar{\i}na sahipsiniz.
+
+\subsection*{Madde 7 --- Ba\c{s}vuru}
+Ba\c{s}vurular{\i}n{\i}z{\i} \texttt{info@codealchemist.com.tr} adresine veya \.{I}zmir, T\"{u}rkiye adresine
+iletebilirsiniz.
+
+% ============================================================
+\section{Gizlilik Politikas{\i}}
+% ============================================================
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+Code Alchemist, kullan{\i}c{\i} bilgilerinin gizlili\u{g}ine \"{o}nem verir. Kullan{\i}c{\i} bilgileri;
+hizmet sunumu, g\"{u}venlik, destek, yasal y\"{u}k\"{u}ml\"{u}l\"{u}kler ve s\"{o}zle\c{s}mesel s\"{u}re\c{c}ler
+kapsam{\i}nda i\c{s}lenir. \"{O}deme kart{\i} verileri m\"{u}mk\"{u}n oldu\u{g}unca do\u{g}rudan \"{o}deme kurulu\c{s}u
+taraf{\i}ndan i\c{s}lenir; \c{S}irket kart verisinin tamam{\i}n{\i} tutmaz. Ayr{\i}nt{\i}lar KVKK Ayd{\i}nlatma
+Metni ve \c{C}erez Politikas{\i}'nda yer al{\i}r.
+
+% ============================================================
+\section{\c{C}erez Politikas{\i}}
+% ============================================================
+\textit{Y\"{u}r\"{u}rl\"{u}k Tarihi: 06.05.2026}
+
+Platform'da kullan{\i}c{\i} deneyimini geli\c{s}tirmek, oturum y\"{o}netimi sa\u{g}lamak, g\"{u}venli\u{g}i
+art{\i}rmak ve analiz yapmak amac{\i}yla \c{c}erezler kullan{\i}labilir.
+
+\subsection*{Kullan{\i}lan \c{C}erez T\"{u}rleri}
+\begin{itemize}
+  \item \textbf{Zorunlu \c{C}erezler:} Sitenin \c{c}al{\i}\c{s}mas{\i} i\c{c}in gereklidir.
+  \item \textbf{\.{I}\c{s}levsellik \c{C}erezleri:} Tercihlerinizi hat{\i}rlamaya yard{\i}mc{\i} olur.
+  \item \textbf{Analitik \c{C}erezler:} Trafik ve kullan{\i}m analizi sa\u{g}lar.
+  \item \textbf{Pazarlama \c{C}erezleri:} Yaln{\i}zca gerekli onay al{\i}nm{\i}\c{s}sa kullan{\i}l{\i}r.
+\end{itemize}
+
+Zorunlu olmayan \c{c}erezler i\c{c}in tercih/onay mekanizmas{\i} sunulur. Kullan{\i}c{\i}, taray{\i}c{\i}
+ayarlar{\i}ndan \c{c}erezleri y\"{o}netebilir.
+
+% ============================================================
+\section{\c{S}irket Bilgileri ve \.{I}leti\c{s}im}
+% ============================================================
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{\c{S}irket Unvan{\i}}       & CODE ALCHEMIST TEKNOLOJ\.{I} L\.{I}M\.{I}TED \c{S}\.{I}RKET\.{I} \\
+\textbf{K{\i}sa Ad{\i}}             & Code Alchemist \\
+\textbf{Adres}                       & \.{I}zmir, T\"{u}rkiye \\
+\textbf{E-posta}                     & info@codealchemist.com.tr \\
+\textbf{Web Sitesi}                  & www.code-alchemist-last-version.onrender.com \\
+\textbf{MERS\.{I}S / VKN}           & [Yetkili makamdan temin edilecektir] \\
+\textbf{Belge Tarihi}                & 06.05.2026 \\
+\hline
+\end{tabular}
+\end{center}
+
+\vspace{1em}
+\begin{center}
+\textit{\textbf{\"{O}NEML\.{I} UYARI}}\\
+\textit{Bu belge tasla\u{g}{\i} niteli\u{g}indedir. Yay{\i}na al{\i}nmadan \"{o}nce hukuki dan{\i}\c{s}man denetiminden
+ge\c{c}irilmesi zorunludur.}\\
+\textit{K\"{o}\c{s}eli parantez i\c{c}indeki bilgiler g\"{u}ncel \c{s}irket bilgileriyle doldurulmal{\i}d{\i}r.}
+\end{center}
+
+\vspace{2em}
+\hrule
+\vspace{0.5em}
+\begin{center}
+\small Code Alchemist --- \.{I}zmir, T\"{u}rkiye \textbar\ info@codealchemist.com.tr
+\end{center}
 
 \end{document}

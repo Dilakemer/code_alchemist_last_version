@@ -129,7 +129,7 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
     });
     const d = await r.json();
     setSaving(false);
-    if (d.success) flash(`${d.updated_wallets} cüzdan güncellendi ✓`);
+    if (d.success) flash(`${d.updated_wallets} platform bakiyesi güncellendi ✓`);
     else flash(d.error || 'Hata', true);
   };
 
@@ -306,7 +306,7 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
             <div className="flex-1 overflow-y-auto p-8">
               <div className="max-w-md space-y-6">
                 <div className="p-5 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-sm text-amber-300">
-                  ⚠️ Bu limitleri değiştirmek <strong>tüm mevcut kullanıcı cüzdanlarını</strong> toplu güncelleyecektir.
+                  ⚠️ Bu limitleri değiştirmek <strong>tüm mevcut kullanıcı platform bakiyelerini</strong> toplu güncelleyecektir.
                 </div>
 
                 <div className="p-6 rounded-2xl border border-white/10 bg-white/5 space-y-5">

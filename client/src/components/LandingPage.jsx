@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Footer from './Footer';
 
 const ComparisonTable = () => (
   <div className="mt-12 md:mt-24 max-w-5xl mx-auto overflow-hidden rounded-2xl md:rounded-3xl border border-white/10 bg-white/[0.02] backdrop-blur-sm">
@@ -246,22 +247,7 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
         </section>
 
         {/* Footer */}
-        <footer className="relative z-10 py-12 md:py-16 border-t border-white/5 text-center px-4">
-          <div className="mb-8">
-            <p className="text-[10px] text-slate-400 font-semibold tracking-[0.2em] uppercase mb-3">
-              BİZE ULAŞIN
-            </p>
-            <a
-              href="mailto:info@codealchemist.com.tr"
-              className="text-sm md:text-lg text-indigo-300 hover:text-indigo-200 font-bold transition-colors"
-            >
-              info@codealchemist.com.tr
-            </a>
-          </div>
-          <p className="text-[8px] md:text-[10px] text-slate-600 font-bold tracking-[0.3em] uppercase">
-            © 2026 CodeAlchemist • Engineering the Future
-          </p>
-        </footer>
+        <Footer />
       </div>
     </>
   );

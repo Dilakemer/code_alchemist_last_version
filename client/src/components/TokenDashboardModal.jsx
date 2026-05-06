@@ -40,6 +40,8 @@ const TokenDashboardModal = ({
   const [activeTab, setActiveTab] = useState(initialTab); // 'overview', 'upgrade', 'history'
   const [renewalStatus, setRenewalStatus] = useState({ enabled: false, day: null, canEnable: false });
   const [renewalLoading, setRenewalLoading] = useState(false);
+  const [acceptAgreements, setAcceptAgreements] = useState(false);
+  const [acceptInstantExecution, setAcceptInstantExecution] = useState(false);
 
   const effectiveHeaders = useMemo(() => {
     if (authHeaders && Object.keys(authHeaders).length > 0) return authHeaders;
@@ -188,9 +190,26 @@ const TokenDashboardModal = ({
       return;
     }
 
+    if (!acceptAgreements || !acceptInstantExecution) {
+      setError('Lütfen işleme devam edebilmek için tüm yasal metinleri (Ön Bilgilendirme Formu, Mesafeli Satış Sözleşmesi ve Cayma Hakkı İstisnası) okuyup onaylayınız.');
+      return;
+    }
+
     setCheckoutLoadingId(packageItem.id);
     setError('');
     try {
+      await fetch(`${apiBase}/api/legal/consent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...effectiveHeaders },
+        body: JSON.stringify({ consent_type: 'payment_agreements', version: '1.0', is_accepted: true, order_id: packageItem.id })
+      }).catch(e => console.error("Consent log error:", e));
+
+      await fetch(`${apiBase}/api/legal/consent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...effectiveHeaders },
+        body: JSON.stringify({ consent_type: 'instant_execution_waiver', version: '1.0', is_accepted: true, order_id: packageItem.id })
+      }).catch(e => console.error("Consent log error:", e));
+
       const endpoint = isIyzico 
         ? `${apiBase}/api/billing/iyzico/checkout-session`
         : `${apiBase}/api/billing/checkout-session`;
@@ -587,6 +606,43 @@ const TokenDashboardModal = ({
                     </button>
                   </div>
                 )})}
+              </div>
+
+              {/* Legal Consents for Checkout */}
+              <div className="mt-8 max-w-2xl mx-auto space-y-4 bg-white/5 border border-white/10 p-6 rounded-2xl">
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative flex items-center justify-center mt-1">
+                    <input
+                      type="checkbox"
+                      className="peer appearance-none w-5 h-5 border border-gray-600 rounded bg-black/50 checked:bg-indigo-500 checked:border-indigo-500 cursor-pointer transition-all"
+                      checked={acceptAgreements}
+                      onChange={(e) => setAcceptAgreements(e.target.checked)}
+                    />
+                    <svg className="absolute w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+                  <span className="text-sm text-slate-300 group-hover:text-white transition-colors leading-relaxed select-none">
+                    <a href="/platform-bakiyesi-kosullari" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline" onClick={e => e.stopPropagation()}>Platform Bakiyesi Kullanım Koşulları</a>'nı, <a href="/on-bilgilendirme-formu" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline" onClick={e => e.stopPropagation()}>Ön Bilgilendirme Formu</a>'nu ve <a href="/mesafeli-satis-sozlesmesi" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline" onClick={e => e.stopPropagation()}>Mesafeli Satış Sözleşmesi</a>'ni okudum, anladım ve kabul ediyorum.
+                  </span>
+                </label>
+
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative flex items-center justify-center mt-1">
+                    <input
+                      type="checkbox"
+                      className="peer appearance-none w-5 h-5 border border-gray-600 rounded bg-black/50 checked:bg-fuchsia-500 checked:border-fuchsia-500 cursor-pointer transition-all"
+                      checked={acceptInstantExecution}
+                      onChange={(e) => setAcceptInstantExecution(e.target.checked)}
+                    />
+                    <svg className="absolute w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+                  <span className="text-sm text-slate-300 group-hover:text-white transition-colors leading-relaxed select-none">
+                    Satın aldığım dijital hizmetin anında ifa edileceğini ve hizmete hemen başlanması sebebiyle cayma hakkımı kaybedeceğimi biliyor ve onaylıyorum.
+                  </span>
+                </label>
               </div>
               
               {!billingEnabled && !iyzicoEnabled && (
