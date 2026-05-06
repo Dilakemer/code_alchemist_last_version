@@ -6125,12 +6125,23 @@ def list_conversations():
         # Also include conversations with NULL source (legacy records created before source tracking)
         source_filter = request.headers.get("X-Client-Source", "web")
         if source_filter == 'vscode': source_filter = 'extension'
-        query = query.filter(
-            db.or_(
-                Conversation.source == source_filter,
-                Conversation.source.is_(None)
+        
+        # Mobile app should see both mobile and web conversations for consistency.
+        if source_filter == 'mobile':
+            query = query.filter(
+                db.or_(
+                    Conversation.source == 'mobile',
+                    Conversation.source == 'web',
+                    Conversation.source.is_(None)
+                )
             )
-        )
+        else:
+            query = query.filter(
+                db.or_(
+                    Conversation.source == source_filter,
+                    Conversation.source.is_(None)
+                )
+            )
 
         # Exclude community posts
         community_conv_ids = db.session.query(History.conversation_id)\

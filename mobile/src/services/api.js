@@ -66,6 +66,9 @@ export const googleLogin = (credential) =>
 export const getMe = (token) =>
   request('/api/auth/me', { token });
 
+export const deleteAccount = (token) =>
+  request('/api/auth/delete-account', { method: 'DELETE', token });
+
 // Conversations
 export const getConversations = (token) =>
   request('/api/conversations', { token });
@@ -147,5 +150,11 @@ export const getBillingDetails = (token) =>
 // Health
 export const checkBackendHealth = () =>
   request('/health', { method: 'GET', timeoutMs: 8000 });
+
+export const logLegalConsent = ({ email, consent_type, version = '1.0', is_accepted = true }) =>
+  request('/api/legal/consent', { 
+    method: 'POST', 
+    body: { email, consent_type, version, is_accepted } 
+  });
 
 export const getApiBase = () => API_BASE;

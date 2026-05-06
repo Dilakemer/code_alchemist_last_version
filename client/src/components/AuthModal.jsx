@@ -249,7 +249,7 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-md shadow-2xl relative overflow-hidden">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 w-full max-w-md shadow-2xl relative max-h-full overflow-y-auto">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-fuchsia-500 to-purple-600" />
         <h2 className="text-2xl font-bold mb-6 text-center text-white">
           {getTitle()}

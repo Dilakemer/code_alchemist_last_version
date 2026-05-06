@@ -15,7 +15,10 @@ import {
   Pressable,
   Image,
   Dimensions,
+  Share,
 } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   askQuestion, 
@@ -28,7 +31,9 @@ import {
   getConversations, 
   getConversationDetails,
   deleteConversation,
-  publishToCommunity 
+  publishToCommunity,
+  logLegalConsent,
+  shareConversation 
 } from './src/services/api';
 
 // Components
@@ -44,9 +49,14 @@ import CreatePostModal from './src/components/CreatePostModal';
 import ProfileView from './src/components/ProfileView';
 import LoginScreen from './src/components/LoginScreen';
 
+import { useCollabSocket } from './src/hooks/useCollabSocket';
+import { GOOGLE_CLIENT_ID, IOS_CLIENT_ID, ANDROID_CLIENT_ID } from './src/config';
+
 import { clearSession, loadToken, loadUser, saveSession } from './src/services/storage';
 
 const { width } = Dimensions.get('window');
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -84,9 +94,62 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState(null);
 
+  // Collaboration State
+  const [collabToken, setCollabToken] = useState(null);
+  
+  // Google Auth Hook
+  const [gRequest, gResponse, promptAsync] = Google.useAuthRequest({
+    webClientId: GOOGLE_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID,
+    androidClientId: ANDROID_CLIENT_ID,
+  });
+
   const scrollRef = useRef(null);
 
   const apiBase = useMemo(() => getApiBase(), []);
+
+  const onCollabRefresh = useMemo(() => () => {
+    fetchHistory();
+    if (activeConversationId) {
+      handleLoadConversation(activeConversationId, false);
+    }
+  }, [activeConversationId]);
+
+  // Real-time Collaboration Listener
+  const { 
+    connected: collabConnected, 
+    liveStreamText, 
+    isStreaming: collabStreaming 
+  } = useCollabSocket(collabToken, token, user?.display_name, onCollabRefresh);
+
+  useEffect(() => {
+    if (gResponse?.type === 'success') {
+      const { authentication } = gResponse;
+      handleGoogleExchange(authentication.idToken);
+    } else if (gResponse?.type === 'cancel' || gResponse?.type === 'error') {
+      setBusy(false);
+    }
+  }, [gResponse]);
+
+  const handleGoogleExchange = async (idToken) => {
+    setBusy(true);
+    try {
+      const data = await googleLogin(idToken);
+      if (data.token) {
+        const nextToken = data.token;
+        const nextUser = data.user || null;
+        setToken(nextToken);
+        setUser(nextUser);
+        await saveSession({ token: nextToken, user: nextUser });
+        const histData = await getConversations(nextToken);
+        setConversations(histData.conversations || []);
+      }
+    } catch (err) {
+      Alert.alert('Google Auth Error', err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const refreshUserInfo = async (authToken = token) => {
     if (!authToken) return;
@@ -141,7 +204,7 @@ export default function App() {
     bootstrap();
   }, []);
 
-  const handleAuthSubmit = async ({ email, password, displayName, mode }) => {
+  const handleAuthSubmit = async ({ email, password, displayName, mode, acceptTerms, acceptCommercial }) => {
     setBusy(true);
     try {
       let data;
@@ -149,9 +212,25 @@ export default function App() {
         data = await login({ email: email.trim(), password });
       } else {
         data = await register({ email: email.trim(), password, display_name: displayName.trim() });
+        
+        // Log consents asynchronously
+        logLegalConsent({ 
+          email: email.trim(), 
+          consent_type: 'register_terms_kvkk', 
+          is_accepted: acceptTerms 
+        }).catch(e => console.error("Consent log error:", e));
+
+        if (acceptCommercial) {
+          logLegalConsent({ 
+            email: email.trim(), 
+            consent_type: 'commercial_communication', 
+            is_accepted: true 
+          }).catch(e => console.error("Consent log error:", e));
+        }
+
         // If register succeeds, auto-login if backend returns token, or prompt to login
         if (!data.token) {
-          Alert.alert('Success', 'Registration successful! Please sign in with your credentials.');
+          Alert.alert('Başarılı', 'Kayıt başarılı! Lütfen giriş yapın.');
           setBusy(false);
           return;
         }
@@ -172,11 +251,38 @@ export default function App() {
   };
 
   const handleGoogleLoginPress = () => {
-    Alert.alert(
-      'Google Login',
-      'Google login is coming soon to the mobile app! For now, please use your email and password.',
-      [{ text: 'OK' }]
-    );
+    setBusy(true);
+    promptAsync().catch(err => {
+      setBusy(false);
+      Alert.alert('Google Login Error', err.message);
+    });
+  };
+
+  const handleCollabPress = async () => {
+    if (!token) return;
+    if (!activeConversationId) {
+      Alert.alert('No Session', 'Select a conversation first to share.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const data = await shareConversation(token, activeConversationId);
+      if (data.share_token) {
+        setCollabToken(data.share_token);
+        // Construct URL based on current API base to ensure it points to the correct deployment
+        const base = apiBase.replace('/api', '').replace(/\/$/, '');
+        const url = `${base}/?collab=${data.share_token}`;
+        await Share.share({
+          message: `Transmute code with me! Join my Alchemy session: ${url}`,
+          url: url
+        });
+      }
+    } catch (err) {
+      Alert.alert('Sharing Error', err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -189,8 +295,35 @@ export default function App() {
     setActiveView('chat');
   };
 
-  const handleLoadConversation = async (id) => {
-    setBusy(true);
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This action is permanent and all your data will be lost.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              const { deleteAccount } = await import('./src/services/api');
+              await deleteAccount(token);
+              await handleLogout();
+              Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Failed to delete account.');
+            } finally {
+              setBusy(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleLoadConversation = async (id, showBusy = true) => {
+    if (showBusy) setBusy(true);
     setShowHistory(false);
     try {
       const data = await getConversationDetails(token, id);
@@ -203,9 +336,9 @@ export default function App() {
       }
       setActiveView('chat');
     } catch (err) {
-      Alert.alert('Error', 'Failed to load conversation.');
+      if (showBusy) Alert.alert('Error', 'Failed to load conversation.');
     } finally {
-      setBusy(false);
+      if (showBusy) setBusy(false);
     }
   };
 
@@ -319,13 +452,24 @@ export default function App() {
               {answer && !busy && (
                 <View style={styles.aiBubbleContainer}>
                   <View style={styles.aiBubble}>
-                  <View style={styles.aiBubbleHeader}>
-                    <Text style={styles.aiName}>CodeAlchemist</Text>
-                    <TouchableOpacity onPress={handleShareToCommunity}>
-                      <Text style={styles.shareText}>🚀 Share</Text>
-                    </TouchableOpacity>
-                  </View>
+                    <View style={styles.aiBubbleHeader}>
+                      <Text style={styles.aiName}>CodeAlchemist {collabConnected ? '• Live' : ''}</Text>
+                      <TouchableOpacity onPress={handleShareToCommunity}>
+                        <Text style={styles.shareText}>🚀 Share</Text>
+                      </TouchableOpacity>
+                    </View>
                     <Text style={styles.aiText}>{answer}</Text>
+                  </View>
+                </View>
+              )}
+
+              {collabStreaming && (
+                <View style={styles.aiBubbleContainer}>
+                  <View style={[styles.aiBubble, styles.streamingBubble]}>
+                    <View style={styles.aiBubbleHeader}>
+                      <Text style={styles.aiName}>Live Sync • Transmuting...</Text>
+                    </View>
+                    <Text style={styles.aiText}>{liveStreamText || '...'}</Text>
                   </View>
                 </View>
               )}
@@ -355,8 +499,13 @@ export default function App() {
                   selected={selectedModels} 
                   onChange={setSelectedModels} 
                   compact={true}
+                  disabled={collabStreaming}
                 />
-                <TouchableOpacity style={styles.codeToggle} onPress={() => Alert.prompt('Add Code', 'Paste your snippet', text => setCode(text))}>
+                <TouchableOpacity 
+                  style={[styles.codeToggle, collabStreaming && styles.disabledAction]} 
+                  onPress={() => !collabStreaming && Alert.prompt('Add Code', 'Paste your snippet', text => setCode(text))}
+                  disabled={collabStreaming}
+                >
                   <Text style={styles.codeToggleText}>{code ? '✅ Code' : '➕ Code'}</Text>
                 </TouchableOpacity>
               </View>
@@ -395,7 +544,13 @@ export default function App() {
       case 'weekly':
         return <WeeklySummary token={token} />;
       case 'profile':
-        return <ProfileView user={user} onLogout={handleLogout} />;
+        return (
+          <ProfileView 
+            user={user} 
+            onLogout={handleLogout} 
+            onDeleteAccount={handleDeleteAccount}
+          />
+        );
       default:
         return null;
     }
@@ -440,6 +595,7 @@ export default function App() {
         activeView={activeView}
         onNavigate={(view) => setActiveView(view)}
         onSharePress={() => setShowCreatePost(true)}
+        onCollabPress={handleCollabPress}
       />
 
       <CreatePostModal 
@@ -461,7 +617,13 @@ export default function App() {
         ) : (
           <View style={styles.flex}>
             <View style={styles.mainHeader}>
-              <TouchableOpacity onPress={() => setSidebarOpen(true)} style={styles.menuButton}>
+              <TouchableOpacity 
+                onPress={() => {
+                  refreshUserInfo();
+                  setSidebarOpen(true);
+                }} 
+                style={styles.menuButton}
+              >
                 <Text style={styles.menuButtonText}>☰</Text>
               </TouchableOpacity>
               <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
@@ -674,4 +836,12 @@ const styles = StyleSheet.create({
   historyItemDate: { color: '#475569', fontSize: 12, marginTop: 4, fontWeight: '600' },
   deleteText: { fontSize: 18, marginLeft: 12 },
   emptyText: { color: '#64748b', textAlign: 'center', padding: 40, fontWeight: '600' },
+  streamingBubble: {
+    borderColor: '#d946ef',
+    borderWidth: 2,
+    backgroundColor: 'rgba(217, 70, 239, 0.05)',
+  },
+  disabledAction: {
+    opacity: 0.5,
+  },
 });

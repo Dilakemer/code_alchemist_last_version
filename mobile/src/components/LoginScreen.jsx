@@ -21,24 +21,32 @@ export default function LoginScreen({ onLogin, onGoogleLogin, loading }) {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acceptCommercial, setAcceptCommercial] = useState(false);
   const [legalModal, setLegalModal] = useState({ visible: false, type: 'terms' });
 
   const handleSubmit = () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter email and password.');
+      Alert.alert('Hata', 'Lütfen e-posta ve şifrenizi giriniz.');
       return;
     }
     if (authMode === 'register') {
       if (!displayName.trim()) {
-        Alert.alert('Error', 'Please enter a display name.');
+        Alert.alert('Hata', 'Lütfen bir ad belirtiniz.');
         return;
       }
       if (!acceptTerms) {
-        Alert.alert('Agreement Required', 'Please accept the Terms and Privacy Policy to continue.');
+        Alert.alert('Onay Gerekli', 'Devam etmek için Kullanım Koşulları ve KVKK metnini kabul etmelisiniz.');
         return;
       }
     }
-    onLogin({ email, password, displayName, mode: authMode });
+    onLogin({ 
+      email, 
+      password, 
+      displayName, 
+      mode: authMode,
+      acceptTerms,
+      acceptCommercial
+    });
   };
 
   const openLegal = (type) => {
@@ -54,10 +62,10 @@ export default function LoginScreen({ onLogin, onGoogleLogin, loading }) {
           resizeMode="contain" 
         />
         <Text style={styles.welcomeText}>
-          {authMode === 'login' ? 'Welcome Back, Alchemist' : 'Join the Alchemy'}
+          {authMode === 'login' ? 'Tekrar Hoş Geldiniz, Alchemist' : 'Simya Dünyasına Katılın'}
         </Text>
         <Text style={styles.subText}>
-          {authMode === 'login' ? 'Sign in to continue your transmutation' : 'Create an account to start your journey'}
+          {authMode === 'login' ? 'Transmutasyona devam etmek için giriş yapın' : 'Yolculuğunuza başlamak için bir hesap oluşturun'}
         </Text>
       </View>
 
@@ -111,7 +119,20 @@ export default function LoginScreen({ onLogin, onGoogleLogin, loading }) {
                 {acceptTerms && <Text style={styles.checkIcon}>✓</Text>}
               </View>
               <Text style={styles.checkboxText}>
-                I accept the <Text style={styles.link} onPress={() => openLegal('terms')}>Terms of Service</Text> and <Text style={styles.link} onPress={() => openLegal('privacy')}>Privacy Policy</Text>.
+                <Text style={styles.link} onPress={() => openLegal('terms')}>Üyelik ve Kullanım Koşulları</Text>'nı ve <Text style={styles.link} onPress={() => openLegal('privacy')}>KVKK Aydınlatma Metni</Text>'ni okudum, anladım ve kabul ediyorum.
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.checkboxRow} 
+              onPress={() => setAcceptCommercial(!acceptCommercial)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, acceptCommercial && styles.checkboxActive]}>
+                {acceptCommercial && <Text style={styles.checkIcon}>✓</Text>}
+              </View>
+              <Text style={styles.checkboxText}>
+                Pazarlama ve kampanya duyuruları için ticari elektronik ileti almayı kabul ediyorum. (Opsiyonel)
               </Text>
             </TouchableOpacity>
           </View>
@@ -126,7 +147,7 @@ export default function LoginScreen({ onLogin, onGoogleLogin, loading }) {
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.primaryBtnText}>
-              {authMode === 'login' ? 'Sign In' : 'Create Account'}
+              {authMode === 'login' ? 'Giriş Yap' : 'Hesap Oluştur'}
             </Text>
           )}
         </TouchableOpacity>
@@ -138,21 +159,17 @@ export default function LoginScreen({ onLogin, onGoogleLogin, loading }) {
         </View>
 
         <TouchableOpacity style={styles.googleBtn} onPress={onGoogleLogin}>
-          <Image 
-            source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg' }} 
-            style={styles.googleIcon} 
-          />
-          <Text style={styles.googleBtnText}>Continue with Google</Text>
+          <Text style={styles.googleBtnText}>Google ile Devam Et</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          {authMode === 'login' ? "Don't have an account? " : "Already have an account? "}
+          {authMode === 'login' ? "Henüz hesabınız yok mu? " : "Zaten hesabınız var mı? "}
         </Text>
         <TouchableOpacity onPress={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>
           <Text style={styles.toggleText}>
-            {authMode === 'login' ? 'Sign Up' : 'Sign In'}
+            {authMode === 'login' ? 'Kayıt Ol' : 'Giriş Yap'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -190,7 +207,7 @@ const styles = StyleSheet.create({
     padding: 16,
     fontSize: 15,
   },
-  checkboxArea: { marginBottom: 24 },
+  checkboxArea: { marginBottom: 24, gap: 12 },
   checkboxRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   checkbox: {
     width: 20,

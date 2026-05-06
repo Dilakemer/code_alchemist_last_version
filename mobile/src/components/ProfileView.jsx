@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
-export default function ProfileView({ user, onLogout }) {
+export default function ProfileView({ user, onLogout, onDeleteAccount }) {
   const handleFeatureUnderDev = (feature) => {
     Alert.alert('Coming Soon', `${feature} is currently under construction for mobile. Stay tuned! 🧪`);
   };
@@ -90,6 +90,13 @@ export default function ProfileView({ user, onLogout }) {
 
       <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
         <Text style={styles.logoutText}>Log Out</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={styles.deleteBtn} 
+        onPress={onDeleteAccount}
+      >
+        <Text style={styles.deleteText}>Delete Account</Text>
       </TouchableOpacity>
 
       <Text style={styles.version}>CodeAlchemist v2.5.0</Text>
@@ -177,5 +184,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239, 68, 68, 0.2)',
   },
   logoutText: { color: '#ef4444', fontWeight: '800', fontSize: 16 },
+  deleteBtn: {
+    alignItems: 'center',
+    marginTop: 12,
+    padding: 12,
+  },
+  deleteText: {
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
   version: { color: '#334155', textAlign: 'center', marginTop: 30, fontSize: 12, fontWeight: '600' },
 });

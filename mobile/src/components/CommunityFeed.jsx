@@ -29,7 +29,7 @@ export default function CommunityFeed({ token, onSelectPost, mode = 'all' }) {
         setPosts(data.feed || []);
       } else {
         data = await getCommunityFeed();
-        setPosts(data.posts || []);
+        setPosts(data.feed || data.posts || []);
         setMessage('');
       }
     } catch (err) {
@@ -84,10 +84,10 @@ export default function CommunityFeed({ token, onSelectPost, mode = 'all' }) {
           >
             <View style={styles.authorRow}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{post.author?.[0]?.toUpperCase() || 'A'}</Text>
+                <Text style={styles.avatarText}>{(post.author_name || post.author || 'A')[0].toUpperCase()}</Text>
               </View>
               <View>
-                <Text style={styles.authorName}>{post.author || 'Anonymous'}</Text>
+                <Text style={styles.authorName}>{post.author_name || post.author || 'Anonymous'}</Text>
                 <Text style={styles.postDate}>{new Date(post.created_at || post.timestamp).toLocaleDateString()}</Text>
               </View>
               <View style={styles.modelBadge}>

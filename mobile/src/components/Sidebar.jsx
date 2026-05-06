@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
-export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, user, activeView }) {
+export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, onCollabPress, user, activeView }) {
   if (!isOpen) return null;
 
   const menuItems = [
@@ -29,7 +29,6 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, use
 
   return (
     <View style={styles.overlay}>
-      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <SafeAreaView style={styles.drawer} edges={['left', 'top', 'bottom']}>
         <View style={styles.header}>
           <Image 
@@ -58,7 +57,13 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, use
 
           <View style={styles.divider} />
 
-          <TouchableOpacity style={styles.collabButton}>
+          <TouchableOpacity 
+            style={styles.collabButton}
+            onPress={() => {
+              onCollabPress();
+              onClose();
+            }}
+          >
             <Text style={styles.collabIcon}>🤝</Text>
             <View>
               <Text style={styles.collabTitle}>Collaborate</Text>
@@ -93,6 +98,7 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, use
           </View>
         </View>
       </SafeAreaView>
+      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
     </View>
   );
 }
