@@ -3702,9 +3702,19 @@ def _normalize_google_display_name(name: str, email: str) -> str:
 
 
 def _exchange_google_credential(credential: str) -> tuple[dict, int]:
-    google_client_id = os.getenv('GOOGLE_CLIENT_ID') or os.getenv('VITE_GOOGLE_CLIENT_ID')
-    if not google_client_id:
-        return {'error': 'GOOGLE_CLIENT_ID is not configured on the server.'}, 500
+    configured_ids = set()
+    # Primary backend config (supports comma-separated values)
+    raw_primary = os.getenv('GOOGLE_CLIENT_ID') or os.getenv('VITE_GOOGLE_CLIENT_ID') or ''
+    configured_ids.update(part.strip() for part in raw_primary.split(',') if part.strip())
+
+    # Optional explicit platform client IDs
+    for key in ('GOOGLE_WEB_CLIENT_ID', 'GOOGLE_ANDROID_CLIENT_ID', 'GOOGLE_IOS_CLIENT_ID'):
+        value = (os.getenv(key) or '').strip()
+        if value:
+            configured_ids.add(value)
+
+    if not configured_ids:
+        return {'error': 'Google client IDs are not configured on the server.'}, 500
 
     try:
         import requests
@@ -3722,7 +3732,7 @@ def _exchange_google_credential(credential: str) -> tuple[dict, int]:
     if not isinstance(info, dict) or info.get('error'):
         return {'error': info.get('error_description') or 'Invalid Google credential.'}, 401
 
-    if info.get('aud') != google_client_id:
+    if (info.get('aud') or '').strip() not in configured_ids:
         return {'error': 'Google credential audience mismatch.'}, 401
 
     if info.get('email_verified') not in (True, 'true', 'True'):
@@ -5794,6 +5804,26 @@ def ask():
                     print(f"WARN: Token deduction/Taste update failed: {token_err}")
 
             yield f"data: {json.dumps(final_data)}\n\n"
+
+    if source_header == 'mobile':
+        # Mobil için stream yerine senkron yanıt döndür
+        def generate_full_answer():
+            full_text = ""
+            for chunk_sse in generate_stream(final_user_id, final_conv_id, final_proj_id, source_header):
+                if chunk_sse.startswith("data: "):
+                    try:
+                        data = json.loads(chunk_sse[6:].strip())
+                        if "chunk" in data:
+                            full_text += data["chunk"]
+                        elif "answer" in data:
+                            full_text = data["answer"]
+                            # Bitiş verisini de ekleyelim (yeni bakiye vs.)
+                            return jsonify(data)
+                    except:
+                        pass
+            return jsonify({'answer': full_text})
+        
+        return generate_full_answer()
 
     return Response(stream_with_context(generate_stream(final_user_id, final_conv_id, final_proj_id, source_header)), mimetype='text/event-stream')
 

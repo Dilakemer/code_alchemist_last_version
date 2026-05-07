@@ -2,7 +2,7 @@
   "expo": {
     "name": "CodeAlchemist Mobile",
     "slug": "codealchemist-mobile",
-    "scheme": "codealchemist",
+    "scheme": ["codealchemist", "com.codealchemist.mobile"],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.codealchemist.mobile"
+      "bundleIdentifier": "com.codealchemist.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.codealchemist.mobile",
@@ -30,6 +33,11 @@
     },
     "plugins": [
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9ea0e62e-58de-43dd-96f3-8b75a2664ebd"
+      }
+    }
   }
 }

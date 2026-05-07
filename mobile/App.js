@@ -17,7 +17,6 @@ import {
   Dimensions,
   Share,
 } from 'react-native';
-import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import Constants from 'expo-constants';
@@ -52,7 +51,7 @@ import ProfileView from './src/components/ProfileView';
 import LoginScreen from './src/components/LoginScreen';
 
 import { useCollabSocket } from './src/hooks/useCollabSocket';
-import { GOOGLE_CLIENT_ID, IOS_CLIENT_ID, ANDROID_CLIENT_ID } from './src/config';
+import { GOOGLE_WEB_CLIENT_ID, GOOGLE_EXPO_CLIENT_ID, IOS_CLIENT_ID, ANDROID_CLIENT_ID } from './src/config';
 
 import { clearSession, loadToken, loadUser, saveSession } from './src/services/storage';
 
@@ -102,13 +101,7 @@ export default function App() {
   const scrollRef = useRef(null);
 
   const apiBase = useMemo(() => getApiBase(), []);
-  const isExpoGo = Constants.appOwnership === 'expo';
-  const googleRedirectUri = useMemo(
-    () => (isExpoGo
-      ? AuthSession.makeRedirectUri({ useProxy: true })
-      : AuthSession.makeRedirectUri({ scheme: 'codealchemist' })),
-    [isExpoGo]
-  );
+  const isExpoGo = Constants.executionEnvironment === 'storeClient' || Constants.appOwnership === 'expo';
 
   const onCollabRefresh = useMemo(() => () => {
     fetchHistory();
@@ -118,18 +111,17 @@ export default function App() {
   }, [activeConversationId]);
 
   // Real-time Collaboration Listener
-  const { 
-    connected: collabConnected, 
-    liveStreamText, 
-    isStreaming: collabStreaming 
+  const {
+    connected: collabConnected,
+    liveStreamText,
+    isStreaming: collabStreaming
   } = useCollabSocket(collabToken, token, user?.display_name, onCollabRefresh);
 
   const [gRequest, gResponse, promptAsync] = Google.useAuthRequest({
-    expoClientId: GOOGLE_CLIENT_ID,
-    webClientId: GOOGLE_CLIENT_ID,
-    iosClientId: IOS_CLIENT_ID || GOOGLE_CLIENT_ID,
-    androidClientId: ANDROID_CLIENT_ID || GOOGLE_CLIENT_ID,
-    redirectUri: googleRedirectUri,
+    ...(isExpoGo ? { expoClientId: GOOGLE_EXPO_CLIENT_ID || GOOGLE_WEB_CLIENT_ID } : {}),
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
+    androidClientId: ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
   });
 
   useEffect(() => {
@@ -270,8 +262,28 @@ export default function App() {
       Alert.alert('Google Login Error', 'Google giriş isteği henüz hazır değil. Lütfen tekrar deneyin.');
       return;
     }
+
+    if (isExpoGo) {
+      Alert.alert(
+        'Google Login Error',
+        'Google ile giriş Expo Go içinde çalışmaz. Android/iOS için bir development build veya standalone build kullanın.'
+      );
+      return;
+    }
+
+    if (gRequest?.url) {
+      try {
+        const parsedUrl = new URL(gRequest.url);
+        const redirectFromRequest = parsedUrl.searchParams.get('redirect_uri');
+        console.log('[GoogleAuth] request_url=', gRequest.url);
+        console.log('[GoogleAuth] redirect_uri=', redirectFromRequest);
+      } catch (err) {
+        console.log('[GoogleAuth] request_url_unparsed=', gRequest.url);
+      }
+    }
+
     setBusy(true);
-    promptAsync({ useProxy: isExpoGo }).catch(err => {
+    promptAsync().catch(err => {
       setBusy(false);
       Alert.alert('Google Login Error', err.message);
     });

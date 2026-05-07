@@ -30,7 +30,12 @@ const getFallbackApiBase = () => {
 export const API_BASE = normalizeBase(process.env.EXPO_PUBLIC_API_BASE || getFallbackApiBase());
 export const SOCKET_BASE = normalizeBase(process.env.EXPO_PUBLIC_SOCKET_BASE || API_BASE);
 
-export const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '522794929208-pm29ue7nga28fbq4ia9kmdm2457055vd.apps.googleusercontent.com';
+export const GOOGLE_WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
+  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
+  '522794929208-pm29ue7nga28fbq4ia9kmdm2457055vd.apps.googleusercontent.com';
+export const GOOGLE_EXPO_CLIENT_ID =
+  process.env.EXPO_PUBLIC_EXPO_GOOGLE_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
 export const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_IOS_GOOGLE_CLIENT_ID || '';
 export const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_ANDROID_GOOGLE_CLIENT_ID || '';
 
