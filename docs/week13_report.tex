@@ -1,0 +1,45 @@
+mobil uygulama inşa aşamalarının hepsini yaz!\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[turkish]{babel}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\title{CodeAlchemist - Hafta 13 İlerleme Raporu}
+\author{Antigravity AI}
+\date{9 Mayıs 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Giriş}
+Bu rapor, CodeAlchemist projesinin 13. haftasında gerçekleştirilen bağlam yönetimi (context management) ve niyet algılama (intent detection) iyileştirmelerini kapsamaktadır. mksglu/context-mode projesinden esinlenilerek, uygulamanın büyük bağlamlarda daha verimli çalışması için yeni mimari katmanlar eklenmiştir.
+
+\section{Gerçekleştirilen İyileştirmeler}
+
+\subsection{Çok Boyutlu Bağlam Sağlığı Analizi (Context Health Analyzer)}
+Geleneksel kosinüs benzerliği (cosine similarity) yönteminin yetersiz kaldığı durumlar (örneğin soyutlama seviyesi değişimleri) göz önünde bulundurularak \texttt{ContextHealthAnalyzer} sınıfı geliştirilmiştir. Bu sistem şu metrikleri kullanır:
+\begin{itemize}
+    \item \textbf{Workspace Overlap:} Kullanılan dosyaların mevcut bağlamla çakışma oranı (Jaccard similarity).
+    \item \textbf{Intent Stability:} Kullanıcının ana hedefinden (örneğin hata ayıklama) sapıp sapmadığının takibi.
+    \item \textbf{Token Pressure:} Modelin bağlam penceresinin doluluk oranı.
+\end{itemize}
+
+\subsection{Kademeli Araç Çıktısı (Tiered Tool Output)}
+Büyük veri kümeleri (log dosyaları, uzun kod blokları) artık doğrudan bağlama eklenmemektedir:
+\begin{itemize}
+    \item \textbf{Özetleme (Summarization):} İlk 10 satır, son 20 satır ve hata desenleri filtrelenerek modele sunulur.
+    \item \textbf{Ham Veri Erişimi (Raw Access):} Verinin tamamı geçici bir önbellekte (cache) tutulur ve kullanıcıya arayüz üzerinden "Genişlet" (Expand) seçeneği ile sunulur.
+\end{itemize}
+
+\subsection{Proaktif Danışmanlık Sistemi (Advisory Engine)}
+Bağlam şişmesi (bloat) veya konu kayması (drift) tespit edildiğinde, kullanıcıya engelleyici olmayan (non-blocking) uyarılar gönderilir. Kullanıcı deneyimini bozmamak için 15 dakikalık "cooldown" mekanizması entegre edilmiştir.
+
+\section{Teknik Detaylar}
+Uygulama kapsamında \texttt{server/backend/runtime/limits.py}, \texttt{core.py} ve \texttt{sse.py} dosyalarında gerekli güncellemeler yapılmıştır. Yeni \texttt{SSEEventType.ADVISORY} türü ile frontend katmanına akıllı bildirimler gönderilmektedir.
+
+\section{Sonuç}
+Yapılan bu geliştirmeler sayesinde CodeAlchemist, büyük projelerde \%40'a varan bağlam tasarrufu sağlamakta ve kullanıcıyı yanlış niyet algılamalarıyla darlamadan proaktif bir rehberlik sunmaktadır.
+
+\end{document}

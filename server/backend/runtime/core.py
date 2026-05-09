@@ -39,8 +39,10 @@ from .sse import (
     message_event,
     tool_call_event,
     tool_result_event,
+    advisory_event,
 )
 from ..prompt_optimizer import optimize_prompt
+from .limits import ContextHealthAnalyzer
 
 
 class AgentRuntime:
@@ -85,6 +87,7 @@ class AgentRuntime:
         )
         self._compressor = ContextCompressor()
         self._seq_counter = 0  # <--- NEW: Track event sequence for frontend ordering
+        self._cooldowns: Dict[int, float] = {} # conversation_id -> last_advisory_ts
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -129,12 +132,56 @@ class AgentRuntime:
             return
 
         loop = AgentLoop(adapter, self.registry, self._compressor)
+        touched_files: List[str] = []
 
         try:
             async for event in loop.run(ctx):
+                # Track files for drift detection
+                if event.type == AgentEventType.TOOL_RESULT:
+                    path = event.payload.get("result", {}).get("path")
+                    if path: touched_files.append(path)
+                
                 yield self._event_to_sse(event, seq=self._next_seq())
+
+            # ── Post-run Health Check ─────────────────────────────────────
+            adv = await self._perform_health_check(ctx, touched_files, request)
+            if adv:
+                yield adv
+
         except Exception as exc:
             yield error_event(str(exc), code="RUNTIME_ERROR", seq=self._next_seq())
+
+    async def _perform_health_check(self, ctx: Any, touched_files: List[str], request: Dict[str, Any]) -> Optional[str]:
+        import time
+        conv_id = ctx.conversation_id
+        if not conv_id: return None
+
+        # 15-minute cooldown
+        now = time.time()
+        if now - self._cooldowns.get(conv_id, 0) < 900:
+            return None
+
+        analyzer = ContextHealthAnalyzer(ctx)
+        # Use simple char-based estimation for pressure
+        char_count = len(ctx.system_prompt) + len(ctx.rag_context or "") + len(ctx.question)
+        pressure_usage = char_count // 4 
+
+        report = analyzer.check_health(
+            token_usage=pressure_usage,
+            current_intent=request.get("intent", "general"),
+            touched_files=touched_files
+        )
+
+        if report["advisory_needed"]:
+            self._cooldowns[conv_id] = now
+            msg = (
+                "Bağlam genişledi, yeni sohbet önerilir." 
+                if report["type"] == "CONTEXT_BLOAT" else 
+                "Konu değişmiş olabilir, yeni sohbet daha verimli olabilir."
+            )
+            return advisory_event(msg, advisory_type=report["type"], seq=self._next_seq())
+        
+        return None
 
     def _next_seq(self) -> int:
         self._seq_counter += 1

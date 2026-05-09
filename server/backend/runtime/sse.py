@@ -26,6 +26,7 @@ class SSEEventType(str, Enum):
     MESSAGE     = "message"
     DONE        = "done"
     ERROR       = "error"
+    ADVISORY    = "advisory"
 
 
 def build_sse_event(event_type: SSEEventType, payload: Dict[str, Any], seq: Optional[int] = None) -> str:
@@ -138,4 +139,11 @@ def error_event(message: str, code: str = "AGENT_ERROR", seq: Optional[int] = No
     return build_sse_event(SSEEventType.ERROR, {
         "message": message,
         "code": code,
+    }, seq=seq)
+
+
+def advisory_event(message: str, advisory_type: str, seq: Optional[int] = None) -> str:
+    return build_sse_event(SSEEventType.ADVISORY, {
+        "message": message,
+        "advisory_type": advisory_type,
     }, seq=seq)

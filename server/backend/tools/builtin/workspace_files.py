@@ -247,12 +247,24 @@ async def _read_file(args: Dict[str, Any], ctx: Any) -> Dict[str, Any]:
             return dict(cached)
 
         window = _window(content)
+        
+        # Tiered Output: If content is large, provide a summary
+        clipped_content = window["content"]
+        summary = None
+        if len(clipped_content) > 10000:
+            lines = clipped_content.splitlines()
+            first_part = "\n".join(lines[:15])
+            last_part = "\n".join(lines[-25:])
+            summary = f"{first_part}\n\n[... {len(lines)-40} lines truncated for context efficiency ...]\n\n{last_part}"
+
         result = {
             "ok": True,
             "scope": scope,
             "path": display_path,
             "language": language or "plaintext",
             "content_hash": digest,
+            "summary": summary,
+            "raw_access_id": f"read_{digest[:8]}",
             **window,
         }
         cache[cache_key] = dict(result)

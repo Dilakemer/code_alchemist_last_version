@@ -7,6 +7,7 @@ ContextCompressor — trims conversation history to stay within limits.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 # Env-configurable threshold (chars before compression kicks in)
@@ -147,3 +148,60 @@ class ContextCompressor:
         if not memory_context or len(memory_context) <= max_chars:
             return memory_context
         return memory_context[:max_chars] + "\n... [Memory context truncated]"
+
+
+class ContextHealthAnalyzer:
+    """
+    Analyzes session health based on token pressure, workspace overlap,
+    and intent stability.
+    """
+
+    def __init__(self, context: Any) -> None:
+        self.ctx = context
+        self.cooldown_messages = 5
+        self.pressure_threshold = 0.75
+        self.drift_threshold = 0.7
+
+    def calculate_drift_score(self, current_intent: str, touched_files: List[str]) -> float:
+        """
+        Calculate drift score using Jaccard similarity of files and intent match.
+        """
+        # 1. Workspace Overlap (Jaccard similarity)
+        rag_files = set(re.findall(r"file:///([^\s]+)", self.ctx.rag_context or ""))
+        touched = set(touched_files)
+        
+        if not rag_files or not touched:
+            overlap_score = 1.0  # Assume same scope if no files are mentioned yet
+        else:
+            intersection = rag_files.intersection(touched)
+            union = rag_files.union(touched)
+            overlap_score = len(intersection) / len(union)
+
+        # 2. Intent Stability (Placeholder for actual session mission)
+        # In a real app, we'd compare against ctx.initial_intent
+        intent_shift = 0.0 if current_intent == "debugging" or current_intent == "coding" else 0.5
+        
+        # 3. Weighted Score
+        # Drift is inverse of overlap
+        drift = (1.0 - overlap_score) * 0.6 + intent_shift * 0.4
+        return drift
+
+    def check_health(self, token_usage: int, current_intent: str, touched_files: List[str]) -> Dict[str, Any]:
+        """
+        Returns a health report with advisory flag.
+        """
+        pressure = token_usage / self.ctx.max_tokens
+        drift = self.calculate_drift_score(current_intent, touched_files)
+        
+        advisory_type = None
+        if pressure > self.pressure_threshold:
+            advisory_type = "CONTEXT_BLOAT"
+        elif drift > self.drift_threshold:
+            advisory_type = "TOPIC_SHIFT"
+
+        return {
+            "pressure": pressure,
+            "drift": drift,
+            "advisory_needed": advisory_type is not None,
+            "type": advisory_type
+        }
