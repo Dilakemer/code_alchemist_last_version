@@ -241,7 +241,8 @@ class AgentRuntime:
 
         try:
             # 2. Run optimization
-            result = optimize_prompt(question)
+            model_name = request.get("model") or ""
+            result = optimize_prompt(question, model_name=model_name)
             
             # 3. Store result
             request["question"] = result["optimized_prompt"]

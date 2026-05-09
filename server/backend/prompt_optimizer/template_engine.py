@@ -17,16 +17,18 @@ class TemplateEngine:
             Intent.GENERAL: templates.GENERAL_TEMPLATE
         }
 
-    def render(self, intent: Intent, user_prompt: str) -> str:
+    def render(self, intent: Intent, user_prompt: str, model_name: str = "") -> str:
         """
         Selects the appropriate template and injects the user prompt.
-        
-        Args:
-            intent: The detected intent of the user.
-            user_prompt: The raw prompt from the user.
-            
-        Returns:
-            The rendered (optimized) prompt.
+        Also appends model-specific optimization rules if available.
         """
+        from .model_rules import get_rules_for_model
+        
         template = self._template_map.get(intent, templates.GENERAL_TEMPLATE)
-        return template.format(user_prompt=user_prompt)
+        base_prompt = template.format(user_prompt=user_prompt)
+        
+        model_rules = get_rules_for_model(model_name)
+        if model_rules:
+            return f"{base_prompt}\n\n{model_rules}"
+            
+        return base_prompt

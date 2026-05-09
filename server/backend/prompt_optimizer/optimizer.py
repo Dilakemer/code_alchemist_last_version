@@ -15,20 +15,21 @@ class PromptOptimizer:
     def __init__(self):
         self.engine = TemplateEngine()
 
-    def execute(self, user_prompt: str, routing: Any) -> Dict[str, Any]:
+    def execute(self, user_prompt: str, routing: Any, model_name: str = "") -> Dict[str, Any]:
         """
         Executes the optimization by applying the selected version template.
         
         Args:
             user_prompt: The raw user input.
             routing: A RoutingDecision object from the Orchestrator.
+            model_name: The target model name for optimization.
         """
         # 1. Validation
         if not isinstance(user_prompt, str) or not user_prompt.strip():
             raise ValueError("user_prompt must be a non-empty string")
             
-        # 2. Render template based on routing decision
-        optimized_prompt = self.engine.render(routing.intent, user_prompt)
+        # 2. Render template based on routing decision and model
+        optimized_prompt = self.engine.render(routing.intent, user_prompt, model_name=model_name)
         
         # 3. Return structured result
         return {
@@ -41,9 +42,9 @@ class PromptOptimizer:
         }
 
 # Legacy wrapper for backward compatibility - now uses orchestrator discovery
-def optimize_prompt(user_prompt: str) -> Dict[str, Any]:
+def optimize_prompt(user_prompt: str, model_name: str = "") -> Dict[str, Any]:
     from .orchestrator import get_orchestrator
     orch = get_orchestrator()
     routing = orch.route_request(user_prompt)
     optimizer = PromptOptimizer()
-    return optimizer.execute(user_prompt, routing)
+    return optimizer.execute(user_prompt, routing, model_name=model_name)
