@@ -121,7 +121,7 @@
         },
         "codeAlchemist.endpoint": {
           "type": "string",
-          "default": "http://localhost:5000/v1/ask",
+          "default": "http://localhost:5001/v1/ask",
           "description": "Backend endpoint for /v1/ask."
         },
         "codeAlchemist.agentMode": {

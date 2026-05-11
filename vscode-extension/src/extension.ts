@@ -32,6 +32,7 @@ type TaskType = 'code' | 'analysis';
 // ── Constants ───────────────────────────────────────────────────────
 
 const API_KEY_SECRET_NAME = 'codeAlchemist.apiKey';
+const DEFAULT_ENDPOINT = 'http://localhost:5001/v1/ask';
 
 /** Max characters per file content in the payload (~750 tokens). */
 const MAX_FILE_CHARS = 3000;
@@ -102,6 +103,26 @@ async function readApiKey(context: vscode.ExtensionContext): Promise<string> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function migrateLegacyEndpointConfig(): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('codeAlchemist');
+  const current = (cfg.get<string>('endpoint') || '').trim();
+  if (!current) {
+    await cfg.update('endpoint', DEFAULT_ENDPOINT, vscode.ConfigurationTarget.Global);
+    return;
+  }
+
+  const migrated = current
+    .replace(/^http:\/\/127\.0\.0\.1:5000/i, 'http://localhost:5001')
+    .replace(/^http:\/\/localhost:5000/i, 'http://localhost:5001');
+
+  if (migrated === current) {
+    return;
+  }
+
+  await cfg.update('endpoint', migrated, vscode.ConfigurationTarget.Global);
+  vscode.window.showInformationMessage(`CodeAlchemist endpoint updated to ${migrated}`);
 }
 
 // ── Agent Trace Logger ──────────────────────────────────────────────
@@ -510,6 +531,8 @@ export function activate(context: vscode.ExtensionContext) {
   const statusBar = createStatusBar(AVAILABLE_MODELS);
   context.subscriptions.push(statusBar.item);
   HealthMonitor.getInstance().setOutput(output);
+
+  void migrateLegacyEndpointConfig();
 
   // ── Sidebar Chat Provider (left + right panel) ───────────────
   const chatProvider = new CodeAlchemistChatProvider(context.extensionUri, context, output);

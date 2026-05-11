@@ -43,6 +43,7 @@ from .sse import (
 )
 from ..prompt_optimizer import optimize_prompt
 from .limits import ContextHealthAnalyzer
+from utils.concurrency import env_float, env_int
 
 
 class AgentRuntime:
@@ -88,6 +89,12 @@ class AgentRuntime:
         self._compressor = ContextCompressor()
         self._seq_counter = 0  # <--- NEW: Track event sequence for frontend ordering
         self._cooldowns: Dict[int, float] = {} # conversation_id -> last_advisory_ts
+        self._provider_semaphores = {
+            "gemini": asyncio.Semaphore(env_int("GEMINI_MAX_CONCURRENCY", 4, minimum=1, maximum=64)),
+            "openai": asyncio.Semaphore(env_int("OPENAI_MAX_CONCURRENCY", 8, minimum=1, maximum=64)),
+            "anthropic": asyncio.Semaphore(env_int("ANTHROPIC_MAX_CONCURRENCY", 4, minimum=1, maximum=64)),
+        }
+        self._model_queue_timeout = env_float("MODEL_QUEUE_TIMEOUT_SEC", 8.0, minimum=0.1, maximum=120.0)
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -131,8 +138,16 @@ class AgentRuntime:
             yield error_event(str(exc), code="ADAPTER_ERROR", seq=self._next_seq())
             return
 
-        loop = AgentLoop(adapter, self.registry, self._compressor)
         touched_files: List[str] = []
+
+        loop = AgentLoop(
+            adapter,
+            self.registry,
+            self._compressor,
+            provider=provider,
+            provider_semaphores=self._provider_semaphores,
+            model_queue_timeout=self._model_queue_timeout,
+        )
 
         try:
             async for event in loop.run(ctx):
@@ -208,7 +223,14 @@ class AgentRuntime:
         except Exception as exc:
             return AgentResult(text="", error=str(exc), finish_reason="error")
 
-        loop_obj = AgentLoop(adapter, self.registry, self._compressor)
+        loop_obj = AgentLoop(
+            adapter,
+            self.registry,
+            self._compressor,
+            provider=ctx.provider,
+            provider_semaphores=self._provider_semaphores,
+            model_queue_timeout=self._model_queue_timeout,
+        )
 
         text_parts: List[str] = []
         trace: List[ToolTrace] = []

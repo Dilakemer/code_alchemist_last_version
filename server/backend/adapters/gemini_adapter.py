@@ -12,6 +12,7 @@ import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from .base import BaseAdapter, AdapterConfig, AdapterResponse, ToolCallRequest
+from utils.concurrency import env_float
 from utils.timeout_utils import to_gemini_timeout
 
 
@@ -22,9 +23,10 @@ class GeminiAdapter(BaseAdapter):
         try:
             from google import genai
             from google.genai import types as gemini_types
+            self._timeout_sec = env_float("GEMINI_TIMEOUT_SEC", 60.0, minimum=10.0, maximum=300.0)
             self._client = genai.Client(
                 api_key=api_key,
-                http_options={'timeout': to_gemini_timeout(120)}
+                http_options={'timeout': to_gemini_timeout(self._timeout_sec)}
             )
             self._types = gemini_types
         except ImportError as exc:
@@ -84,7 +86,7 @@ class GeminiAdapter(BaseAdapter):
             tools=tools,
             tool_config=tool_config,
             thinking_config=thinking_config,
-            http_options=types.HttpOptions(timeout=to_gemini_timeout(120)),
+            http_options=types.HttpOptions(timeout=to_gemini_timeout(self._timeout_sec)),
         )
 
     # ── Private helpers ───────────────────────────────────────────────────

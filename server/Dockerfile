@@ -35,4 +35,4 @@ COPY --from=frontend-builder /client/dist ./static/
 ENV PORT=5000
 EXPOSE $PORT
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT --worker-class gthread --threads 8 -w 1 --timeout 120 app:app"]
+CMD ["sh", "-c", "uvicorn backend.app_factory:create_app --factory --host 0.0.0.0 --port $PORT --workers ${WEB_CONCURRENCY:-2} --loop asyncio --timeout-keep-alive 90"]

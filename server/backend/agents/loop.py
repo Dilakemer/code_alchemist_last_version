@@ -47,10 +47,17 @@ class AgentLoop:
         adapter: BaseAdapter,
         tool_registry: ToolRegistry,
         compressor: Optional[ContextCompressor] = None,
+        *,
+        provider: Optional[str] = None,
+        provider_semaphores: Optional[Dict[str, asyncio.Semaphore]] = None,
+        model_queue_timeout: float = 8.0,
     ) -> None:
         self._adapter = adapter
         self._registry = tool_registry
         self._compressor = compressor or ContextCompressor()
+        self._provider = (provider or "").lower()
+        self._provider_semaphores = provider_semaphores or {}
+        self._model_queue_timeout = max(0.1, float(model_queue_timeout or 8.0))
 
     # ── Public entry point ────────────────────────────────────────────────
 
@@ -198,7 +205,7 @@ class AgentLoop:
 
             stream_callbacks_enabled = not formatted_tools
 
-            response: AdapterResponse = await self._adapter.generate(
+            response: AdapterResponse = await self._generate_with_provider_limit(
                 messages=messages,
                 tools=formatted_tools,
                 config=config,
@@ -300,6 +307,47 @@ class AgentLoop:
         # Fallback (should not be reached under normal execution)
         await self._emit_done(ctx, queue, trace, finish_reason="max_steps",
                               total_steps=ctx.max_tool_calls, budget=budget)
+
+    async def _generate_with_provider_limit(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        tools: Optional[Any],
+        config: AdapterConfig,
+        system_prompt: str,
+        on_chunk: Optional[callable],
+        on_reasoning: Optional[callable],
+    ) -> AdapterResponse:
+        semaphore = self._provider_semaphores.get(self._provider)
+        if semaphore is None:
+            return await self._adapter.generate(
+                messages=messages,
+                tools=tools,
+                config=config,
+                system_prompt=system_prompt,
+                on_chunk=on_chunk,
+                on_reasoning=on_reasoning,
+            )
+
+        try:
+            await asyncio.wait_for(semaphore.acquire(), timeout=self._model_queue_timeout)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"{self._provider or 'model'} provider is busy. "
+                "Please retry shortly."
+            ) from exc
+
+        try:
+            return await self._adapter.generate(
+                messages=messages,
+                tools=tools,
+                config=config,
+                system_prompt=system_prompt,
+                on_chunk=on_chunk,
+                on_reasoning=on_reasoning,
+            )
+        finally:
+            semaphore.release()
 
     # ── Tool dispatch ─────────────────────────────────────────────────────
 

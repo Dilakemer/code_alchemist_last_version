@@ -117,8 +117,10 @@ async def lifespan(app: FastAPI):
     # WsgiToAsgi wrapper'ı her WSGI isteğini bu thread pool içinde çalıştırır.
     # Akış (streaming) yanıtlarında iş parçacıkları uzun süre meşgul olacağı için
     # bu boyutu 200'e çıkararak diğer isteklerin (login gibi) bloklanmasını önlüyoruz.
+    max_executor_workers = int(os.getenv("ASYNC_EXECUTOR_WORKERS", "96"))
+    max_executor_workers = max(16, min(256, max_executor_workers))
     loop = asyncio.get_running_loop()
-    loop.set_default_executor(ThreadPoolExecutor(max_workers=200))
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=max_executor_workers))
     
     app.state.agent_runtime = _get_or_create_runtime()
     print(f"[backend] AgentRuntime ready. Providers: {app.state.agent_runtime.available_providers()}")

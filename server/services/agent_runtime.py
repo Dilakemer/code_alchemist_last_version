@@ -15,6 +15,7 @@ class AgentAbortException(Exception):
 
 from models import ProjectFile, db
 from services.latency_tracker import tracker
+from utils.concurrency import env_float, provider_slot
 from utils.timeout_utils import to_gemini_timeout
 
 
@@ -1478,18 +1479,20 @@ def _run_anthropic_agent(
 
 def _call_gemini_with_retry(client, model, contents, config, max_retries=3):
     """Call Gemini generate_content with exponential backoff on 503/504 errors."""
+    timeout_sec = env_float("GEMINI_TIMEOUT_SEC", 60.0, minimum=10.0, maximum=300.0)
     for attempt in range(max_retries + 1):
         try:
             # Inject timeout into config if not present
             if hasattr(config, 'http_options') and config.http_options is None:
                 from google.genai import types as gemini_types
-                config.http_options = gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
+                config.http_options = gemini_types.HttpOptions(timeout=to_gemini_timeout(timeout_sec))
             
-            return client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config,
-            )
+            with provider_slot("gemini"):
+                return client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
         except Exception as e:
             error_str = str(e).lower()
             is_transient = "500" in error_str or "503" in error_str or "504" in error_str or "internal error" in error_str or "service unavailable" in error_str or "deadline exceeded" in error_str or "timeout" in error_str or "handshake" in error_str
@@ -1531,7 +1534,7 @@ def _run_gemini_agent(
         max_output_tokens=1500,  # Prevents unnecessary verbosity in Gemma/Gemini
         tools=_build_gemini_tools(tool_runtime.get_tool_specs()) if tool_runtime and tool_runtime.has_tool_access else None,
         automatic_function_calling=gemini_types.AutomaticFunctionCallingConfig(disable=True) if hasattr(gemini_types, 'AutomaticFunctionCallingConfig') else None,
-        http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
+        http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(env_float("GEMINI_TIMEOUT_SEC", 60.0, minimum=10.0, maximum=300.0)))
     )
 
     max_steps = _max_agent_steps()
@@ -1611,13 +1614,14 @@ def _run_gemini_agent(
                         max_output_tokens=1000,
                         tools=None,
                         automatic_function_calling=gemini_types.AutomaticFunctionCallingConfig(disable=True) if hasattr(gemini_types, 'AutomaticFunctionCallingConfig') else None,
-                        http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(120))
+                        http_options=gemini_types.HttpOptions(timeout=to_gemini_timeout(env_float("GEMINI_TIMEOUT_SEC", 60.0, minimum=10.0, maximum=300.0)))
                     )
-                    forced_response = client.models.generate_content(
-                        model=model,
-                        contents=contents,
-                        config=forced_config,
-                    )
+                    with provider_slot("gemini"):
+                        forced_response = client.models.generate_content(
+                            model=model,
+                            contents=contents,
+                            config=forced_config,
+                        )
                     forced_text = _extract_gemini_text_from_candidates(forced_response)
                     return AgentRunResult(
                         text=forced_text or "I reached the tool-step limit, but here is the best possible answer from collected data.",

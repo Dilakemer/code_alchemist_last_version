@@ -797,7 +797,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       this._view.webview.postMessage({
         command: 'stream_chunk',
         requestId: this._activeRequestId,
-        text: '\n\n❌ **Bağlantı Hatası:** Backend sunucusuna ulaşılamıyor. Lütfen yerel sunucunuzun (localhost:5000) çalıştığından emin olun.',
+        text: '\n\n❌ **Bağlantı Hatası:** Backend sunucusuna ulaşılamıyor. Lütfen yerel sunucunuzun (localhost:5001) çalıştığından ve `codeAlchemist.endpoint` ayarının doğru olduğundan emin olun.',
       });
       this._sendStateEvent('REQUEST_FAILED', 'Sunucu çevrimdışı.');
       return;
@@ -1047,7 +1047,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     const abortCtrl = this._activeAbortController;
     
     const cfg = vscode.workspace.getConfiguration('codeAlchemist');
-    const endpoint = (cfg.get<string>('endpoint') || 'http://localhost:5000').trim();
+    const endpoint = (cfg.get<string>('endpoint') || 'http://localhost:5001').trim();
     const apiKey = await this._readApiKey(); // Use await for reliable key access
 
     console.log(`[STOP] Manually stopping request: ${rid}`);

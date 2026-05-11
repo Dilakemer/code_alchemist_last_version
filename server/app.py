@@ -50,6 +50,7 @@ from utils.language_detector import LanguageDetector
 from utils.model_router import ModelRouter
 from utils.standardizer import CodeStandardizer
 from utils.github_parser import GitHubParser
+from utils.concurrency import env_float, provider_slot
 from utils.timeout_utils import to_gemini_timeout
 
 # Global registry for cancelled requests
@@ -258,6 +259,8 @@ class _GeminiCompatModel:
         # request_options is accepted for backward compatibility with old SDK call sites.
         # It is assumed to be in seconds and is converted to milliseconds with a 10s floor.
         timeout_sec = (request_options or {}).get('timeout') if isinstance(request_options, dict) else None
+        if timeout_sec is None:
+            timeout_sec = env_float("GEMINI_TIMEOUT_SEC", 60.0, minimum=10.0, maximum=300.0)
         gemini_timeout = to_gemini_timeout(timeout_sec)
         normalized_contents = self._normalize_contents(contents)
         
@@ -375,7 +378,8 @@ class _GeminiCompat:
             self._client = None
             return
         # to_gemini_timeout ensures 10s floor and millisecond conversion
-        self._client = google_genai.Client(api_key=api_key, http_options={'timeout': to_gemini_timeout(300)})
+        timeout_sec = env_float("GEMINI_CLIENT_TIMEOUT_SEC", 60.0, minimum=10.0, maximum=300.0)
+        self._client = google_genai.Client(api_key=api_key, http_options={'timeout': to_gemini_timeout(timeout_sec)})
 
     def GenerativeModel(self, model_name):
         if not self._client:
@@ -1867,17 +1871,17 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
             if not user_contents:
                 user_contents = [question or "Hello"]
 
-            response_iter = model.generate_content(
-                user_contents, 
-                stream=True, 
-                question=question,
-                system_instruction=system_instruction
-            )
+            with provider_slot("gemini"):
+                response_iter = model.generate_content(
+                    user_contents,
+                    stream=True,
+                    question=question,
+                    system_instruction=system_instruction
+                )
 
-            
-            for chunk in response_iter:
-                if chunk.text:
-                    yield chunk.text
+                for chunk in response_iter:
+                    if chunk.text:
+                        yield chunk.text
             
             model_success = True
             break # Başarılı olduysa döngüden çık
@@ -2041,14 +2045,15 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
         messages.append({"role": "user", "content": user_message})
 
     try:
-        with claude_client.messages.stream(
-            model=target_model,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=messages
-        ) as stream:
-            for text in stream.text_stream:
-                yield text
+        with provider_slot("anthropic"):
+            with claude_client.messages.stream(
+                model=target_model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=messages
+            ) as stream:
+                for text in stream.text_stream:
+                    yield text
 
     except Exception as exc:
         yield f"\n\n*> [System]: Claude Error ({target_model}): {exc}. Falling back to Gemini...*\n\n"
@@ -2201,16 +2206,17 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
         messages.append({"role": "user", "content": user_message})
 
     try:
-        stream = openai_client.chat.completions.create(
-            model=target_model, 
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2000,
-            stream=True
-        )
-        for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        with provider_slot("openai"):
+            stream = openai_client.chat.completions.create(
+                model=target_model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2000,
+                stream=True
+            )
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
     except Exception as e:
         print("OPENAI ERROR:", repr(e))
@@ -10387,15 +10393,16 @@ def external_ask():
                 system_instruction=sys_prompt or None,
                 temperature=0.2,
                 max_output_tokens=2048,
-                http_options=_gt.HttpOptions(timeout=to_gemini_timeout(120)),
+                http_options=_gt.HttpOptions(timeout=to_gemini_timeout(env_float("GEMINI_TIMEOUT_SEC", 60.0, minimum=10.0, maximum=300.0))),
             )
             try:
-                for item in gc.models.generate_content_stream(
-                    model=provider_model, contents=_contents, config=_cfg
-                ):
-                    t = getattr(item, 'text', None) or ''
-                    if t:
-                        yield t
+                with provider_slot("gemini"):
+                    for item in gc.models.generate_content_stream(
+                        model=provider_model, contents=_contents, config=_cfg
+                    ):
+                        t = getattr(item, 'text', None) or ''
+                        if t:
+                            yield t
             except Exception as exc:
                 yield f'\n[Gemini error: {exc}]'
 

@@ -1,6 +1,7 @@
-# Environment variables (ASLA commit etmeyin!)
+# Environment
 .env
-*.env.local
+.env.local
+.env.*.local
 
 # Python
 __pycache__/
@@ -8,57 +9,80 @@ __pycache__/
 *$py.class
 *.so
 .Python
-.venv-win/
-venv/
 env/
+venv/
 ENV/
-.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Database
-*.db
+# Testing
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Flask
 instance/
+.webassets-cache
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+
+# Client build
+client/dist/
+client/node_modules/
+server/static/dist/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.DS_Store
 
-# Uploads
-uploads/
+# Database
+*.db
+*.sqlite
+*.sqlite3
+migrations/versions/
 
 # Logs
 *.log
+logs/
 
-# Node modules (client)
-node_modules/
+# OS
+.DS_Store
+Thumbs.db
 
-# User exclusions
-README.md
-README*
-test_*.py
-verify_*.py
-tests/
-*.test.*
-**/tests/**
-**/test_**
-**/verify_*
-fix_*.py
-server/fix_*.py
-**/check_models.py
-**/list_models.py
-**/inspect_*.py
-migrate_*.py
-**/migrate_*.py
-decode_qr.py
-share_app.py
-qr_output.txt
-lines.txt
+# Dependencies (optional - uncomment for cleaner repo)
+# venv/
+# node_modules/
 
-# Generated Assets
-server/static/generated/
-# server/static/assets/
-# test_graph.py
-manual_test_routing.py
-
-resend
+# Render/Deployment
+.render/
+.env.render

@@ -2,14 +2,14 @@
   "runs": [],
   "averages": {
     "gemini_api_call": {
-      "total_time": 195.08357252499925,
-      "count": 24,
-      "avg": 8.128482188541636
+      "total_time": 212.5405004250272,
+      "count": 28,
+      "avg": 7.590732158036686
     },
     "tool_batch_execution": {
-      "total_time": 0.0009097250001559587,
-      "count": 9,
-      "avg": 0.0001010805555728843
+      "total_time": 0.0009779249955954583,
+      "count": 11,
+      "avg": 8.890227232685984e-05
     }
   }
 }

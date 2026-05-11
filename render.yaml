@@ -1,0 +1,68 @@
+services:
+  - type: web
+    name: code-alchemist-backend
+    runtime: python
+    pythonVersion: 3.11
+    
+    # Build komutları
+    buildCommand: |
+      cd server && \
+      pip install --upgrade pip && \
+      pip install -r requirements.txt && \
+      cd ../client && \
+      npm install && \
+      npm run build && \
+      cd ../server && \
+      python -c "import os; os.makedirs('static', exist_ok=True)" && \
+      cp -r ../client/dist/* static/ 2>/dev/null || true
+    
+    # Start komutları
+    startCommand: |
+      cd server && \
+      uvicorn backend.app_factory:create_app \
+        --factory \
+        --host 0.0.0.0 \
+        --port $PORT \
+        --workers ${WEB_CONCURRENCY:-4} \
+        --loop asyncio \
+        --timeout-keep-alive 90 \
+        --timeout-notify 90
+    
+    # Environment variables (Render dashboard'da ayarla)
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: code-alchemist-db
+          property: connectionString
+      # Bunları Render dashboard'da secret olarak ekle:
+      # - GEMINI_API_KEY
+      # - OPENAI_API_KEY
+      # - ANTHROPIC_API_KEY
+      # - JWT_SECRET_KEY
+      # - STRIPE_API_KEY
+      # - RESEND_API_KEY
+    
+    # Health check
+    healthCheckPath: /health
+    healthCheckInterval: 30
+    
+    # Disk
+    disk:
+      name: code-alchemist-disk
+      mountPath: /var/data
+      sizeGB: 1
+    
+    # Scaling
+    numInstances: 1
+    plan: standard
+
+databases:
+  - name: code-alchemist-db
+    ipAllowList: []
+    primaryRegion: singapore  # Veya istediğin region
+    plan: free
+    postgresVersion: 15
