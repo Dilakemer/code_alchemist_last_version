@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
   Dimensions,
   Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,22 +16,28 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, onC
   if (!isOpen) return null;
 
   const menuItems = [
-    { id: 'chat', label: 'AI Chat', icon: '💬' },
-    { id: 'compare', label: 'Model Alchemy', icon: '⚗️' },
-    { id: 'snippets', label: 'Code Snippets', icon: '📁' },
-    { id: 'stats', label: 'My Rank & Stats', icon: '🏆' },
-    { id: 'feed', label: 'Following Feed', icon: '👥' },
-    { id: 'community', label: 'Community Feed', icon: '🌍' },
-    { id: 'weekly', label: 'Weekly Summary', icon: '📊' },
-    { id: 'cost', label: 'Cost Dashboard', icon: '📈' },
-    { id: 'profile', label: 'My Profile', icon: '👤' },
+    { id: 'chat', label: 'AI Chat', icon: 'C' },
+    { id: 'compare', label: 'Model Alchemy', icon: 'M' },
+    { id: 'snippets', label: 'Code Snippets', icon: 'S' },
+    { id: 'stats', label: 'My Rank & Stats', icon: 'R' },
+    { id: 'feed', label: 'Following Feed', icon: 'F' },
+    { id: 'community', label: 'Community Feed', icon: 'N' },
+    { id: 'weekly', label: 'Weekly Summary', icon: 'W' },
+    { id: 'cost', label: 'Cost Dashboard', icon: '$' },
+    { id: 'tokens', label: 'Token Wallet', icon: 'T' },
+    { id: 'apiKeys', label: 'External API Keys', icon: 'K' },
+    { id: 'profile', label: 'My Profile', icon: 'P' },
   ];
+
+  const visibleMenuItems = user?.is_admin
+    ? [...menuItems, { id: 'admin', label: 'Admin Panel', icon: 'A' }]
+    : menuItems;
 
   return (
     <View style={styles.overlay}>
       <SafeAreaView style={styles.drawer} edges={['left', 'top', 'bottom']}>
         <View style={styles.header}>
-          <Image 
+          <Image
             source={require('../../assets/logo.png')}
             style={styles.logo}
             resizeMode="contain"
@@ -39,7 +45,7 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, onC
         </View>
 
         <ScrollView style={styles.menuList}>
-          {menuItems.map((item) => (
+          {visibleMenuItems.map((item) => (
             <TouchableOpacity
               key={item.id}
               style={[styles.menuItem, activeView === item.id ? styles.menuItemActive : null]}
@@ -48,7 +54,9 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, onC
                 onClose();
               }}
             >
-              <Text style={styles.menuIcon}>{item.icon}</Text>
+              <View style={[styles.menuIconBadge, activeView === item.id ? styles.menuIconBadgeActive : null]}>
+                <Text style={[styles.menuIcon, activeView === item.id ? styles.menuIconActive : null]}>{item.icon}</Text>
+              </View>
               <Text style={[styles.menuLabel, activeView === item.id ? styles.menuLabelActive : null]}>
                 {item.label}
               </Text>
@@ -57,21 +65,21 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, onC
 
           <View style={styles.divider} />
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.collabButton}
             onPress={() => {
               onCollabPress();
               onClose();
             }}
           >
-            <Text style={styles.collabIcon}>🤝</Text>
+            <Text style={styles.collabIcon}>+</Text>
             <View>
               <Text style={styles.collabTitle}>Collaborate</Text>
               <Text style={styles.collabSub}>Share Session</Text>
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.communityButton}
             onPress={() => {
               onSharePress();
@@ -85,14 +93,26 @@ export default function Sidebar({ isOpen, onClose, onNavigate, onSharePress, onC
 
         <View style={styles.footer}>
           <View style={styles.tokenCard}>
-            <Text style={styles.tokenTitle}>Balance: {user?.tokens || 0} Tokens</Text>
+            <Text style={styles.tokenTitle}>Balance: {user?.is_admin ? 'Unlimited' : user?.tokens || 0} Tokens</Text>
             <Text style={styles.tokenSub}>Level {user?.level || 1} Alchemist</Text>
             <View style={styles.tokenActions}>
-              <TouchableOpacity style={styles.tokenBtn}>
-                <Text style={styles.tokenBtnText}>Store</Text>
+              <TouchableOpacity
+                style={styles.tokenBtn}
+                onPress={() => {
+                  onNavigate('tokens');
+                  onClose();
+                }}
+              >
+                <Text style={styles.tokenBtnText}>Wallet</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.tokenBtn, styles.proBtn]}>
-                <Text style={styles.tokenBtnText}>Upgrade</Text>
+              <TouchableOpacity
+                style={[styles.tokenBtn, styles.proBtn]}
+                onPress={() => {
+                  onNavigate('apiKeys');
+                  onClose();
+                }}
+              >
+                <Text style={styles.tokenBtnText}>Keys</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -131,12 +151,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 40,
   },
-  workspaceTitle: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-  },
   menuList: {
     flex: 1,
     padding: 16,
@@ -144,23 +158,41 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 10,
     borderRadius: 12,
     marginBottom: 4,
   },
   menuItemActive: {
     backgroundColor: 'rgba(217, 70, 239, 0.1)',
   },
+  menuIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  menuIconBadgeActive: {
+    backgroundColor: '#d946ef',
+    borderColor: '#d946ef',
+  },
   menuIcon: {
-    fontSize: 20,
-    marginRight: 16,
-    width: 24,
-    textAlign: 'center',
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  menuIconActive: {
+    color: '#fff',
   },
   menuLabel: {
     color: '#94a3b8',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
+    flex: 1,
   },
   menuLabelActive: {
     color: '#d946ef',
@@ -180,7 +212,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(16, 185, 129, 0.1)',
     marginBottom: 12,
   },
-  collabIcon: { fontSize: 24, marginRight: 12 },
+  collabIcon: { color: '#10b981', fontSize: 24, marginRight: 12, fontWeight: '900' },
   collabTitle: { color: '#10b981', fontWeight: '700', fontSize: 15 },
   collabSub: { color: '#64748b', fontSize: 12 },
   communityButton: {

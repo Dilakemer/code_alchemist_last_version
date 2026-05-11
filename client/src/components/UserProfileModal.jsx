@@ -3,6 +3,7 @@ import FollowButton from './FollowButton';
 import GamificationPanel from './GamificationPanel';
 import ThemeStore from './ThemeStore';
 import { useAccountDeletion } from '../hooks/useAccountDeletion';
+import ApiKeyInput from './admin/ApiKeyInput';
 
 const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, onPostClick, onLogout, onUserUpdate, onShowAlert, onUserClick, onBack, canGoBack, token, onThemeChange, includePreviousModules, onIncludePreviousModulesChange, agentModeEnabled, onAgentModeChange }) => {
     const [profileData, setProfileData] = useState(null);
@@ -46,10 +47,16 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
     const [newKeyName, setNewKeyName] = useState('');
     const [newKeyToken, setNewKeyToken] = useState(null);
     const [isCreatingKey, setIsCreatingKey] = useState(false);
+    
+    // User-owned external keys
+    const [userExternalKeys, setUserExternalKeys] = useState({});
+    const [externalKeysLoading, setExternalKeysLoading] = useState(false);
 
-    const isOwnProfile = currentUser && currentUser.id === userId;
+    const currentUserId = currentUser?.id ?? currentUser?.user_id ?? currentUser?.userId ?? null;
+    const isOwnProfile = currentUserId != null && String(currentUserId) === String(userId);
 
     useEffect(() => {
+        console.log('[UserProfileModal] isOwnProfile:', isOwnProfile, 'currentUser:', currentUser, 'userId:', userId);
         const fetchProfile = async () => {
             try {
                 const res = await fetch(`${apiBase}/api/users/${userId}/profile`, { headers: authHeaders });
@@ -86,7 +93,53 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
             setNewKeyToken(null);
             setNewKeyName('');
         }
+
+        if (activeTab === 'external_keys' && isOwnProfile) {
+            fetchExternalKeys();
+        }
     }, [activeTab, apiBase, authHeaders, isOwnProfile]);
+
+    const fetchExternalKeys = async () => {
+        setExternalKeysLoading(true);
+        try {
+            console.log(`[UserProfileModal] Fetching keys from ${apiBase}/api/user/keys`);
+            const res = await fetch(`${apiBase}/api/user/keys`, { headers: authHeaders });
+            console.log(`[UserProfileModal] Keys response status: ${res.status}`);
+            if (res.ok) {
+                const data = await res.json();
+                console.log(`[UserProfileModal] Keys data:`, data);
+                const keysObj = {};
+                (data.keys || []).forEach(k => {
+                    keysObj[k.provider] = k.mask;
+                });
+                console.log(`[UserProfileModal] Keys object:`, keysObj);
+                setUserExternalKeys(keysObj);
+            } else {
+                const err = await res.text();
+                console.error(`[UserProfileModal] Failed to fetch keys: ${res.status}`, err);
+            }
+        } catch (err) {
+            console.error("[UserProfileModal] Error fetching external keys", err);
+        } finally {
+            setExternalKeysLoading(false);
+        }
+    };
+
+    const deleteExternalKey = async (provider) => {
+        if (!window.confirm(`"${provider.toUpperCase()}" anahtarını kaldırmak istediğinize emin misiniz?`)) return;
+        try {
+            const res = await fetch(`${apiBase}/api/user/keys/${provider}`, {
+                method: 'DELETE',
+                headers: authHeaders
+            });
+            if (res.ok) {
+                fetchExternalKeys();
+                if (onShowAlert) onShowAlert(`${provider.toUpperCase()} anahtarı kaldırıldı.`, 'success');
+            }
+        } catch (err) {
+            console.error("Error deleting external key", err);
+        }
+    };
 
     useEffect(() => {
         const fetchFollowList = async () => {
@@ -120,9 +173,9 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
 
     useEffect(() => {
         const fetchMyFollowing = async () => {
-            if (!currentUser?.id) return;
+            if (!currentUserId) return;
             try {
-                const res = await fetch(`${apiBase}/api/users/${currentUser.id}/following`, {
+                const res = await fetch(`${apiBase}/api/users/${currentUserId}/following`, {
                     headers: authHeaders
                 });
                 if (!res.ok) return;
@@ -135,7 +188,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
         };
 
         fetchMyFollowing();
-    }, [currentUser?.id, apiBase, authHeaders]);
+    }, [currentUserId, apiBase, authHeaders]);
 
     if (!userId) return null;
 
@@ -212,6 +265,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
 
     const tabs = [
         { id: 'overview', label: 'Genel Bakış' },
+        { id: 'external_keys', label: 'Harici Keyler', ownOnly: true },
         { id: 'achievements', label: 'Başarılar', ownOnly: true },
         { id: 'appearance', label: 'Görünüm', ownOnly: true },
         { id: 'ai_settings', label: 'AI Ayarları', ownOnly: true },
@@ -270,10 +324,10 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
             );
         }
 
-        if (tabId === 'ai_settings') {
+        if (tabId === 'external_keys') {
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${iconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
             );
         }
@@ -312,7 +366,9 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                     <div className="w-60 border-r border-white/5 bg-black/20 py-4 flex flex-col gap-1 shrink-0">
                         <div className="px-5 pb-3 text-[11px] font-black tracking-[0.16em] text-slate-500 uppercase">Profil</div>
                         {tabs.map(tab => {
-                            if (tab.ownOnly && !isOwnProfile) return null;
+                            const shouldRender = !(tab.ownOnly && !isOwnProfile);
+                            console.log(`[UserProfileModal] Tab ${tab.id}: ownOnly=${tab.ownOnly}, isOwnProfile=${isOwnProfile}, shouldRender=${shouldRender}`);
+                            if (!shouldRender) return null;
                             return (
                                 <button
                                     key={tab.id}
@@ -462,7 +518,7 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                                     ) : (
                                                         filteredUsersList.map((listedUser) => {
                                                             const listedAvatarUrl = resolveAvatarUrl(listedUser);
-                                                            const isSelf = listedUser.id === currentUser?.id;
+                                                            const isSelf = listedUser.id === currentUserId;
                                                             const isFollowingListedUser = myFollowingIds.has(listedUser.id);
                                                             return (
                                                                 <div
@@ -769,6 +825,61 @@ const UserProfileModal = ({ userId, onClose, apiBase, authHeaders, currentUser, 
                                                     </div>
                                                 ))
                                             )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'external_keys' && isOwnProfile && (
+                                    <div className="max-w-xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                        <div>
+                                            <h3 className="text-xl font-black text-white mb-2">Harici API Anahtarları</h3>
+                                            <p className="text-sm text-slate-400 mb-8">
+                                                Kendi OpenAI, Claude veya Gemini anahtarlarınızı kullanarak CodeAlchemist'in limitlerine takılmadan çalışabilirsiniz. Bu durumda platform tokenlarınız harcanmaz.
+                                            </p>
+
+                                            <div className="space-y-6">
+                                                {['openai', 'anthropic', 'gemini'].map(provider => (
+                                                    <div key={provider} className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                                                        <div className="flex items-center justify-between mb-4">
+                                                            <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">{provider}</h4>
+                                                            {userExternalKeys[provider] && (
+                                                                <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">AKTİF</span>
+                                                            )}
+                                                        </div>
+
+                                                        {userExternalKeys[provider] ? (
+                                                            <div className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/10">
+                                                                <div>
+                                                                    <p className="text-xs font-mono text-indigo-300">{userExternalKeys[provider]}</p>
+                                                                    <p className="text-[10px] text-slate-500 mt-1">Bu anahtar ile yapılan isteklerde token düşülmez.</p>
+                                                                </div>
+                                                                <button 
+                                                                    onClick={() => deleteExternalKey(provider)}
+                                                                    className="p-2 text-red-500/50 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <ApiKeyInput 
+                                                                provider={provider} 
+                                                                selfMode={true}
+                                                                authHeaders={authHeaders}
+                                                                onSave={() => fetchExternalKeys()}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="mt-10 p-5 rounded-2xl bg-amber-500/5 border border-amber-500/10">
+                                                <h5 className="text-xs font-black text-amber-300 uppercase tracking-widest mb-2">🔒 Güvenlik Notu</h5>
+                                                <p className="text-xs text-slate-400 leading-relaxed">
+                                                    Anahtarlarınız veritabanımızda AES-256 (Fernet) ile şifrelenmiş olarak saklanır. Maskelenmiş hali dışında (örn: sk-...abcd) anahtarınızın tamamı asla düz metin olarak görüntülenemez.
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                 )}

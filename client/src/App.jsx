@@ -29,6 +29,7 @@ import AdminQuotaPanel from './components/AdminQuotaPanel';
 import ThemeStore from './components/ThemeStore';
 import WeeklyReport from './components/WeeklyReport';
 import QuotaBar from './components/QuotaBar';
+import AdminDashboard from './pages/admin/AdminDashboard';
 import { requestNotificationPermission } from './utils/notifications';
 import { API_BASE } from './config';
 import { useCollabSocket } from './hooks/useCollabSocket';
@@ -79,6 +80,7 @@ function App() {
   const [usageInfo, setUsageInfo] = useState(null);
   const [tokenErrorNotice, setTokenErrorNotice] = useState(null);
   const [legalRoute, setLegalRoute] = useState(null);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
 
   // Community State
   const [activeCommunityPost, setActiveCommunityPost] = useState(null);
@@ -2338,6 +2340,7 @@ function App() {
               <TokenWallet
                 balance={user.tokens ?? 0}
                 grant={100}
+                isUnlimited={!!user.is_admin}
                 onClick={() => {
                     setShowTokenDashboard(true);
                   refreshUserInfo();
@@ -2346,8 +2349,8 @@ function App() {
             )}
             {user?.is_admin && (
               <button
-                onClick={() => setShowAdminPanel(true)}
-                title="Admin Paneli"
+                onClick={() => setShowAdminDashboard(true)}
+                title="Admin Dashboard"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-bold hover:bg-rose-500/25 transition-all active:scale-95"
               >
                 🛡️ Admin
@@ -3143,6 +3146,20 @@ function App() {
         </div>
       )}
 
+      {showAdminDashboard && user?.is_admin && (
+        <div className="fixed inset-0 z-[120] bg-black overflow-y-auto">
+          <button 
+            onClick={() => setShowAdminDashboard(false)}
+            className="fixed top-6 right-6 z-[130] p-2 bg-white/5 hover:bg-white/10 rounded-full text-white transition-all border border-white/10 backdrop-blur-md"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <AdminDashboard authHeaders={authHeaders} onViewProfile={handleProfileOpen} />
+        </div>
+      )}
+
       {/* Weekly Report Modal */}
       {showWeeklyReport && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
@@ -3514,6 +3531,21 @@ function App() {
         </div>
       )}
 
+
+      {/* Admin Dashboard Overlay */}
+      {showAdminDashboard && user?.is_admin && (
+        <div className="fixed inset-0 z-[100] bg-black overflow-y-auto">
+          <div className="absolute top-6 right-6 z-[110]">
+            <button 
+              onClick={() => setShowAdminDashboard(false)}
+              className="p-3 bg-white/10 hover:bg-white/20 rounded-full transition-all text-white border border-white/10"
+            >
+              ✕
+            </button>
+          </div>
+          <AdminDashboard authHeaders={authHeaders} onViewProfile={handleProfileOpen} />
+        </div>
+      )}
 
       {/* Gamification Toasts */}
       <div className="fixed top-20 right-6 z-50 flex flex-col gap-3 pointer-events-none">

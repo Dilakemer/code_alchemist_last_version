@@ -44,6 +44,7 @@ from .sse import (
 from ..prompt_optimizer import optimize_prompt
 from .limits import ContextHealthAnalyzer
 from utils.concurrency import env_float, env_int
+from ..adapters.resolver import ProviderResolver
 
 
 class AgentRuntime:
@@ -117,6 +118,14 @@ class AgentRuntime:
         ctx = await self._build_context(request, run_id=run_id)
 
         provider = ctx.provider
+        user_id = request.get("user_id")
+        
+        # ── Step 0.5: Resolve User Key ────────────────────────────────────
+        override_key = None
+        if user_id:
+            override_key = ProviderResolver.get_user_key(user_id, provider)
+            if override_key:
+                print(f"[AgentRuntime] Using user-owned API key for provider: {provider}")
         model = ctx.model
         tool_names = [t.name for t in self.registry.list_tools()]
 
@@ -133,7 +142,7 @@ class AgentRuntime:
         )
 
         try:
-            adapter = self._dispatcher.get(provider)
+            adapter = self._dispatcher.get(provider, override_key=override_key)
         except Exception as exc:
             yield error_event(str(exc), code="ADAPTER_ERROR", seq=self._next_seq())
             return
@@ -217,9 +226,15 @@ class AgentRuntime:
             return AgentResult(text="", error=str(e), finish_reason="error")
 
         ctx = await self._build_context(request, run_id=run_id)
+        provider = ctx.provider
+        user_id = request.get("user_id")
+
+        override_key = None
+        if user_id:
+            override_key = ProviderResolver.get_user_key(user_id, provider)
 
         try:
-            adapter = self._dispatcher.get(ctx.provider)
+            adapter = self._dispatcher.get(provider, override_key=override_key)
         except Exception as exc:
             return AgentResult(text="", error=str(exc), finish_reason="error")
 

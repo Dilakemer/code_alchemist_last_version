@@ -102,6 +102,72 @@ export const getUsage = (token) =>
 export const getTokenUsage = (token) =>
   request('/api/tokens/usage', { token });
 
+export const getExternalApiKeys = (token) =>
+  request('/api/user/keys', { token });
+
+export const saveExternalApiKey = (token, { provider, api_key }) =>
+  request('/api/user/keys', {
+    method: 'POST',
+    token,
+    body: { provider, api_key },
+  });
+
+export const deleteExternalApiKey = (token, provider) =>
+  request(`/api/user/keys/${provider}`, { method: 'DELETE', token });
+
+export const validateExternalApiKey = (token, { provider, api_key }) =>
+  request('/api/user/keys/validate', {
+    method: 'POST',
+    token,
+    body: { provider, api_key },
+  });
+
+// Admin
+export const getAdminStats = (token) =>
+  request('/api/admin/stats', { token });
+
+export const getAdminUsers = (token, { page = 1, perPage = 20, search = '' } = {}) =>
+  request(`/api/admin/users?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}`, { token });
+
+export const getAdminUserQuota = (token, userId) =>
+  request(`/api/admin/users/${userId}/quota`, { token });
+
+export const updateAdminUserQuota = (token, userId, body) =>
+  request(`/api/admin/users/${userId}/quota`, { method: 'PUT', token, body });
+
+export const grantAdminUserTokens = (token, userId, { amount, description = '' }) =>
+  request(`/api/admin/users/${userId}/grant-tokens`, {
+    method: 'POST',
+    token,
+    body: { amount, description },
+  });
+
+export const resetAdminUserQuota = (token, userId) =>
+  request(`/api/admin/users/${userId}/reset-quota`, {
+    method: 'POST',
+    token,
+    body: { reset_daily: true, reset_weekly: true },
+  });
+
+export const getAdminDefaults = (token) =>
+  request('/api/admin/quota/defaults', { token });
+
+export const updateAdminDefaults = (token, body) =>
+  request('/api/admin/quota/defaults', { method: 'PUT', token, body });
+
+export const getAdminUserKeys = (token, userId) =>
+  request(`/api/admin/users/${userId}/keys`, { token });
+
+export const saveAdminUserKey = (token, userId, { provider, api_key }) =>
+  request(`/api/admin/users/${userId}/keys`, {
+    method: 'POST',
+    token,
+    body: { provider, api_key },
+  });
+
+export const deleteAdminUserKey = (token, userId, provider) =>
+  request(`/api/admin/users/${userId}/keys/${provider}`, { method: 'DELETE', token });
+
 // Community & Collab
 export const getCommunityFeed = () =>
   request('/api/community/feed');

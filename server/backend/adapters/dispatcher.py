@@ -48,18 +48,24 @@ class AdapterDispatcher:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def get(self, provider: str) -> BaseAdapter:
+    def get(self, provider: str, override_key: Optional[str] = None) -> BaseAdapter:
         """
         Return the adapter for *provider*.
 
         Resolves aliases (e.g. 'claude' → 'anthropic') and caches
-        the instance.
+        the instance. If override_key is provided, it bypasses the cache
+        and uses the provided key directly.
 
         Raises:
             ValueError – if the provider is unknown.
             RuntimeError – if the required API key is missing.
         """
         canonical = self._resolve(provider)
+        
+        if override_key:
+            # Bypass cache for user-owned keys for security/privacy
+            return self._build(canonical, key=override_key)
+
         if canonical not in self._cache:
             self._cache[canonical] = self._build(canonical)
         return self._cache[canonical]
@@ -97,8 +103,8 @@ class AdapterDispatcher:
             )
         return canonical
 
-    def _build(self, canonical: str) -> BaseAdapter:
-        key = self._keys.get(canonical, "")
+    def _build(self, canonical: str, key: Optional[str] = None) -> BaseAdapter:
+        key = key or self._keys.get(canonical, "")
         if not key:
             raise RuntimeError(
                 f"No API key configured for provider '{canonical}'. "

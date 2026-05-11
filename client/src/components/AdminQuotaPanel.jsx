@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import ApiKeyInput from './admin/ApiKeyInput';
 
 const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
   const [tab, setTab] = useState('users'); // 'users' | 'defaults' | 'stats'
@@ -17,6 +18,7 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
   const [grantAmount, setGrantAmount] = useState('');
   const [grantDesc, setGrantDesc] = useState('');
   const [saving, setSaving] = useState(false);
+  const [userKeys, setUserKeys] = useState({});
 
   // Global defaults
   const [defaults, setDefaults] = useState({ daily_limit: 200, weekly_limit: 1000 });
@@ -25,6 +27,12 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
   const flash = (msg, isErr = false) => {
     if (isErr) setError(msg); else setSuccessMsg(msg);
     setTimeout(() => { setError(''); setSuccessMsg(''); }, 4000);
+  };
+
+  const formatTokenValue = (value, unlimited = false) => {
+    if (unlimited) return '∞';
+    const numericValue = Number(value) || 0;
+    return numericValue.toLocaleString();
   };
 
   const fetchStats = useCallback(async () => {
@@ -76,6 +84,37 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
     });
     setGrantAmount('');
     setGrantDesc('');
+    fetchUserKeys(u.id);
+  };
+
+  const fetchUserKeys = async (userId) => {
+    try {
+      const response = await fetch(`${apiBase}/api/admin/users/${userId}/keys`, { headers: authHeaders });
+      const d = await response.json();
+      const keysObj = {};
+      (d.keys || []).forEach(k => {
+        keysObj[k.provider] = k.mask;
+      });
+      setUserKeys(prev => ({ ...prev, [userId]: keysObj }));
+    } catch (err) {
+      console.error("Error fetching user keys:", err);
+    }
+  };
+
+  const deleteExternalKey = async (userId, provider) => {
+    if (!window.confirm(`Are you sure you want to delete the ${provider} key?`)) return;
+    try {
+      const r = await fetch(`${apiBase}/api/admin/users/${userId}/keys/${provider}`, {
+        method: 'DELETE', headers: authHeaders
+      });
+      if (r.ok) {
+        flash(`${provider} key deleted ✓`);
+        fetchUserKeys(userId);
+        fetchUsers();
+      }
+    } catch (err) {
+      flash("Error deleting key: " + err.message, true);
+    }
   };
 
   const saveQuota = async () => {
@@ -195,6 +234,7 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-emerald-400 font-bold">⬡ {u.token_balance?.balance ?? 0}</span>
                         {u.is_admin && <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 font-bold">ADMIN</span>}
+                        {u.is_unlimited && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">UNLIMITED</span>}
                       </div>
                     </button>
                   ))}
@@ -221,8 +261,15 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
                     <div className="p-5 rounded-2xl border border-white/10 bg-white/5">
                       <p className="text-lg font-bold text-white">{selectedUser.display_name}</p>
                       <p className="text-sm text-slate-400">{selectedUser.email} · ID: {selectedUser.user_id}</p>
+                      {selectedUser.unlimited && (
+                        <p className="mt-2 text-xs text-emerald-300 font-semibold uppercase tracking-[0.25em]">Sınırsız token aktif</p>
+                      )}
                       <div className="mt-3 grid grid-cols-3 gap-3">
-                        {[['Bakiye', selectedUser.balance, 'emerald'],['Harcanan', selectedUser.total_spent,'slate'],['Günlük Kalan', Math.max(0, selectedUser.daily_limit - selectedUser.daily_used),'indigo']].map(([label,val,color])=>(
+                        {[
+                          ['Bakiye', formatTokenValue(selectedUser.balance, selectedUser.unlimited), 'emerald'],
+                          ['Harcanan', selectedUser.total_spent, 'slate'],
+                          ['Günlük Kalan', Math.max(0, selectedUser.daily_limit - selectedUser.daily_used), 'indigo']
+                        ].map(([label,val,color])=>(
                           <div key={label} className="p-3 rounded-xl bg-white/5 border border-white/5 text-center">
                             <p className={`text-xl font-black text-${color}-400`}>{val}</p>
                             <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wider">{label}</p>
@@ -279,9 +326,57 @@ const AdminQuotaPanel = ({ isOpen, onClose, apiBase, authHeaders }) => {
                       </div>
                     </div>
 
+                    {/* External Keys Section */}
+                    <div className="p-5 rounded-2xl border border-white/10 bg-white/5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-bold text-white text-sm uppercase tracking-wider flex items-center gap-2">
+                          <span>🔑 Harici API Anahtarları</span>
+                        </h3>
+                        <span className="text-[10px] text-slate-500 italic">Şifreli Saklanır</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4">
+                        {['openai', 'anthropic', 'gemini'].map(provider => (
+                          <div key={provider}>
+                            {userKeys[selectedUser.user_id]?.[provider] ? (
+                              <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                  <div>
+                                    <p className="text-[10px] font-bold uppercase text-slate-500">{provider}</p>
+                                    <p className="text-xs font-mono text-white">{userKeys[selectedUser.user_id][provider]}</p>
+                                  </div>
+                                </div>
+                                <button 
+                                  onClick={() => deleteExternalKey(selectedUser.user_id, provider)}
+                                  className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            ) : (
+                              <ApiKeyInput 
+                                provider={provider} 
+                                userId={selectedUser.user_id}
+                                authHeaders={authHeaders}
+                                onSave={() => {
+                                  fetchUserKeys(selectedUser.user_id);
+                                  fetchUsers();
+                                }}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
                     {/* Grant tokens */}
                     <div className="p-5 rounded-2xl border border-white/10 bg-white/5 space-y-4">
                       <h3 className="font-bold text-white text-sm uppercase tracking-wider">🎁 Token Yükle</h3>
+                      {selectedUser.unlimited && (
+                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+                          Bu hesap sınırsız token modunda. Ek token yüklemesine gerek yok; harcama kontrolü admin bypass ile çalışır.
+                        </div>
+                      )}
                       <div className="flex gap-3">
                         <input type="number" min="1" value={grantAmount} onChange={e => setGrantAmount(e.target.value)}
                           placeholder="Miktar"

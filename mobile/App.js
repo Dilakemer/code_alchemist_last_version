@@ -49,6 +49,9 @@ import WeeklySummary from './src/components/WeeklySummary';
 import CreatePostModal from './src/components/CreatePostModal';
 import ProfileView from './src/components/ProfileView';
 import LoginScreen from './src/components/LoginScreen';
+import ApiKeysView from './src/components/ApiKeysView';
+import TokenWalletView from './src/components/TokenWalletView';
+import AdminPanelView from './src/components/AdminPanelView';
 
 import { useCollabSocket } from './src/hooks/useCollabSocket';
 import { GOOGLE_WEB_CLIENT_ID, GOOGLE_EXPO_CLIENT_ID, IOS_CLIENT_ID, ANDROID_CLIENT_ID } from './src/config';
@@ -71,7 +74,7 @@ export default function App() {
   const [answer, setAnswer] = useState('');
   
   // Navigation State
-  const [activeView, setActiveView] = useState('chat'); // 'chat', 'compare', 'snippets', 'stats', 'cost', 'feed', 'community', 'weekly', 'profile'
+  const [activeView, setActiveView] = useState('chat');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);
   
@@ -558,6 +561,12 @@ export default function App() {
         return <StatsView token={token} user={user} />;
       case 'cost':
         return <BillingView token={token} />;
+      case 'tokens':
+        return <TokenWalletView token={token} user={user} />;
+      case 'apiKeys':
+        return <ApiKeysView token={token} onChanged={() => refreshUserInfo()} />;
+      case 'admin':
+        return user?.is_admin ? <AdminPanelView token={token} /> : null;
       case 'feed':
       case 'community':
         return (
@@ -594,6 +603,9 @@ export default function App() {
       case 'snippets': return 'Code Snippets';
       case 'stats': return 'My Rank & Stats';
       case 'cost': return 'Cost Dashboard';
+      case 'tokens': return 'Token Wallet';
+      case 'apiKeys': return 'External API Keys';
+      case 'admin': return 'Admin Panel';
       case 'feed': return 'Following Feed';
       case 'community': return 'Community Feed';
       case 'weekly': return 'Weekly Summary';

@@ -560,3 +560,41 @@ class LegalConsentLog(db.Model):
     def __repr__(self):
         return f'<LegalConsentLog user_id={self.user_id} type={self.consent_type} accepted={self.is_accepted}>'
 
+
+class UserExternalApiKey(db.Model):
+    """Kullanıcının kendi (OpenAI, Anthropic, Gemini) API keylerini şifreli saklar."""
+    __tablename__ = 'user_external_api_key'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    provider = db.Column(db.String(50), nullable=False, index=True) # 'openai', 'anthropic', 'gemini'
+    encrypted_key = db.Column(db.Text, nullable=False) # Fernet encrypted
+    key_mask = db.Column(db.String(20), nullable=False) # 'sk-...abcd'
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
+
+    user = db.relationship('User', backref=db.backref('external_api_keys', lazy='dynamic', cascade="all, delete-orphan"))
+
+    def __repr__(self):
+        return f'<UserExternalApiKey user_id={self.user_id} provider={self.provider} mask={self.key_mask}>'
+
+
+class SecurityAuditLog(db.Model):
+    """Güvenlik açısından kritik işlemlerin kaydı."""
+    __tablename__ = 'security_audit_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True) # İşlemi yapan
+    action = db.Column(db.String(100), nullable=False, index=True) # 'add_key', 'delete_key', 'admin_access'
+    target_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True) # İşlem yapılan kullanıcı
+    metadata_json = db.Column(db.Text, nullable=True) # Ek detaylar
+    ip_address = db.Column(db.String(45), nullable=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    target_user = db.relationship('User', foreign_keys=[target_user_id])
+
+    def __repr__(self):
+        return f'<SecurityAuditLog user_id={self.user_id} action={self.action} target={self.target_user_id}>'
+

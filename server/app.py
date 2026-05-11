@@ -1,6 +1,11 @@
 import os, sys
 import hashlib
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 # Keep Socket.IO on threading mode to avoid deprecated/fragile eventlet runtime on Gunicorn.
 ASYNC_MODE = 'threading'
 
@@ -38,10 +43,13 @@ from werkzeug.exceptions import HTTPException
 from flask_jwt_extended import (
     JWTManager, create_access_token, get_jwt_identity, jwt_required, verify_jwt_in_request
 )
+
 from passlib.hash import pbkdf2_sha256
 from google import genai as google_genai
 from google.genai import types as google_genai_types
-from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey, VSCodeLoginState, VSCodeOTP, PostLike, AnswerLike, NotificationRead, NotificationHidden, Feedback, FeedbackDetail, UserTheme
+from models import db, History, Answer, User, Conversation, ConversationSummary, MemoryItem, MemoryNode, MemoryEdge, Snippet, PasswordResetToken, UserFollow, Notification, Favorite, Project, ProjectFile, UserBadge, SharedSession, XPEvent, CollaborationReview, CollaborationComment, TokenBalance, TokenTransaction, TokenPackage, TokenPurchase, ApiKey, VSCodeLoginState, VSCodeOTP, PostLike, AnswerLike, NotificationRead, NotificationHidden, Feedback, FeedbackDetail, UserTheme, UserExternalApiKey, SecurityAuditLog, LegalConsentLog
+from utils.crypto_utils import encrypt_key, decrypt_key, mask_key
+from backend.adapters.resolver import ProviderResolver
 from anthropic import Anthropic, APIError
 from openai import OpenAI
 import stripe
@@ -1259,6 +1267,20 @@ with app.app_context():
             print(f"Warning: Could not seed/align token packages: {seed_err}")
             db.session.rollback()
 
+        # --- ADMIN SEEDING: Grant dilo@gmail.com admin rights ---
+        try:
+            admin_user = User.query.filter_by(email="dilo@gmail.com").first()
+            if admin_user:
+                if not admin_user.is_admin:
+                    admin_user.is_admin = True
+                    db.session.commit()
+                    print("Admin rights granted to dilo@gmail.com.")
+            else:
+                print("Warning: Admin user dilo@gmail.com not found. Create it via signup first.")
+        except Exception as admin_err:
+            print(f"Warning: Could not grant admin rights: {admin_err}")
+            db.session.rollback()
+
     except Exception as e:
         print(f"Error initializing database: {e}")
 
@@ -1322,10 +1344,20 @@ def handle_exception(e):
             'details': e.description
         }), e.code
 
-    # Log unexpected errors with traceback.
-    print(f"🔥 GLOBAL ERROR: {str(e)}")
+    # Log unexpected errors with traceback using safe encoding so Windows stdout/stderr
+    # does not crash on non-ASCII source lines or messages.
     import traceback
-    traceback.print_exc()
+    error_text = traceback.format_exc()
+    try:
+        with open('error_log.txt', 'a', encoding='utf-8', errors='backslashreplace') as f:
+            f.write(f"\n--- ERROR at {datetime.datetime.now()} ---\n")
+            f.write(error_text)
+    except Exception:
+        pass
+    try:
+        sys.stderr.write((f"GLOBAL ERROR: {str(e)}\n" + error_text))
+    except Exception:
+        pass
     return jsonify({
         'error': 'An internal server error occurred.',
         'details': str(e)
@@ -4022,6 +4054,10 @@ def check_quota_available(wallet: TokenBalance, tokens_needed: int = 1) -> tuple
 
 def deduct_tokens_and_update_quota(wallet: TokenBalance, amount: int) -> None:
     """Token harca ve kota bilgilerini güncelle."""
+    # Admin bypass
+    if wallet.user and wallet.user.is_admin:
+        return
+
     reset_quota_if_needed(wallet)
     wallet.balance -= amount
     wallet.total_spent += amount
@@ -4207,12 +4243,39 @@ def _resolve_token_cost(model_name: str) -> int:
     return TOKEN_COSTS['default']
 
 
+def _has_active_external_api_key(user: User) -> bool:
+    """Kullanıcının aktif bir harici API anahtarı olup olmadığını döndürür."""
+    if not user:
+        return False
+    return UserExternalApiKey.query.filter_by(user_id=user.id, is_active=True).first() is not None
+
+
 def check_tokens(user: User, model_name: str = 'default') -> tuple[bool, int, int]:
     """Kullanıcının belirtilen model için yeterli token'ı var mı kontrol eder.
+    Aktif bir harici API anahtarı varsa her zaman True döner ve maliyet 0'dır.
     
     Returns:
         (yeterli_mi: bool, mevcut_bakiye: int, gerekli_token: int)
     """
+    if user and user.is_admin:
+        wallet = get_or_create_token_balance(user)
+        print(f"[TOKEN] Admin bypass for {user.email}. Cost: 0")
+        return True, wallet.balance, 0
+
+    if _has_active_external_api_key(user):
+        wallet = get_or_create_token_balance(user)
+        print(f"[TOKEN] External API key bypass for {user.email}. Cost: 0")
+        return True, wallet.balance, 0
+
+    # Harici anahtar kontrolü
+    provider, _ = _resolve_agent_provider_model(model_name)
+    if provider:
+        ext_key = UserExternalApiKey.query.filter_by(user_id=user.id, provider=provider, is_active=True).first()
+        if ext_key:
+            wallet = get_or_create_token_balance(user)
+            print(f"[TOKEN] External key bypass for {user.email} (Provider: {provider}). Cost: 0")
+            return True, wallet.balance, 0
+
     cost = _resolve_token_cost(model_name)
     wallet = get_or_create_token_balance(user)
     return wallet.balance >= cost, wallet.balance, cost
@@ -4220,10 +4283,30 @@ def check_tokens(user: User, model_name: str = 'default') -> tuple[bool, int, in
 
 def deduct_tokens(user: User, model_name: str = "default", description: str = None, reference_id: str = None) -> tuple[bool, int]:
     """Kullanıcının platform bakiyesinden token düşer ve işlemi loglar.
+    Aktif bir harici API anahtarı varsa düşüm yapmaz.
     
     Returns:
         (başarılı_mı: bool, yeni_bakiye: int)
     """
+    if user and user.is_admin:
+        wallet = get_or_create_token_balance(user)
+        print(f"[TOKEN] Admin bypass for {user.email}. Deduction skipped.")
+        return True, wallet.balance
+
+    if _has_active_external_api_key(user):
+        wallet = get_or_create_token_balance(user)
+        print(f"[TOKEN] External API key bypass for {user.email}. Deduction skipped.")
+        return True, wallet.balance
+
+    # Harici anahtar kontrolü
+    provider, _ = _resolve_agent_provider_model(model_name)
+    if provider:
+        ext_key = UserExternalApiKey.query.filter_by(user_id=user.id, provider=provider, is_active=True).first()
+        if ext_key:
+            wallet = get_or_create_token_balance(user)
+            print(f"[TOKEN] SKIPPING deduction for {user.email} (Provider: {provider}) due to external key.")
+            return True, wallet.balance
+
     cost = _resolve_token_cost(model_name)
     wallet = get_or_create_token_balance(user)
 
@@ -7692,6 +7775,314 @@ def get_user_profile(user_id):
     })
 
 
+# --- ADMIN PANEL ROUTES ---
+
+from functools import wraps
+
+def token_required(f):
+    @wraps(f)
+    @jwt_required()
+    def decorated_function(*args, **kwargs):
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Authentication required'}), 401
+        return f(current_user, *args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    @jwt_required()
+    def decorated_function(*args, **kwargs):
+        current_user = get_current_user()
+        if not current_user or not current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/api/admin/users/<int:target_user_id>', methods=['DELETE'])
+def admin_delete_user(target_user_id):
+    """Kullanıcıyı ve tüm ilişkili verilerini kalıcı olarak siler."""
+    import sys
+    admin_user, err = _require_admin()
+    if err: return err
+
+    user = db.session.get(User, target_user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    if user.id == admin_user.id:
+        return jsonify({"error": "You cannot delete yourself"}), 400
+
+    email = user.email
+    try:
+        # Audit / consent kayıtları User FK'sine bağlı; önce temizlenmeli veya FK ihlali olur.
+        # Instead of deleting audit logs (we want to keep them), nullify the user refs
+        # so the audit trail remains while avoiding FK constraint violations.
+        SecurityAuditLog.query.filter(SecurityAuditLog.user_id == user.id).update({
+            'user_id': None
+        }, synchronize_session=False)
+        SecurityAuditLog.query.filter(SecurityAuditLog.target_user_id == user.id).update({
+            'target_user_id': None
+        }, synchronize_session=False)
+        LegalConsentLog.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+
+        # 1. Genel tablolar
+        UserFollow.query.filter(db.or_(UserFollow.follower_id == user.id, UserFollow.following_id == user.id)).delete(synchronize_session=False)
+        Snippet.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        PasswordResetToken.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        ApiKey.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        VSCodeLoginState.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        VSCodeOTP.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        XPEvent.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        UserBadge.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        UserTheme.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        MemoryEdge.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        MemoryNode.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        MemoryItem.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        UserExternalApiKey.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+
+        # 2. Sohbetler
+        conversations = Conversation.query.filter_by(user_id=user.id).all()
+        conv_ids = [c.id for c in conversations]
+        history_ids = []
+        if conv_ids:
+            histories = History.query.filter(History.conversation_id.in_(conv_ids)).all()
+            history_ids = [h.id for h in histories]
+
+        if history_ids:
+            Notification.query.filter(Notification.related_post_id.in_(history_ids)).delete(synchronize_session=False)
+            Favorite.query.filter(Favorite.history_id.in_(history_ids)).delete(synchronize_session=False)
+            Feedback.query.filter(Feedback.history_id.in_(history_ids)).delete(synchronize_session=False)
+            FeedbackDetail.query.filter(FeedbackDetail.history_id.in_(history_ids)).delete(synchronize_session=False)
+            ConversationSummary.query.filter(ConversationSummary.last_history_id.in_(history_ids)).delete(synchronize_session=False)
+            PostLike.query.filter(PostLike.history_id.in_(history_ids)).delete(synchronize_session=False)
+            
+            answers = Answer.query.filter(Answer.history_id.in_(history_ids)).all()
+            ans_ids = [a.id for a in answers]
+            if ans_ids:
+                AnswerLike.query.filter(AnswerLike.answer_id.in_(ans_ids)).delete(synchronize_session=False)
+            Answer.query.filter(Answer.history_id.in_(history_ids)).delete(synchronize_session=False)
+
+        Notification.query.filter(db.or_(Notification.user_id == user.id, Notification.related_user_id == user.id)).delete(synchronize_session=False)
+        NotificationRead.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        NotificationHidden.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        Favorite.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        Feedback.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        FeedbackDetail.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        PostLike.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        AnswerLike.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        Answer.query.filter_by(author_id=user.id).delete(synchronize_session=False)
+
+        if conv_ids:
+            ConversationSummary.query.filter(ConversationSummary.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+        if history_ids:
+            History.query.filter(History.id.in_(history_ids)).delete(synchronize_session=False)
+
+        if conv_ids:
+            # SharedSession'lara bağlı yorum ve incelemeleri sil (Foreign Key hatasını önlemek için)
+            shared_sessions = SharedSession.query.filter(SharedSession.conversation_id.in_(conv_ids)).all()
+            session_ids = [ss.id for ss in shared_sessions]
+            if session_ids:
+                CollaborationComment.query.filter(CollaborationComment.session_id.in_(session_ids)).delete(synchronize_session=False)
+                CollaborationReview.query.filter(CollaborationReview.session_id.in_(session_ids)).delete(synchronize_session=False)
+            
+            SharedSession.query.filter(SharedSession.conversation_id.in_(conv_ids)).delete(synchronize_session=False)
+            Conversation.query.filter(Conversation.id.in_(conv_ids)).delete(synchronize_session=False)
+
+        # Kullanıcının sahip olduğu diğer paylaşımlar için de aynı temizliği yap
+        owned_shared_sessions = SharedSession.query.filter_by(owner_id=user.id).all()
+        owned_session_ids = [ss.id for ss in owned_shared_sessions]
+        if owned_session_ids:
+            CollaborationComment.query.filter(CollaborationComment.session_id.in_(owned_session_ids)).delete(synchronize_session=False)
+            CollaborationReview.query.filter(CollaborationReview.session_id.in_(owned_session_ids)).delete(synchronize_session=False)
+            SharedSession.query.filter(SharedSession.id.in_(owned_session_ids)).delete(synchronize_session=False)
+
+        CollaborationReview.query.filter_by(updated_by_user_id=user.id).delete(synchronize_session=False)
+        CollaborationComment.query.filter_by(author_user_id=user.id).delete(synchronize_session=False)
+        
+        projects = Project.query.filter_by(user_id=user.id).all()
+        for p in projects:
+            db.session.delete(p)
+            
+        TokenBalance.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        TokenTransaction.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        TokenPurchase.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+
+        if user.profile_image and os.path.exists(user.profile_image):
+            try: 
+                os.remove(user.profile_image)
+            except: 
+                pass
+
+        db.session.delete(user)
+        
+        # Log the action
+        log = SecurityAuditLog(
+            user_id=admin_user.id,
+            action=f"admin_deleted_user",
+            target_user_id=None,
+            ip_address=request.remote_addr,
+            metadata_json=json.dumps({
+                "deleted_user_id": target_user_id,
+                "deleted_email": email,
+            })
+        )
+        db.session.add(log)
+        db.session.commit()
+        print(f"[ADMIN] User {email} (ID: {target_user_id}) DELETED by {admin_user.email}")
+        return jsonify({"message": f"User {email} deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        sys.stderr.write(f'[ADMIN] Error deleting user {target_user_id}: {str(e)}\n')
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def admin_get_users():
+    """List all users with their token balances and external key counts."""
+    users = User.query.all()
+    results = []
+    for u in users:
+        balance = TokenBalance.query.filter_by(user_id=u.id).first()
+        key_count = UserExternalApiKey.query.filter_by(user_id=u.id, is_active=True).count()
+        results.append({
+            'id': u.id,
+            'email': u.email,
+            'display_name': u.display_name,
+            'is_admin': u.is_admin,
+            'is_unlimited': bool(u.is_admin),
+            'token_balance': balance.balance if balance else 0,
+            'external_key_count': key_count,
+            'created_at': u.created_at.isoformat() if u.created_at else None
+        })
+    return jsonify({'users': results})
+
+@app.route('/api/admin/users/<int:user_id>/keys', methods=['GET'])
+@admin_required
+def admin_get_user_keys(user_id):
+    """List masked external keys for a specific user."""
+    keys = UserExternalApiKey.query.filter_by(user_id=user_id, is_active=True).all()
+    return jsonify({
+        'keys': [
+            {
+                'provider': k.provider,
+                'mask': k.key_mask,
+                'created_at': k.created_at.isoformat() if k.created_at else None
+            } for k in keys
+        ]
+    })
+
+@app.route('/api/admin/keys/validate', methods=['POST'])
+@admin_required
+def admin_validate_key():
+    """Validate an API key before saving."""
+    data = request.get_json()
+    provider = data.get('provider')
+    api_key = data.get('api_key')
+    
+    if not provider or not api_key:
+        return jsonify({'error': 'Provider and api_key are required'}), 400
+        
+    is_valid, error_msg = ProviderResolver.validate_key(provider, api_key)
+    return jsonify({'valid': is_valid, 'error': error_msg})
+
+@app.route('/api/admin/users/<int:user_id>/keys', methods=['POST'])
+@admin_required
+def admin_upsert_user_key(user_id):
+    """Add or update an external API key for a user."""
+    data = request.get_json()
+    provider = data.get('provider', '').lower()
+    api_key = data.get('api_key')
+    
+    if provider not in ('openai', 'anthropic', 'gemini'):
+        return jsonify({'error': 'Invalid provider'}), 400
+    if not api_key:
+        return jsonify({'error': 'API key is required'}), 400
+        
+    # Validate key first
+    is_valid, error_msg = ProviderResolver.validate_key(provider, api_key)
+    if not is_valid:
+        return jsonify({'error': f'Invalid {provider} API key. Validation failed: {error_msg}'}), 400
+        
+    # Check for existing record
+    record = UserExternalApiKey.query.filter_by(user_id=user_id, provider=provider).first()
+    
+    encrypted = encrypt_key(api_key)
+    mask = mask_key(api_key)
+    
+    if record:
+        record.encrypted_key = encrypted
+        record.key_mask = mask
+        record.is_active = True
+        record.updated_at = _utcnow()
+        action = 'update_key'
+    else:
+        record = UserExternalApiKey(
+            user_id=user_id,
+            provider=provider,
+            encrypted_key=encrypted,
+            key_mask=mask,
+            is_active=True
+        )
+        db.session.add(record)
+        action = 'add_key'
+        
+    # Log the action
+    audit = SecurityAuditLog(
+        user_id=get_current_user().id,
+        action=action,
+        target_user_id=user_id,
+        metadata_json=json.dumps({'provider': provider}),
+        ip_address=request.remote_addr
+    )
+    db.session.add(audit)
+    
+    db.session.commit()
+    return jsonify({'message': f'{provider} key saved successfully', 'mask': mask})
+
+@app.route('/api/admin/users/<int:user_id>/keys/<provider>', methods=['DELETE'])
+@admin_required
+def admin_delete_user_key(user_id, provider):
+    """Deactivate an external API key for a user."""
+    record = UserExternalApiKey.query.filter_by(user_id=user_id, provider=provider.lower()).first()
+    if not record:
+        return jsonify({'error': 'Key not found'}), 404
+        
+    record.is_active = False
+    
+    # Log the action
+    audit = SecurityAuditLog(
+        user_id=get_current_user().id,
+        action='delete_key',
+        target_user_id=user_id,
+        metadata_json=json.dumps({'provider': provider}),
+        ip_address=request.remote_addr
+    )
+    db.session.add(audit)
+    
+    db.session.commit()
+    return jsonify({'message': f'{provider} key deleted successfully'})
+
+@app.route('/api/admin/audit-logs', methods=['GET'])
+@admin_required
+def admin_get_audit_logs():
+    """List security audit logs."""
+    logs = SecurityAuditLog.query.order_by(SecurityAuditLog.created_at.desc()).limit(100).all()
+    results = []
+    for l in logs:
+        meta = json.loads(l.metadata_json) if l.metadata_json else {}
+        results.append({
+            'id': l.id,
+            'user_email': l.user.email if l.user else 'System',
+            'action': l.action,
+            'target_email': (l.target_user.email if l.target_user else meta.get('deleted_email')),
+            'metadata': meta,
+            'ip_address': l.ip_address,
+            'created_at': l.created_at.isoformat() if l.created_at else None
+        })
+    return jsonify({'logs': results})
+
+
 @app.route('/api/feed/following', methods=['GET'])
 @jwt_required()
 def get_following_feed():
@@ -9311,6 +9702,7 @@ def get_quota_status_endpoint():
         
         quota_data = get_quota_status(user.id)
         if quota_data:
+            quota_data['unlimited'] = bool(user.is_admin)
             return jsonify(quota_data), 200
         else:
             return jsonify({'error': 'Could not get quota data'}), 500
@@ -10937,6 +11329,7 @@ def admin_get_user_quota(target_user_id):
         'user_id': user.id,
         'email': user.email,
         'display_name': user.display_name,
+        'unlimited': bool(user.is_admin),
         'balance': wallet.balance,
         'total_spent': wallet.total_spent,
         'daily_limit': wallet.daily_limit,
@@ -11289,10 +11682,110 @@ def handle_disconnect():
 with app.app_context():
     db.create_all()
 
+# --- USER EXTERNAL API KEYS (SELF-MANAGEMENT) ---
+
+@app.route('/api/user/keys', methods=['GET'])
+@token_required
+def get_self_keys(current_user):
+    """List current user's encrypted key masks."""
+    keys = UserExternalApiKey.query.filter_by(user_id=current_user.id, is_active=True).all()
+    return jsonify({
+        "keys": [{"provider": k.provider, "mask": k.key_mask} for k in keys]
+    })
+
+@app.route('/api/user/keys/validate', methods=['POST'])
+@token_required
+def validate_self_key(current_user):
+    """Validate the current user's API key before saving it."""
+    data = request.get_json(silent=True) or {}
+    provider = (data.get('provider') or '').lower()
+    api_key = data.get('api_key')
+
+    if not provider or not api_key:
+        return jsonify({"error": "Provider and api_key required"}), 400
+
+    if provider not in ['openai', 'anthropic', 'gemini']:
+        return jsonify({"error": "Invalid provider"}), 400
+
+    is_valid, error_msg = ProviderResolver.validate_key(provider, api_key)
+    return jsonify({"valid": is_valid, "error": error_msg})
+
+@app.route('/api/user/keys', methods=['POST'])
+@token_required
+def save_self_key(current_user):
+    """Save/Update own API key after validation."""
+    data = request.json
+    provider = data.get('provider')
+    api_key = data.get('api_key')
+
+    if not provider or not api_key:
+        return jsonify({"error": "Provider and api_key required"}), 400
+
+    if provider not in ['openai', 'anthropic', 'gemini']:
+        return jsonify({"error": "Invalid provider"}), 400
+
+    # Validate key
+    is_valid, error_msg = ProviderResolver.validate_key(provider, api_key)
+    if not is_valid:
+        return jsonify({"error": f"Validation failed: {error_msg}"}), 400
+
+    encrypted_key = encrypt_key(api_key)
+    mask = mask_key(api_key)
+
+    existing = UserExternalApiKey.query.filter_by(user_id=current_user.id, provider=provider).first()
+    if existing:
+        existing.encrypted_key = encrypted_key
+        existing.key_mask = mask
+        action = f"updated_own_{provider}_key"
+    else:
+        new_key = UserExternalApiKey(
+            user_id=current_user.id,
+            provider=provider,
+            encrypted_key=encrypted_key,
+            key_mask=mask
+        )
+        db.session.add(new_key)
+        action = f"added_own_{provider}_key"
+
+    # Audit log (self action)
+    log = SecurityAuditLog(
+        user_id=current_user.id,
+        action=action,
+        target_user_id=current_user.id,
+        ip_address=request.remote_addr,
+        metadata_json=json.dumps({"provider": provider})
+    )
+    db.session.add(log)
+    db.session.commit()
+
+    return jsonify({"success": True, "mask": mask})
+
+@app.route('/api/user/keys/<provider>', methods=['DELETE'])
+@token_required
+def delete_self_key(current_user, provider):
+    """Delete own API key."""
+    key = UserExternalApiKey.query.filter_by(user_id=current_user.id, provider=provider).first()
+    if not key:
+        return jsonify({"error": "Key not found"}), 404
+
+    db.session.delete(key)
+    
+    log = SecurityAuditLog(
+        user_id=current_user.id,
+        action=f"deleted_own_{provider}_key",
+        target_user_id=current_user.id,
+        ip_address=request.remote_addr,
+        metadata_json=json.dumps({"provider": provider})
+    )
+    db.session.add(log)
+    db.session.commit()
+
+    return jsonify({"success": True})
+
 if __name__ == '__main__':
 
     # Render uses the PORT environment variable
     port = int(os.environ.get("PORT", 5000))
     print(f'Starting SocketIO server (threading mode) on port {port}...')
     # socketio.run() threading async_mode ile WebSocket destekler
-    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=False, allow_unsafe_werkzeug=True)

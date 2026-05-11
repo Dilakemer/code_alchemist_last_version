@@ -271,13 +271,15 @@ const TokenDashboardModal = ({
 
   const activeBillingEnabled = selectedGateway === 'iyzico' ? iyzicoEnabled : billingEnabled;
 
+  const unlimited = !!user?.is_admin || !!usage?.unlimited;
   const balance = Number.isFinite(Number(usage?.balance))
     ? Number(usage.balance)
     : Number(user?.tokens || 0);
   const totalSpent = Number.isFinite(Number(usage?.total_spent)) ? Number(usage.total_spent) : 0;
   const transactionCount = Array.isArray(usage?.transactions) ? usage.transactions.length : 0;
-  const isLow = balance <= 20;
-  const lowWarning = balance <= 10;
+  const isLow = !unlimited && balance <= 20;
+  const lowWarning = !unlimited && balance <= 10;
+  const displayBalance = unlimited ? '∞' : balance.toLocaleString();
   const featuredPackage = packages.find((pkg) => pkg.highlight) || packages[1] || packages[0];
   const recentTransactions = useMemo(() => usage?.transactions || [], [usage]);
   const bestValuePackageId = useMemo(() => {
@@ -380,12 +382,12 @@ const TokenDashboardModal = ({
                 <div className="p-6 rounded-3xl border border-white/10 bg-white/5 relative overflow-hidden group">
                   <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                   <p className="text-xs uppercase tracking-widest text-slate-500 font-bold mb-3">Available Balance</p>
-                  <div className={`text-4xl font-bold tracking-tighter ${lowWarning ? 'text-red-400' : isLow ? 'text-amber-400' : 'text-emerald-400'}`}>
-                    {balance.toLocaleString()}
+                  <div className={`text-4xl font-bold tracking-tighter ${unlimited ? 'text-emerald-400' : lowWarning ? 'text-red-400' : isLow ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {displayBalance}
                   </div>
                   <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Live synchronization active
+                    {unlimited ? 'Unlimited admin access active' : 'Live synchronization active'}
                   </div>
                 </div>
                 <div className="p-6 rounded-3xl border border-white/10 bg-white/5 relative overflow-hidden group">
