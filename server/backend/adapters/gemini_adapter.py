@@ -65,22 +65,40 @@ class GeminiAdapter(BaseAdapter):
         return messages
     
     def _build_gen_config(self, config: AdapterConfig, system_prompt: str, tools: Optional[Any], tool_config: Optional[Any] = None) -> Any:
-        """Centralized helper to build GenerateContentConfig with thinking_config support."""
+        """Centralized helper to build GenerateContentConfig with thinking_config support.
+
+        NOTE: Gemma models (e.g. gemma-4-*) do NOT support:
+          - thinking_config  -> causes 504 DEADLINE_EXCEEDED
+          - system_instruction -> silently ignored or triggers API errors
+        We detect Gemma by model name and skip these fields entirely.
+        """
         types = self._types
-        
-        # Determine if thinking_config is needed (Gemini 3 or explicit thinking models)
-        thinking_config = None
         model_lc = config.model.lower()
-        if 'gemini-3' in model_lc or 'thinking' in model_lc:
+
+        # ── Gemma guard ───────────────────────────────────────────────────
+        # Gemma models are identified by the "gemma" prefix in the model name.
+        # They do not accept thinking_config or system_instruction.
+        is_gemma = model_lc.startswith("gemma") or "/gemma" in model_lc
+
+        # ── thinking_config ───────────────────────────────────────────────
+        # Only Gemini 3 and explicit "thinking" models support this.
+        thinking_config = None
+        if not is_gemma and ('gemini-3' in model_lc or 'thinking' in model_lc):
             try:
-                # Preferred: Use typed object for better SDK compatibility
                 thinking_config = types.ThinkingConfig(thinking_level="LOW")
             except AttributeError:
-                # Fallback: Some SDK versions might expect a dictionary
                 thinking_config = {'thinking_level': 'LOW'}
-            
+
+        # ── system_instruction ────────────────────────────────────────────
+        # Gemma models do not accept this field; omit it to avoid API errors.
+        effective_system = None if is_gemma else (system_prompt or None)
+
+        if is_gemma and system_prompt:
+            print(f"[GeminiAdapter] Gemma model '{config.model}': system_instruction skipped "
+                  "(not supported by Gemma API).")
+
         return types.GenerateContentConfig(
-            system_instruction=system_prompt or None,
+            system_instruction=effective_system,
             temperature=config.temperature,
             max_output_tokens=config.max_tokens,
             tools=tools,

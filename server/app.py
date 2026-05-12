@@ -5407,7 +5407,11 @@ def ask():
         print(f"Model İsteği (no_save): {model}, Image: {image_path}")
 
     # Agent mode state should carry full conversation turns when conversation_id is provided.
-    if agent_mode and conversation_id:
+    # IMPORTANT: Respect include_previous_modules toggle — if the user disabled it, do not
+    # inject history into the agent context either. Previously this block loaded history
+    # unconditionally (regardless of the toggle), causing the model to "remember" previous
+    # conversations even when the user had turned off "Önceki Modüller".
+    if agent_mode and conversation_id and include_previous_modules:
         if conversation is None:
             conversation = db.session.get(Conversation, conversation_id)
         if conversation:

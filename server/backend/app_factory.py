@@ -62,14 +62,15 @@ def _get_or_create_runtime() -> AgentRuntime:
         # History retrieval
         def _get_history(conversation_id: int):
             from models import History
-            items = (
-                History.query.filter_by(conversation_id=conversation_id)
-                .order_by(History.timestamp.desc())
-                .limit(5)
-                .all()
-            )
-            items.reverse()
-            return [{"user": h.user_question, "ai": h.ai_response} for h in items]
+            with flask_app.app_context():
+                items = (
+                    History.query.filter_by(conversation_id=conversation_id)
+                    .order_by(History.timestamp.desc())
+                    .limit(5)
+                    .all()
+                )
+                items.reverse()
+                return [{"user": h.user_question, "ai": h.ai_response} for h in items]
 
         get_history_fn = _get_history
 

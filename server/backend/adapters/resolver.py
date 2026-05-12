@@ -2,8 +2,8 @@ from __future__ import annotations
 import os
 from typing import Optional, Dict, Tuple
 import httpx
-from models import UserExternalApiKey, db
-from utils.crypto_utils import decrypt_key
+# NOTE: models and crypto_utils are imported lazily inside get_user_key()
+# to avoid Flask application-context errors at module import time.
 
 class ProviderResolver:
     """
@@ -12,19 +12,35 @@ class ProviderResolver:
     
     @staticmethod
     def get_user_key(user_id: int, provider: str) -> Optional[str]:
-        """Fetches and decrypts a user's API key for a specific provider."""
-        record = UserExternalApiKey.query.filter_by(
-            user_id=user_id, 
-            provider=provider.lower(), 
-            is_active=True
-        ).first()
-        
-        if record:
-            try:
-                return decrypt_key(record.encrypted_key)
-            except Exception as e:
-                print(f"[ProviderResolver] Decryption failed for user {user_id}, provider {provider}: {e}")
-                return None
+        """Fetches and decrypts a user's API key for a specific provider.
+
+        This method is called from the async AgentRuntime (FastAPI context)
+        which does not have a Flask application context active. We therefore
+        push one explicitly so that SQLAlchemy / Flask-SQLAlchemy can operate.
+        """
+        try:
+            # Import lazily to avoid circular imports at module load time.
+            from app import app as flask_app  # noqa: F401
+            from models import UserExternalApiKey
+            from utils.crypto_utils import decrypt_key
+
+            with flask_app.app_context():
+                record = UserExternalApiKey.query.filter_by(
+                    user_id=user_id,
+                    provider=provider.lower(),
+                    is_active=True
+                ).first()
+
+                if record:
+                    try:
+                        return decrypt_key(record.encrypted_key)
+                    except Exception as e:
+                        print(f"[ProviderResolver] Decryption failed for user {user_id}, "
+                              f"provider {provider}: {e}")
+                        return None
+        except Exception as e:
+            print(f"[ProviderResolver] get_user_key failed for user {user_id}, "
+                  f"provider {provider}: {e}")
         return None
 
     @staticmethod
