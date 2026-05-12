@@ -1,4 +1,4 @@
-\documentclass[12pt,a4paper]{report}
+﻿\documentclass[12pt,a4paper]{report}
 \usepackage[utf-8]{inputenc}
 \usepackage[turkish]{babel}
 \usepackage{geometry}
@@ -733,5 +733,84 @@ uvicorn backend.app_factory:create_app --factory --port 5001
 # SONRASI
 uvicorn backend.app_factory:create_app --factory --port 5001 --workers 4
 \end{lstlisting}
+
+
+\chapter{Yeni Özellik: Context Health Advisory Sistemi}
+
+\section{Giriş ve Motivasyon}
+
+Kullanıcılar uzun süreli sohbetlerde bağlamın dolması nedeniyle performans düşüşü veya token aşımı hataları (örneğin 429 veya 503) yaşıyorlardı. Ayrıca mevcut konuşmanın konusu değiştiğinde LLM'in önceki bağlamdan etkilenerek yanlış kararlar alması bir problemdi. Bu sorunları kullanıcıyı sıkmadan (non-intrusive) çözmek amacıyla \textbf{Bağlam Sağlığı Uyarı Sistemi (Context Health Advisory System)} geliştirildi.
+
+\section{Sistem Mimarisi}
+
+Sistem üç ana bileşenden oluşmaktadır:
+\begin{enumerate}
+    \item \textbf{Backend Health Analyzer:} Token baskısını ve konu kaymasını (topic drift) hesaplayan analiz motoru.
+    \item \textbf{SSE Injection Layer:} Hem normal model akışında hem de Agent Mode akışında stream bitmeden hemen önce çalışan enjeksiyon katmanı.
+    \item \textbf{Frontend UI Component:} Kullanıcı deneyimini bozmayan, kapatılabilir (dismissible) ve cooldown mekanizmasına sahip bilgilendirme afişi (Advisory Banner).
+\end{enumerate}
+
+\subsection{1. Backend: ContextHealthAnalyzer}
+
+\texttt{server/backend/runtime/limits.py} içerisindeki \texttt{ContextHealthAnalyzer} sınıfı güçlendirildi.
+
+\begin{lstlisting}[language=Python]
+# Token Baskisi (Context Bloat) Hesaplama
+def calculate_pressure(self) -> float:
+    # prompt + rag + history char counts
+    total_chars = len(sys_prompt) + len(rag) + self._history_chars()
+    return min(1.0, (total_chars // 4) / max_tokens)
+
+# Konu Kaymasi (Topic Drift) Hesaplama
+def calculate_drift_score(self, intent, touched_files):
+    # Jaccard Benziligi: Son 3 mesaj vs Yeni Soru
+    q_words = self._keyword_set(question)
+    h_words = self._keyword_set(history_text)
+    overlap = len(q_words & h_words) / len(q_words | h_words)
+    
+    # Agirlikli hesaplama (Keyword Drift, File Drift, Intent Shift)
+    return (1.0 - overlap) * 0.55 + (1.0 - file_overlap) * 0.25 + ...
+\end{lstlisting}
+
+\subsection{2. Backend: SSE Stream Integration}
+
+\texttt{app.py} içerisine normal modeller için non-blocking bir yardımcı fonksiyon eklendi ve SSE (Server-Sent Events) jeneratörüne entegre edildi.
+
+\begin{lstlisting}[language=Python]
+def _check_context_health(history, question, conv_id):
+    # Cooldown mekanizmasi: Ayni sohbette ust uste cikmasini engeller
+    if (history_len - last_at) < _ADVISORY_MSG_COOLDOWN:
+        return None
+
+    if total_chars >= _ADVISORY_BLOAT_CHARS:
+        advisory_type = "CONTEXT_BLOAT"
+    elif overlap < _ADVISORY_DRIFT_THRESH:
+        advisory_type = "TOPIC_SHIFT"
+        
+    return f"data: {json.dumps({'type': 'advisory'})}\n\n"
+\end{lstlisting}
+
+\subsection{3. Frontend: Advisory Banner}
+
+\texttt{client/src/App.jsx} SSE parser'ina \texttt{advisory} event tipi eklendi ve state \texttt{ChatInterface.jsx} bileşenine geçirildi. Glassmorphism tasarım diliyle uyumlu \texttt{AdvisoryBanner.jsx} geliştirildi.
+
+\begin{lstlisting}[language=HTML]
+{/* Advisory Banner UI */}
+<div className={`backdrop-blur-md animate-in slide-in ... 
+    ${isBloat ? 'bg-amber-500/10' : 'bg-cyan-500/10'}`}>
+    <h3>{isBloat ? 'Bağlam Genişliyor' : 'Konu Değişikliği'}</h3>
+    <button onClick={onNewChat}>Yeni Sohbet Başlat</button>
+    <button onClick={onDismiss}>Yine de Devam Et</button>
+</div>
+\end{lstlisting}
+
+\section{Sonuç ve Avantajlar}
+
+Bu sistem sayesinde:
+\begin{itemize}
+    \item \textbf{Token Tasarrufu:} Kullanıcılar bağlam dolmadan yeni sohbete yönlendiriliyor.
+    \item \textbf{Yüksek Başarı Oranı:} LLM, konu dışı eski bağlamdan etkilenmiyor.
+    \item \textbf{UX Dostu:} Modal (popup) yerine ekranı bloke etmeyen "sticky banner" kullanıldı ve \texttt{ADVISORY\_MSG\_COOLDOWN} (varsayılan: 10 mesaj) sayesinde kullanıcı spam'den korundu.
+\end{itemize}
 
 \end{document}

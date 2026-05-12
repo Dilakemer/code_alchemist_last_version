@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ModelSelector from './components/ModelSelector';
 import ChatInterface from './components/ChatInterface';
 import HistoryList from './components/HistoryList';
@@ -53,6 +53,9 @@ function App() {
   const [archivedConversations, setArchivedConversations] = useState([]);
   const [favoritesList, setFavoritesList] = useState([]);
   const [communityItems, setCommunityItems] = useState([]);
+  // Context Health Advisory State
+  const [contextAdvisory, setContextAdvisory] = useState(null);
+
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [preLinkedRepo, setPreLinkedRepo] = useState(null);
   const [preLinkedBranch, setPreLinkedBranch] = useState('main');
@@ -1536,6 +1539,15 @@ function App() {
                 continue;
               }
               if (data.type === 'done' || data.done) {
+              if (data.type === 'advisory' || data.advisory_type) {
+                setContextAdvisory({
+                  show: true,
+                  type: data.advisory_type,
+                  message: data.message,
+                  nonce: Date.now()
+                });
+                continue;
+              }
                 receivedDoneEvent = true;
 
                 // Capture debug state for memory/carryover monitoring
@@ -1650,6 +1662,15 @@ function App() {
               ));
             }
 
+            if (data.type === 'advisory' || data.advisory_type) {
+              setContextAdvisory({
+                show: true,
+                type: data.advisory_type,
+                message: data.message,
+                nonce: Date.now()
+              });
+              continue;
+            }
             if (data.done || data.type === 'done') {
               receivedDoneEvent = true;
             }
@@ -2616,6 +2637,8 @@ function App() {
           <div className="absolute inset-0 bg-gradient-to-b from-fuchsia-900/5 to-purple-900/5 pointer-events-none" />
           <div className={`flex-1 min-w-0 flex flex-col min-h-0 ${isNewConversation ? 'new-conversation-effect' : ''}`}>
             <ChatInterface
+            contextAdvisory={contextAdvisory}
+            setContextAdvisory={setContextAdvisory}
               history={chatHistory}
               loading={loading}
               onAsk={handleAsk}

@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+﻿import React, { useEffect, useRef, useState, useMemo } from 'react';
+import AdvisoryBanner from './AdvisoryBanner';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -2288,6 +2289,15 @@ const ChatInterface = ({
                 Connect a repository to allow the AI to understand your entire project context.
               </p>
 
+      {/* Context Health Advisory Banner */}
+      {contextAdvisory?.show && (
+        <AdvisoryBanner 
+          type={contextAdvisory.type}
+          message={contextAdvisory.message}
+          onNewChat={() => { setContextAdvisory(null); handleNewChat(); }}
+          onDismiss={() => setContextAdvisory(null)}
+        />
+      )}
               <form onSubmit={handleLinkGithub} className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1">
