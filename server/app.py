@@ -1,4 +1,4 @@
-import os, sys
+﻿import os, sys
 import hashlib
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -2395,6 +2395,80 @@ def _is_context_reset_intent(question_text):
     ]
     return any(signal in text for signal in reset_signals)
 
+
+
+# ── Context Health Advisory (non-agent model path) ────────────────────────────
+# Per-conversation cooldown: { conv_id_str: history_len_at_last_advisory }
+_context_advisory_cooldowns = {}
+
+_ADVISORY_BLOAT_CHARS  = int(os.environ.get("CONTEXT_BLOAT_CHARS",   "12000"))
+_ADVISORY_MSG_COOLDOWN = int(os.environ.get("ADVISORY_MSG_COOLDOWN", "10"))
+_ADVISORY_DRIFT_THRESH = float(os.environ.get("TOPIC_SHIFT_JACCARD", "0.15"))
+
+
+def _check_context_health(history_context, question, conversation_id):
+    """
+    Lightweight health check for the normal (non-agent) model path.
+
+    Returns a ready-to-stream SSE advisory string, or None.
+    Fires at most once every _ADVISORY_MSG_COOLDOWN new messages per conversation.
+    """
+    import json as _json, re as _re
+
+    if not conversation_id:
+        return None
+
+    conv_key    = str(conversation_id)
+    history_len = len(history_context or [])
+
+    # Cooldown guard
+    last_at = _context_advisory_cooldowns.get(conv_key, -_ADVISORY_MSG_COOLDOWN - 1)
+    if (history_len - last_at) < _ADVISORY_MSG_COOLDOWN:
+        return None
+
+    advisory_type = None
+    message       = None
+
+    # 1. Context Bloat: total chars in history + question
+    total_chars = sum(
+        len(t.get('user', '') or '') + len(t.get('ai', '') or '')
+        for t in (history_context or [])
+    ) + len(question or '')
+
+    if total_chars >= _ADVISORY_BLOAT_CHARS:
+        advisory_type = "CONTEXT_BLOAT"
+        message = (
+            "Bu sohbetin baglami dolmaya basliyor. "
+            "Yeni bir sohbet baslatmak daha hizli ve dogru yanitlar saglayacaktir."
+        )
+
+    # 2. Topic Drift: keyword Jaccard between recent history and new question
+    if not advisory_type and history_context:
+        def _kw(txt):
+            return set(_re.findall(r"[a-zA-Z]{4,}", (txt or '').lower()))
+
+        recent_text = " ".join(
+            (t.get('user', '') or '') + " " + (t.get('ai', '') or '')
+            for t in history_context[-3:]
+        )
+        q_kw = _kw(question)
+        h_kw = _kw(recent_text)
+        if q_kw and h_kw:
+            overlap = len(q_kw & h_kw) / len(q_kw | h_kw)
+            if overlap < _ADVISORY_DRIFT_THRESH:
+                advisory_type = "TOPIC_SHIFT"
+                message = (
+                    "Soru konusu bu sohbetin kasamindan farkli gorunuyor. "
+                    "Yeni bir sohbet daha odakli yanitlar verebilir."
+                )
+
+    if not advisory_type:
+        return None
+
+    _context_advisory_cooldowns[conv_key] = history_len
+    payload = _json.dumps({"type": "advisory", "advisory_type": advisory_type,
+                           "message": message}, ensure_ascii=False)
+    return f"data: {payload}\n\n"
 
 def _load_previous_memory_context(user, question, conversation=None, include_previous_modules=False):
     if not user or not include_previous_modules:
@@ -5757,6 +5831,12 @@ def ask():
                         
                 # 0. Post-Processing Layer (İşlem Sonrası Katmanı)
                 full_answer = post_process_response(full_answer)
+
+                # -- Context Health Advisory: fires after response, before done --
+                adv_sse = _check_context_health(history_context, question,
+                    conversation_id if conversation_id else (getattr(conversation, 'id', None) if 'conversation' in dir() else None))
+                if adv_sse:
+                    yield adv_sse
                 
             except Exception as e:
                 err_msg = f"\n[Model Error]: {str(e)}"

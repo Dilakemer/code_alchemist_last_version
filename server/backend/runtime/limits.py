@@ -154,45 +154,119 @@ class ContextHealthAnalyzer:
     """
     Analyzes session health based on token pressure, workspace overlap,
     and intent stability.
+
+    Thresholds (tunable via env vars):
+      CONTEXT_BLOAT_CHARS  — total chars before bloat advisory fires (default 12000 ≈ 3K tokens)
+      TOPIC_SHIFT_JACCARD  — keyword Jaccard threshold below which TOPIC_SHIFT fires (default 0.15)
+      ADVISORY_MSG_COOLDOWN — min new messages between advisories in same conversation (default 10)
     """
+
+    BLOAT_CHARS    = int(os.getenv("CONTEXT_BLOAT_CHARS",   "12000"))
+    DRIFT_JACCARD  = float(os.getenv("TOPIC_SHIFT_JACCARD", "0.15"))
+    MSG_COOLDOWN   = int(os.getenv("ADVISORY_MSG_COOLDOWN", "10"))
 
     def __init__(self, context: Any) -> None:
         self.ctx = context
-        self.cooldown_messages = 5
         self.pressure_threshold = 0.75
         self.drift_threshold = 0.7
 
+    # ── Token pressure ────────────────────────────────────────────────────
+
+    def _history_chars(self) -> int:
+        """Count chars in pre-assembled history messages (the real memory hog)."""
+        total = 0
+        for msg in (getattr(self.ctx, "history_messages", None) or []):
+            content = msg.get("content") or ""
+            total += len(str(content))
+        return total
+
+    def calculate_pressure(self) -> float:
+        """
+        Estimate token pressure using system_prompt + history + current question.
+        History is the dominant term in long conversations.
+        """
+        total_chars = (
+            len(self.ctx.system_prompt or "")
+            + len(self.ctx.rag_context or "")
+            + len(self.ctx.question or "")
+            + self._history_chars()
+        )
+        # Rough: chars / 4 ≈ tokens
+        estimated_tokens = total_chars // 4
+        return min(1.0, estimated_tokens / max(1, self.ctx.max_tokens))
+
+    # ── Topic drift ───────────────────────────────────────────────────────
+
+    def _keyword_set(self, text: str, min_len: int = 4) -> set:
+        """Extract significant words from text (lowercase, length >= min_len)."""
+        words = re.findall(r"[a-zA-ZğüşıöçĞÜŞİÖÇ]{%d,}" % min_len, (text or "").lower())
+        return set(words)
+
     def calculate_drift_score(self, current_intent: str, touched_files: List[str]) -> float:
         """
-        Calculate drift score using Jaccard similarity of files and intent match.
+        Drift score in [0, 1]:
+          0 = same topic as recent history
+          1 = completely different topic
+
+        Uses:
+          - Keyword Jaccard similarity between recent history and current question
+          - File workspace overlap (unchanged from original)
+          - Intent shift heuristic
         """
-        # 1. Workspace Overlap (Jaccard similarity)
-        rag_files = set(re.findall(r"file:///([^\s]+)", self.ctx.rag_context or ""))
-        touched = set(touched_files)
-        
-        if not rag_files or not touched:
-            overlap_score = 1.0  # Assume same scope if no files are mentioned yet
+        # 1. Keyword overlap: compare last 3 history turns with current question
+        history_text = " ".join(
+            msg.get("content", "")
+            for msg in (getattr(self.ctx, "history_messages", None) or [])[-6:]
+            if isinstance(msg.get("content"), str)
+        )
+        q_words = self._keyword_set(self.ctx.question or "")
+        h_words = self._keyword_set(history_text)
+
+        if not h_words or not q_words:
+            keyword_overlap = 1.0   # Not enough data → assume no drift
         else:
-            intersection = rag_files.intersection(touched)
-            union = rag_files.union(touched)
-            overlap_score = len(intersection) / len(union)
+            intersection = q_words & h_words
+            union = q_words | h_words
+            keyword_overlap = len(intersection) / len(union)
 
-        # 2. Intent Stability (Placeholder for actual session mission)
-        # In a real app, we'd compare against ctx.initial_intent
-        intent_shift = 0.0 if current_intent == "debugging" or current_intent == "coding" else 0.5
-        
-        # 3. Weighted Score
-        # Drift is inverse of overlap
-        drift = (1.0 - overlap_score) * 0.6 + intent_shift * 0.4
-        return drift
+        # 2. Workspace / file overlap (Jaccard)
+        rag_files = set(re.findall(r"file:///([^\s]+)", self.ctx.rag_context or ""))
+        touched   = set(touched_files)
+        if not rag_files or not touched:
+            file_overlap = 1.0
+        else:
+            file_overlap = len(rag_files & touched) / len(rag_files | touched)
 
-    def check_health(self, token_usage: int, current_intent: str, touched_files: List[str]) -> Dict[str, Any]:
+        # 3. Intent shift heuristic (unchanged)
+        intent_shift = 0.0 if current_intent in {"debugging", "coding"} else 0.3
+
+        # Weighted combination: keyword drift is the strongest signal
+        drift = (
+            (1.0 - keyword_overlap) * 0.55
+            + (1.0 - file_overlap)  * 0.25
+            + intent_shift          * 0.20
+        )
+        return min(1.0, drift)
+
+    # ── Main health check ─────────────────────────────────────────────────
+
+    def check_health(
+        self,
+        token_usage: int,
+        current_intent: str,
+        touched_files: List[str],
+    ) -> Dict[str, Any]:
         """
-        Returns a health report with advisory flag.
+        Returns a health report dict with advisory flag.
+
+        Uses the richer pressure calculation (includes history) when
+        ctx.history_messages is available; falls back to the caller-supplied
+        token_usage otherwise.
         """
-        pressure = token_usage / self.ctx.max_tokens
+        pressure = self.calculate_pressure() if hasattr(self.ctx, "history_messages") \
+                   else (token_usage / max(1, self.ctx.max_tokens))
         drift = self.calculate_drift_score(current_intent, touched_files)
-        
+
         advisory_type = None
         if pressure > self.pressure_threshold:
             advisory_type = "CONTEXT_BLOAT"
@@ -203,5 +277,5 @@ class ContextHealthAnalyzer:
             "pressure": pressure,
             "drift": drift,
             "advisory_needed": advisory_type is not None,
-            "type": advisory_type
+            "type": advisory_type,
         }

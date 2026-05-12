@@ -456,6 +456,30 @@ function App() {
     }
   }, [loadSharedSession]);
 
+  // Handle Back Button for Modals/Landing Page using URL Hash
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      
+      if (hash === '#app') {
+        setShowLandingPage(false);
+        setAuthOpen(false);
+      } else if (hash === '#login') {
+        setAuthOpen(true);
+      } else if (hash === '' || hash === '#') {
+        if (!user && !legalRoute) {
+          setShowLandingPage(true);
+        }
+        setAuthOpen(false);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange();
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [user, legalRoute]);
+
   // ---- Live Sync Collaboration (Socket.io) ----
   const collabUserName = user?.display_name || 'Guest';
 
@@ -3099,7 +3123,13 @@ function App() {
       <AuthModal
         open={authOpen}
         apiBase={API_BASE}
-        onClose={() => setAuthOpen(false)}
+        onClose={() => {
+          if (window.location.hash === '#login') {
+            window.history.back();
+          } else {
+            setAuthOpen(false);
+          }
+        }}
         onSuccess={handleAuthSuccess}
       />
 
@@ -3115,9 +3145,11 @@ function App() {
       {showLandingPage && !user && !legalRoute && (
         <div className="fixed inset-0 z-[100] overflow-y-auto bg-[#0a0a0b]">
           <LandingPage 
-            onGetStarted={() => setShowLandingPage(false)}
+            onGetStarted={() => {
+              window.location.hash = 'app';
+            }}
             onLogin={() => {
-              setAuthOpen(true);
+              window.location.hash = 'login';
             }}
           />
         </div>

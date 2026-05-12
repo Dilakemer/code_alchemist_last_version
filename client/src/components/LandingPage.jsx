@@ -98,6 +98,19 @@ const DemoModal = ({ onClose }) => (
 const LandingPage = ({ onGetStarted, onLogin }) => {
   const [showDemo, setShowDemo] = useState(false);
 
+  React.useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#demo') {
+        setShowDemo(true);
+      } else {
+        setShowDemo(false);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange();
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   const features = [
     {
       title: "Zekayı Serbest Bırakın",
@@ -135,7 +148,13 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
 
   return (
     <>
-      {showDemo && <DemoModal onClose={() => { setShowDemo(false); }} />}
+      {showDemo && <DemoModal onClose={() => { 
+        if (window.location.hash === '#demo') {
+          window.history.back();
+        } else {
+          setShowDemo(false);
+        }
+      }} />}
 
       <div className="min-h-screen bg-[#0F172A] text-white overflow-x-hidden selection:bg-indigo-500/30">
         {/* Background Blobs & Glows */}
@@ -194,7 +213,7 @@ const LandingPage = ({ onGetStarted, onLogin }) => {
               Start Free — 100 tokens 🧪
             </button>
             <button
-              onClick={() => setShowDemo(true)}
+              onClick={() => { window.location.hash = 'demo'; }}
               className="w-full sm:w-auto px-8 md:px-10 py-3.5 md:py-4 bg-white/5 border border-white/10 text-white rounded-2xl text-base md:text-lg font-bold hover:bg-white/10 transition-all"
             >
               Demo İzle
