@@ -1,4 +1,4 @@
-﻿import os, sys
+import os, sys
 import hashlib
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -4317,13 +4317,6 @@ def _resolve_token_cost(model_name: str) -> int:
     return TOKEN_COSTS['default']
 
 
-def _has_active_external_api_key(user: User) -> bool:
-    """Kullanıcının aktif bir harici API anahtarı olup olmadığını döndürür."""
-    if not user:
-        return False
-    return UserExternalApiKey.query.filter_by(user_id=user.id, is_active=True).first() is not None
-
-
 def check_tokens(user: User, model_name: str = 'default') -> tuple[bool, int, int]:
     """Kullanıcının belirtilen model için yeterli token'ı var mı kontrol eder.
     Aktif bir harici API anahtarı varsa her zaman True döner ve maliyet 0'dır.
@@ -4336,10 +4329,6 @@ def check_tokens(user: User, model_name: str = 'default') -> tuple[bool, int, in
         print(f"[TOKEN] Admin bypass for {user.email}. Cost: 0")
         return True, wallet.balance, 0
 
-    if _has_active_external_api_key(user):
-        wallet = get_or_create_token_balance(user)
-        print(f"[TOKEN] External API key bypass for {user.email}. Cost: 0")
-        return True, wallet.balance, 0
 
     # Harici anahtar kontrolü
     provider, _ = _resolve_agent_provider_model(model_name)
@@ -4367,10 +4356,6 @@ def deduct_tokens(user: User, model_name: str = "default", description: str = No
         print(f"[TOKEN] Admin bypass for {user.email}. Deduction skipped.")
         return True, wallet.balance
 
-    if _has_active_external_api_key(user):
-        wallet = get_or_create_token_balance(user)
-        print(f"[TOKEN] External API key bypass for {user.email}. Deduction skipped.")
-        return True, wallet.balance
 
     # Harici anahtar kontrolü
     provider, _ = _resolve_agent_provider_model(model_name)
