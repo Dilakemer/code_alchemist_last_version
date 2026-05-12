@@ -250,7 +250,7 @@ def run_agent_bridge(
 
     # Forward on_event callbacks for trace events (compatible with old API)
     if on_event and flask_result:
-        for t in flask_result.trace:
+        for t in (flask_result.trace or []):
             on_event({"type": "tool_start", "tool": t.tool_name, "args": t.args})
             on_event({"type": "tool_end",   "tool": t.tool_name, "summary": t.summary})
 

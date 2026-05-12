@@ -214,6 +214,15 @@ class AgentLoop:
                 on_reasoning=(lambda c: asyncio.run_coroutine_threadsafe(_on_reasoning(c), loop)) if stream_callbacks_enabled else None,
             )
 
+            # Guard: adapter may return None on unexpected errors
+            if response is None:
+                print(f"[AgentLoop] [Step {step}] Adapter returned None response — aborting loop.")
+                await self._emit_done(
+                    ctx, queue, trace, finish_reason="error",
+                    total_steps=step, budget=budget,
+                )
+                return
+
             # Final flush of reasoning if any left
             if reasoning_buffer:
                 combined = "".join(reasoning_buffer)
@@ -435,6 +444,8 @@ class AgentLoop:
         updated_messages = self._adapter.format_tool_result(messages, tc.call_id, tc.name, result)
         if updated_messages is not None:
             messages[:] = updated_messages
+        else:
+            print(f"[AgentLoop] Warning: format_tool_result returned None for tool '{tc.name}'. Messages not updated.")
         
         # Return result for loop inspection
         return result
