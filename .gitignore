@@ -87,3 +87,7 @@ Thumbs.db
 # Render/Deployment
 .render/
 .env.render
+
+# Local Virtual Env
+server/myenv/
+server/error_log.txt

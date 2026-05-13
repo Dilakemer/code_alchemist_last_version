@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ModelSelector from './components/ModelSelector';
 import ChatInterface from './components/ChatInterface';
 import HistoryList from './components/HistoryList';
@@ -470,6 +470,10 @@ function App() {
       } else if (hash === '#login') {
         setAuthOpen(true);
       } else if (hash === '' || hash === '#') {
+        // If we are at the root and not in a legal route, 
+        // show landing page only if user is NOT logged in.
+        // This prevents the "Google redirect" issue by ensuring the history 
+        // state correctly resolves.
         if (!user && !legalRoute) {
           setShowLandingPage(true);
         }
@@ -1538,7 +1542,6 @@ function App() {
                 if (watchdogTimer) clearTimeout(watchdogTimer);
                 continue;
               }
-              if (data.type === 'done' || data.done) {
               if (data.type === 'advisory' || data.advisory_type) {
                 setContextAdvisory({
                   show: true,
@@ -1548,7 +1551,7 @@ function App() {
                 });
                 continue;
               }
-                receivedDoneEvent = true;
+              if (data.type === 'done' || data.done) {
 
                 // Capture debug state for memory/carryover monitoring
                 setDebug({
@@ -1838,6 +1841,12 @@ function App() {
     localStorage.setItem('codebrain_token', data.token);
     localStorage.setItem('codebrain_user', JSON.stringify(data.user));
     setAuthOpen(false);
+    setShowLandingPage(false);
+    // Clear login hash using replaceState to avoid history clutter
+    if (window.location.hash === '#login') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
     // Clear previous chat and start fresh for new user
     setChatHistory([]);
     setActiveConversationId(null);
