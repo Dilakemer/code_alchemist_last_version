@@ -934,6 +934,8 @@ function App() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     setCurrentlySpeakingId(null);
     setLoading(true);
+    // Proje görünümünden çıkıp normal sohbete geçildiğinde ProjectWorkspace'i kapat
+    setActiveProject(null);
     try {
       const res = await fetch(`${API_BASE}/api/conversations/${id}`, { headers: authHeaders });
       if (res.ok) {
