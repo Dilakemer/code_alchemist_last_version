@@ -1,0 +1,240 @@
+
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[turkish]{babel}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{graphicx}
+\usepackage{setspace}
+\usepackage{microtype}
+\usepackage{float}
+
+\geometry{
+	a4paper,
+	top=2.5cm,
+	bottom=2.5cm,
+	left=3cm,
+	right=2.5cm,
+	headheight=15pt
+}
+
+\definecolor{codeblue}{RGB}{32,78,145}
+\definecolor{codegray}{RGB}{245,246,248}
+\definecolor{codegreen}{RGB}{35,120,80}
+\definecolor{codered}{RGB}{170,45,45}
+\definecolor{accentgray}{RGB}{100,100,110}
+
+\lstset{
+	backgroundcolor=\color{codegray},
+	basicstyle=\ttfamily\small,
+	keywordstyle=\color{codeblue}\bfseries,
+	commentstyle=\color{codegreen}\itshape,
+	stringstyle=\color{codered},
+	numbers=left,
+	numberstyle=\tiny\color{accentgray},
+	numbersep=8pt,
+	frame=single,
+	framerule=0.4pt,
+	rulecolor=\color{codeblue!30},
+	breaklines=true,
+	showstringspaces=false,
+	xleftmargin=1.5em,
+	xrightmargin=0.5em,
+	tabsize=4,
+	captionpos=b
+}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=codeblue,
+	urlcolor=codeblue,
+	pdftitle={CodeAlchemist Hafta 14 Raporu},
+	pdfauthor={CodeAlchemist Ekibi}
+}
+
+\setstretch{1.2}
+
+\title{\textbf{CodeAlchemist --- Hafta 14 Raporu} \\[0.3em]
+\large Supabase Veri API Yetki Değişiklikleri, Depo Taraması ve Güvenlik Sertleştirme}
+\author{CodeAlchemist Ekibi}
+\date{14 Mayıs 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Yönetici Özeti}
+
+Bu hafta Supabase tarafından gönderilen ve yaklaşan \textbf{Data API permission} değişikliklerini bildiren uyarı e-postası ele alınmış; proje genelinde tablo oluşturma, migration ve RLS yüzeyi denetlenmiştir. Amaç, 30 Ekim 2026 tarihinde yürürlüğe girmesi beklenen sıkı yetkilendirme koşullarına karşı uygulamanın kırılmadan çalışmaya devam etmesini sağlamaktır.
+
+Yapılan inceleme sonucunda proje içinde klasik Supabase client kullanımının bulunmadığı, veritabanı şemasının ise ağırlıklı olarak Flask-SQLAlchemy model tanımlarından ve \texttt{db.create\_all()} çağrılarından üretildiği görülmüştür. Buna rağmen public şema altında oluşabilecek tablo erişim riskleri nedeniyle geleceğe dönük bir güvenlik planı hazırlanmıştır.
+
+\begin{itemize}[leftmargin=2em, itemsep=4pt]
+	\item Mevcut tablo yüzeyi ve oluşturma mekanizması tespit edildi.
+	\item Public şemadaki tüm tablolar için potansiyel erişim riski çıkarıldı.
+	\item RLS, GRANT ve starter policy gereksinimleri için SQL şablonu üretildi.
+	\item Frontend tarafında Supabase, \texttt{/rest/v1} ve GraphQL kullanımının olmadığı doğrulandı.
+	\item Gelecekteki migration'lar için güvenli bir template dosyası eklendi.
+\end{itemize}
+
+\section{Supabase Mailinin Özeti}
+
+Gelen bildirimde Supabase, \textbf{Data API permission modelinde yaklaşan değişiklikler} nedeniyle public şema üzerinde yer alan tabloların artık açık varsayımlarla değil, açık izinler ve RLS politikalarıyla korunması gerektiğini belirtti. Bu, özellikle \texttt{anon} ve \texttt{authenticated} rollerinin davranışını doğrudan etkileyebilecek bir platform değişikliğidir.
+
+Mailin proje açısından anlamı şöyledir:
+
+\begin{enumerate}[leftmargin=2em]
+	\item Public şemadaki her tablo için açık \texttt{GRANT} tanımları gerekli hale gelebilir.
+	\item Kullanıcıya açık tablolar için \texttt{RLS enable} ve policy tanımı zorunlu bir güvenlik katmanına dönüşebilir.
+	\item Eski implicit davranışlara güvenen tablolar, enforcement tarihinde erişim kaybı yaşayabilir.
+	\item Uygulamanın veri modeli integer \texttt{user\_id} kullandığı için Supabase Auth UUID tabanlı \texttt{auth.uid()} varsayımıyla doğrudan uyumlu değildir.
+\end{enumerate}
+
+\section{Depo Taraması ve Tespitler}
+
+\subsection{Schema Oluşturma Yöntemi}
+
+Kod tabanı tarandığında SQL migration klasörü bulunmamıştır. Veritabanı yapısı esas olarak \texttt{server/models.py} içindeki SQLAlchemy modellerinden oluşmaktadır. Uygulama başlangıcında tablo üretimi \texttt{server/app.py} içindeki \texttt{db.create\_all()} çağrıları ile yapılmaktadır.
+
+\begin{lstlisting}[language=Python, caption={Şema oluşturmanın mevcut yolu}]
+with app.app_context():
+	db.create_all()
+\end{lstlisting}
+
+Bu yaklaşım, hızlı prototipleme için uygun olsa da Supabase gibi explicit izin modeline sahip ortamlarda yeterli değildir; çünkü tablolar oluşturulsa bile RLS ve GRANT tarafı otomatik olarak kurulmaz.
+
+\subsection{Bulunan Tablo Sınıfları}
+
+İnceleme sonucunda public şemada yer alabilecek başlıca tablolar şunlar olarak sınıflandırıldı:
+
+\begin{longtable}{@{}p{0.33\textwidth}p{0.29\textwidth}p{0.28\textwidth}@{}}
+\toprule
+\textbf{Tablo} & \textbf{Erişim Profili} & \textbf{Not} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Tablo} & \textbf{Erişim Profili} & \textbf{Not} \\
+\midrule
+\endhead
+user & servis ağırlıklı & Kimlik ve profil verisi içeriyor \\
+conversation, history, answer & kullanıcıya özel & ana ürün verisi \\
+memory\_item, memory\_node, memory\_edge & kullanıcıya özel & bağlam ve hafıza katmanı \\
+token\_balance, token\_transaction, token\_purchase & kullanıcıya özel / servis & kota ve ödeme kayıtları \\
+token\_package & public read-only aday & paket kataloğu \\
+user\_external\_api\_key, security\_audit\_log & servis ağırlıklı & güvenlik hassas veriler \\
+\bottomrule
+\end{longtable}
+
+\section{Risk Analizi}
+
+\subsection{En Kritik Risk: Implicit Public Access}
+
+Repo içinde explicit \texttt{GRANT} veya \texttt{CREATE POLICY} tanımı bulunmadığı için, Supabase tarafında \texttt{public} şemasındaki tabloların eski davranışa güveniyor olma ihtimali vardır. Bu durum, enforcement sonrası şu problemlere yol açabilir:
+
+\begin{itemize}[leftmargin=2em, itemsep=4pt]
+	\item REST Data API üzerinden beklenmedik 401/403 hataları,
+	\item kullanıcıya ait verilerin yanlışlıkla erişime açık olması,
+	\item RLS aktif edildiğinde frontend'in veri çekememesi,
+	\item migration sırasında yeni tabloların izinlerinden dolayı canlı sistemde kesinti.
+\end{itemize}
+
+\subsection{Kimlik Modeli Uyumsuzluğu}
+
+Uygulama mevcut haliyle kullanıcı kimliğini integer \texttt{id} üzerinden yönetmektedir. Supabase RLS örneklerinin çoğu ise UUID tabanlı \texttt{auth.uid()} yaklaşımını varsayar. Bu nedenle doğrudan kopyalanacak policy'ler bu projede çalışmayabilir.
+
+Bu sebeple, audit sırasında güvenli bir ara çözüm olarak \texttt{current\_setting('request.jwt.claims', true)} üzerinden integer kullanıcı kimliği okuyabilen bir yardımcı fonksiyon önerildi.
+
+\section{Yapılan Değişiklikler}
+
+\subsection{Audit Raporu Oluşturuldu}
+
+Repo içine ayrıntılı bir Supabase audit raporu eklendi. Bu rapor, hangi tabloların public şemada oluştuğunu, hangi tablo gruplarının servis ağırlıklı olduğunu ve hangi tablolar için read-only ya da owner-scoped policy gerektiğini belgelemektedir.
+
+\subsection{Gelecek Migration Template'i Hazırlandı}
+
+Yeni tabloların otomatik olarak güvenli kurallarla oluşturulabilmesi için bir migration template dosyası eklendi. Bu şablonda aşağıdaki parçalar yer almaktadır:
+
+\begin{itemize}[leftmargin=2em, itemsep=4pt]
+	\item tablo oluşturma komutu,
+	\item \texttt{alter table ... enable row level security},
+	\item \texttt{revoke all} ve açık \texttt{grant} ifadeleri,
+	\item owner-scoped policy başlangıç seti,
+	\item public read-only tablo için örnek policy.
+\end{itemize}
+
+\begin{lstlisting}[language=SQL, caption={Template içinde yer alan temel güvenlik kalıbı}]
+alter table public.<table_name> enable row level security;
+
+revoke all on table public.<table_name> from anon, authenticated, public;
+grant select, insert, update, delete on table public.<table_name> to authenticated;
+grant all on table public.<table_name> to service_role;
+\end{lstlisting}
+
+\subsection{Frontend Kullanım Kontrolü}
+
+Frontend ve mobile tarafında yapılan taramada:
+
+\begin{itemize}[leftmargin=2em, itemsep=4pt]
+	\item \texttt{supabase-js} kullanımına rastlanmadı,
+	\item \texttt{/rest/v1} çağrısı bulunmadı,
+	\item GraphQL entegrasyonu bulunmadı.
+\end{itemize}
+
+Dolayısıyla mevcut ürün akışı doğrudan Supabase Data API ile bağlı değil; risk daha çok gelecek entegrasyon veya migration senaryoları için geçerlidir.
+
+\section{Önerilen SQL Düzeltmeleri}
+
+\subsection{Read-Only Public Tablo: \texttt{token\_package}}
+
+Paket kataloğu için güvenli yaklaşım, yalnızca okuma izni verilmesidir:
+
+\begin{lstlisting}[language=SQL]
+begin;
+
+alter table public.token_package enable row level security;
+revoke all on table public.token_package from anon, authenticated, public;
+grant select on table public.token_package to anon;
+grant select on table public.token_package to authenticated;
+grant all on table public.token_package to service_role;
+
+create policy "token_package_public_read"
+on public.token_package
+for select
+to anon, authenticated
+using (true);
+
+commit;
+\end{lstlisting}
+
+\subsection{Servis-Ağırlıklı Tablolar}
+
+\texttt{v\_s\_code\_login\_state}, \texttt{v\_s\_code\_otp}, \texttt{password\_reset\_token}, \texttt{legal\_consent\_log}, \texttt{user\_external\_api\_key} ve \texttt{security\_audit\_log} için kullanıcıya açık policy tanımlanmamalıdır. Bu tablolar için en güvenli yaklaşım servis rolüne açık erişim, diğer rollere kapalı erişimdir.
+
+\section{Uyumluluk Durumu}
+
+Bu çalışma sonucunda proje için aşağıdaki sonuçlara ulaşıldı:
+
+\begin{itemize}[leftmargin=2em, itemsep=4pt]
+	\item Mevcut uygulama akışı bozulmadan devam edebilir.
+	\item Supabase enforcement öncesi tablo izinleri açık hale getirildiğinde sürpriz kırılmaların önüne geçilecek bir şablon hazırlandı.
+	\item RLS politikaları, integer kullanıcı kimliğiyle uyumlu olacak şekilde planlandı.
+	\item Gelecekte Supabase Data API doğrudan kullanılacaksa public şemadaki tablolar net biçimde kontrol altına alınmış olacak.
+\end{itemize}
+
+\section{Sonuç}
+
+Hafta 14 çalışmasında gelen Supabase uyarısı teknik olarak analiz edilmiş, depo genelinde tablo oluşturma ve migration katmanı incelenmiş, public şema güvenlik riskleri sınıflandırılmış ve geleceğe dönük güvenli migration şablonu hazırlanmıştır. Bu sayede proje, 30 Ekim 2026 tarihindeki Data API yetki sıkılaştırmasına karşı daha hazırlıklı hale getirilmiştir.
+
+\end{document}
