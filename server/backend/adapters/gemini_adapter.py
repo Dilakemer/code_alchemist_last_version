@@ -289,6 +289,22 @@ class GeminiAdapter(BaseAdapter):
                 })
         return blocks
 
+    def _extract_model_content(self, response: Any) -> Any:
+        """
+        Return the provider's original model Content when it contains parts.
+
+        Gemini attaches metadata such as thought_signature to function_call
+        parts. Rebuilding those parts strips that metadata and can make the
+        next request fail with "Function call is missing a thought_signature".
+        """
+        candidates = list(getattr(response, "candidates", None) or [])
+        if not candidates:
+            return None
+        content = getattr(candidates[0], "content", None)
+        if content is not None and getattr(content, "parts", None):
+            return content
+        return None
+
     def _build_gemini_contents(self, messages: List[Dict[str, Any]]) -> List[Any]:
         """
         Convert our internal message list (history_messages format) to
@@ -460,11 +476,15 @@ class GeminiAdapter(BaseAdapter):
         tool_calls = self._extract_tool_calls_from_response(response) if response else []
 
         if tool_calls:
-            assistant_blocks = self._extract_assistant_blocks(response)
-            if assistant_blocks:
-                messages.append({"role": "assistant", "content": assistant_blocks})
+            model_content = self._extract_model_content(response)
+            if model_content is not None:
+                messages.append({"role": "assistant", "content": model_content})
             else:
-                messages.append({"role": "assistant", "content": text})
+                assistant_blocks = self._extract_assistant_blocks(response)
+                if assistant_blocks:
+                    messages.append({"role": "assistant", "content": assistant_blocks})
+                else:
+                    messages.append({"role": "assistant", "content": text})
 
         return AdapterResponse(
             text=text if not tool_calls else "",

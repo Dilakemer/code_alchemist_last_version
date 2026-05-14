@@ -1,4 +1,4 @@
-﻿\documentclass[12pt,a4paper]{report}
+\documentclass[12pt,a4paper]{report}
 \usepackage[utf-8]{inputenc}
 \usepackage[turkish]{babel}
 \usepackage{geometry}
@@ -812,5 +812,111 @@ Bu sistem sayesinde:
     \item \textbf{Yüksek Başarı Oranı:} LLM, konu dışı eski bağlamdan etkilenmiyor.
     \item \textbf{UX Dostu:} Modal (popup) yerine ekranı bloke etmeyen "sticky banner" kullanıldı ve \texttt{ADVISORY\_MSG\_COOLDOWN} (varsayılan: 10 mesaj) sayesinde kullanıcı spam'den korundu.
 \end{itemize}
+
+\chapter{Yeni Platform: Mobil Uygulama Geliştirme Sürecinin Başlaması}
+
+\section{Giriş}
+
+Projenin 13. haftasında, Code Alchemist platformunun erişilebilirliğini artırmak ve kullanıcılara mobil cihazlarda da AI destekli kod asistanı deneyimini sunmak amacıyla mobil uygulama geliştirme sürecine başlanmıştır. Mobil uygulama, React Native ve Expo altyapısı kullanılarak inşa edilmeye başlanmış olup, backend ile tam uyumlu çalışacak Service Oriented Architecture (SOA) mimarisi temel alınmıştır.
+
+\section{Mobil Uygulama Mimarisi ve SOA Yaklaşımı}
+
+Mobil projenin kod tabanı (codebase) modüler ve ölçeklenebilir bir mimari hedefiyle tasarlanmıştır. Uygulamanın sunucu (backend) ile olan tüm iletişimi soyutlanmış ve merkezi bir servis katmanı üzerinden yönetilmektedir.
+
+\subsection{1. Servis Katmanı (Service Layer) Entegrasyonu}
+
+Tüm API istekleri \texttt{src/services/api.js} dosyası üzerinden yürütülmektedir. Bu dosya, backend'in sunduğu tüm endpoint'leri sarmalayarak (wrapper) UI bileşenlerinden API karmaşıklığını gizlemektedir.
+
+\begin{lstlisting}[language=JavaScript]
+// src/services/api.js - Merkezi API İletişim Servisi
+import { API_BASE, CLIENT_SOURCE } from '../config';
+
+const request = async (path, { method = 'GET', token, body, headers = {} } = {}) => {
+  // ... Timeout ve AbortController yönetimi ...
+  const response = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'X-Client-Source': CLIENT_SOURCE,
+      ...headers,
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: controller.signal,
+  });
+  // ... Error handling ve Payload parse işlemleri ...
+  return data;
+};
+
+// Modüler Endpoint Dışa Aktarımları
+export const askQuestion = ({ token, question, code = '', model = 'auto', conversationId = null }) =>
+  request('/api/ask', { method: 'POST', token, body: { question, code, model, conversation_id: conversationId }});
+
+export const login = ({ email, password }) =>
+  request('/api/auth/login', { method: 'POST', body: { email, password } });
+\end{lstlisting}
+
+\subsection{2. Durum ve Depolama Yönetimi (Storage Layer)}
+
+Kullanıcı oturum yönetimi ve yetkilendirme token'ları, AsyncStorage kullanılarak \texttt{src/services/storage.js} üzerinden izole edilmiştir. SOA mimarisinin getirdiği sorumlulukların ayrılması (Separation of Concerns) prensibi burada da uygulanmıştır.
+
+\begin{lstlisting}[language=JavaScript]
+// src/services/storage.js
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../config';
+
+export const saveSession = async ({ token, user }) => {
+  await AsyncStorage.multiSet([
+    [STORAGE_KEYS.token, token || ''],
+    [STORAGE_KEYS.user, user ? JSON.stringify(user) : ''],
+  ]);
+};
+\end{lstlisting}
+
+\subsection{3. Gerçek Zamanlı İletişim (Real-time Collaboration)}
+
+Web uygulamasındaki ortak çalışma (collaboration) yeteneğinin mobile taşınması amacıyla \texttt{Socket.io} istemcisi entegre edilmiş ve \texttt{src/hooks/useCollabSocket.js} custom hook'u olarak soyutlanmıştır. Bu sayede UI katmanı, socket bağlantı yönetimi detaylarından arındırılmıştır.
+
+\begin{lstlisting}[language=JavaScript]
+// src/hooks/useCollabSocket.js
+export function useCollabSocket(token, userToken, userName = 'Guest', onHistoryRefresh = null) {
+  // ... Socket state'leri ...
+  useEffect(() => {
+    const socket = io(SOCKET_BASE, {
+      auth: { token: userToken },
+      transports: ['websocket', 'polling']
+    });
+
+    socket.on('collab_stream_chunk', (data) => {
+      if (data.token !== token) return;
+      setLiveStreamText((prev) => prev + data.chunk);
+    });
+    // ... Socket olay dinleyicileri ve temizleme ...
+  }, [token, userToken]);
+  
+  return { connected, liveStreamText, isStreaming };
+}
+\end{lstlisting}
+
+\section{Ana Uygulama (App.js) ve Yönlendirme (Routing)}
+
+Mobil uygulamanın giriş noktası olan \texttt{App.js}, durumu (state) merkezileştiren ve yetkilendirme akışını yöneten bir orkestratör görevi görmektedir. Kapsamlı bir React Navigation kütüphanesi yerine, başlangıç aşamasında basit ve etkili bir custom view routing (\texttt{activeView}) mekanizması tercih edilmiştir.
+
+\begin{lstlisting}[language=JavaScript]
+// App.js - Ana Akış Kontrolü
+const renderView = () => {
+  switch (activeView) {
+    case 'chat': return <ChatInterface ... />;
+    case 'compare': return <ComparisonScreen ... />;
+    case 'snippets': return <SnippetManager token={token} />;
+    case 'admin': return user?.is_admin ? <AdminPanelView token={token} /> : null;
+    // ... Diğer ekranlar
+  }
+};
+\end{lstlisting}
+
+\section{Kullanıcı Arayüzü (UI) ve Görsel Dil}
+
+React Native StyleSheet kullanılarak, web tarafındaki "Dark Mode" ve "Glassmorphism" temaları mobil ortama aktarılmıştır. Kod okunaklılığını artırmak ve performansı optimize etmek için bileşenler (components) modüler olarak ayrılmıştır (\texttt{Sidebar.jsx}, \texttt{LoginScreen.jsx}, \texttt{ModelSelector.jsx} vb.). Mobil uygulama, Expo Build Service (EAS) üzerinden derlenmek üzere \texttt{eas.json} konfigürasyonu ile yapılandırılmıştır.
 
 \end{document}
