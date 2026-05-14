@@ -632,6 +632,8 @@ const ContextBar = ({ question, code, image, linkedRepo, debug }) => {
 };
 
 const ChatInterface = ({
+  contextAdvisory,
+  setContextAdvisory,
   history,
   loading,
   onAsk,
