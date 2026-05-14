@@ -2381,6 +2381,27 @@ def _resolve_include_previous_modules(user, payload, no_save=False):
     return True
 
 
+def _load_conversation_turns(conversation_id, limit=5, ascending=False):
+    """Load recent turns from the active conversation for in-chat continuity."""
+    if not conversation_id:
+        return []
+
+    query = History.query.filter_by(conversation_id=conversation_id)
+    if ascending:
+        rows = query.order_by(History.timestamp.asc()).all()
+    else:
+        rows = query.order_by(History.timestamp.desc()).limit(limit).all()
+        rows.reverse()
+
+    turns = []
+    for item in rows:
+        turns.append({
+            'user': item.user_question or '',
+            'ai': item.ai_response or '',
+        })
+    return turns
+
+
 def _is_context_reset_intent(question_text):
     text = (question_text or '').lower()
     reset_signals = [
@@ -5382,6 +5403,11 @@ def ask():
                 
                 for item in prev_items:
                     history_context.append({'user': item.user_question, 'ai': item.ai_response})
+
+            # Same-chat continuity is independent from the cross-session
+            # "previous modules" setting.
+            if conversation and not history_context:
+                history_context = _load_conversation_turns(conversation.id, limit=5)
         
         if not conversation:
             # Yeni konuşma başlat
@@ -5466,10 +5492,7 @@ def ask():
         print(f"Model İsteği (no_save): {model}, Image: {image_path}")
 
     # Agent mode state should carry full conversation turns when conversation_id is provided.
-    # IMPORTANT: Respect include_previous_modules toggle — if the user disabled it, do not
-    # inject history into the agent context either. Previously this block loaded history
-    # unconditionally (regardless of the toggle), causing the model to "remember" previous
-    # conversations even when the user had turned off "Önceki Modüller".
+    # NOTE: include_previous_modules now only gates cross-session memory below.
     if agent_mode and conversation_id and include_previous_modules:
         if conversation is None:
             conversation = db.session.get(Conversation, conversation_id)
@@ -5482,6 +5505,13 @@ def ask():
                     'user': item.user_question or '',
                     'ai': item.ai_response or '',
                 })
+
+    # Agent mode still needs the active thread when cross-session memory is off.
+    if agent_mode and conversation_id and not agent_history_context:
+        if conversation is None:
+            conversation = db.session.get(Conversation, conversation_id)
+        if conversation:
+            agent_history_context = _load_conversation_turns(conversation.id, ascending=True)
 
     if resolved_agent_project is None and agent_mode:
         resolved_agent_project, agent_project_source = _resolve_agent_project(user, conversation, payload_project_id)
