@@ -38,6 +38,7 @@ const ModelCompare = ({
     authHeaders,
     onClose,
     activeConversationId,
+    includePreviousModules,
     onSelectResponse
 }) => {
     const [model1, setModel1] = useState('gemini-2.5-flash-lite');
@@ -96,7 +97,8 @@ const ModelCompare = ({
                 question: question,
                 code: '',
                 model: model,
-                conversation_id: null,
+                conversation_id: activeConversationId || null,
+                include_previous_modules: Boolean(includePreviousModules),
                 no_save: true, // Don't save to database during comparison
                 is_compare: true
             });

@@ -2973,6 +2973,7 @@ function App() {
           apiBase={API_BASE}
           authHeaders={authHeaders}
           activeConversationId={activeConversationId}
+          includePreviousModules={includePreviousModules}
           onClose={() => setShowModelCompare(false)}
           onSelectResponse={async (comparisonData) => {
             const selectedResponseText = comparisonData.selectedResponse === 1 ? comparisonData.response1 : comparisonData.response2;

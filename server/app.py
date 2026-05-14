@@ -2367,7 +2367,7 @@ def _safe_json_list(value):
 
 def _resolve_include_previous_modules(user, payload, no_save=False):
     """Enable retrieval-based continuity for authenticated chat unless explicitly disabled."""
-    if not user or no_save:
+    if not user:
         return False
 
     raw_value = None
@@ -2377,6 +2377,9 @@ def _resolve_include_previous_modules(user, payload, no_save=False):
     # Explicit user preference always wins when provided.
     if raw_value is not None:
         return _parse_bool(raw_value)
+
+    if no_save:
+        return False
 
     return True
 
@@ -2400,6 +2403,109 @@ def _load_conversation_turns(conversation_id, limit=5, ascending=False):
             'ai': item.ai_response or '',
         })
     return turns
+
+
+_PREVIOUS_CHAT_RECALL_STOPWORDS = {
+    'onceki', 'önceki', 'sohbet', 'sohbetimiz', 'sohbetimizde', 'konu',
+    'konuda', 'hangi', 'ne', 'neyden', 'neden', 'bahsettik', 'bahsetmistik',
+    'bahsetmiştik', 'hatirla', 'hatırla', 'hatirliyor', 'hatırlıyor',
+    'misin', 'mısın', 'biz', 'bizim', 'ile', 've', 'bir', 'bu', 'su', 'şu',
+    'the', 'a', 'an', 'about', 'previous', 'chat', 'conversation', 'remember',
+}
+
+
+def _recall_query_tokens(text):
+    tokens = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", (text or '').lower(), flags=re.UNICODE)
+    return {
+        token for token in tokens
+        if len(token) >= 3 and token not in _PREVIOUS_CHAT_RECALL_STOPWORDS
+    }
+
+
+def _recall_token_overlap(query_tokens, candidate_tokens):
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+
+    exact = query_tokens & candidate_tokens
+    fuzzy = set()
+    for query_token in query_tokens - exact:
+        for candidate_token in candidate_tokens:
+            min_len = min(len(query_token), len(candidate_token))
+            if min_len >= 5 and (
+                query_token.startswith(candidate_token[:min_len])
+                or candidate_token.startswith(query_token[:min_len])
+            ):
+                fuzzy.add(query_token)
+                break
+
+    return ((len(exact) * 2) + len(fuzzy)) / max(len(query_tokens) * 2, 1)
+
+
+def _load_recent_chat_recall(user, question, conversation=None, limit=3):
+    """Return relevant raw turns from previous conversations when memory extraction misses them."""
+    if not user:
+        return {'text': '', 'hit_count': 0, 'hits': []}
+
+    query_tokens = _recall_query_tokens(question)
+    if not query_tokens:
+        return {'text': '', 'hit_count': 0, 'hits': []}
+
+    history_query = (
+        History.query
+        .join(Conversation, History.conversation_id == Conversation.id)
+        .filter(Conversation.user_id == user.id, History.is_deleted == False)  # noqa: E712
+    )
+    if conversation and conversation.id:
+        history_query = history_query.filter(History.conversation_id != conversation.id)
+
+    rows = (
+        history_query
+        .order_by(History.timestamp.desc())
+        .limit(120)
+        .all()
+    )
+
+    scored_rows = []
+    for row in rows:
+        candidate_text = f"{row.user_question or ''}\n{row.ai_response or ''}"
+        candidate_tokens = _recall_query_tokens(candidate_text)
+        score = _recall_token_overlap(query_tokens, candidate_tokens)
+        if score <= 0:
+            continue
+        scored_rows.append((score, row))
+
+    scored_rows.sort(key=lambda item: (item[0], item[1].timestamp), reverse=True)
+    selected_rows = scored_rows[:limit]
+    if not selected_rows:
+        return {'text': '', 'hit_count': 0, 'hits': []}
+
+    lines = ['[Previous Chat Recall]']
+    hits = []
+    for score, row in selected_rows:
+        user_text = (row.user_question or '').strip()
+        ai_text = (row.ai_response or '').strip()
+        if len(user_text) > 220:
+            user_text = user_text[:217].rstrip() + '...'
+        if len(ai_text) > 260:
+            ai_text = ai_text[:257].rstrip() + '...'
+        lines.append(f"- User previously asked: {user_text}")
+        if ai_text:
+            lines.append(f"  Assistant answered: {ai_text}")
+        hits.append({
+            'source_type': 'history',
+            'source_id': row.id,
+            'module_key': 'previous_chat',
+            'content': user_text,
+            'summary_text': ai_text,
+            'score': round(float(score), 3),
+            'conversation_id': row.conversation_id,
+        })
+
+    return {
+        'text': '\n'.join(lines).strip(),
+        'hit_count': len(hits),
+        'hits': hits,
+    }
 
 
 def _is_context_reset_intent(question_text):
@@ -2622,6 +2728,19 @@ def _load_previous_memory_context(user, question, conversation=None, include_pre
             {MemoryItem.last_used_at: _utcnow()},
             synchronize_session=False,
         )
+
+    try:
+        chat_recall = _load_recent_chat_recall(user, question, conversation)
+        if chat_recall.get('text'):
+            if memory_context.get('text'):
+                memory_context['text'] = f"{memory_context['text']}\n\n{chat_recall['text']}"
+            else:
+                memory_context['text'] = chat_recall['text']
+            memory_context['hits'] = list(memory_context.get('hits', [])) + chat_recall.get('hits', [])
+            memory_context['hit_count'] = int(memory_context.get('hit_count') or 0) + int(chat_recall.get('hit_count') or 0)
+            memory_context['raw_chat_recall_used'] = True
+    except Exception as chat_recall_err:
+        print(f"[MEMORY] Recent chat recall skipped: {chat_recall_err}")
 
     return memory_context
 
