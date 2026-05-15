@@ -66,6 +66,87 @@ CANCELLED_REQUESTS = {}
 
 def is_request_cancelled(request_id):
     return CANCELLED_REQUESTS.get(request_id, False)
+
+
+TEXT_FILE_EXTENSIONS = {
+    '.txt', '.py', '.js', '.jsx', '.ts', '.tsx', '.json', '.md', '.csv',
+    '.html', '.css', '.xml', '.yaml', '.yml', '.log', '.sql', '.sh',
+    '.bat', '.ps1', '.c', '.cpp', '.h', '.java', '.rb', '.go', '.rs',
+    '.php', '.swift', '.kt', '.r', '.m'
+}
+
+
+def _extract_docx_text(source, limit=10000):
+    from docx import Document
+
+    doc = Document(source)
+    parts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+            if cells:
+                parts.append('\t'.join(cells))
+
+    text = '\n'.join(parts).replace('\x00', '')
+    return text[:limit] if limit and len(text) > limit else text
+
+
+def _extract_pdf_text(source, limit=10000):
+    from pypdf import PdfReader
+
+    reader = PdfReader(source)
+    parts = []
+    total_chars = 0
+    for page in reader.pages:
+        txt = (page.extract_text() or '').replace('\x00', '')
+        if not txt:
+            continue
+        if limit:
+            remaining = limit - total_chars
+            if remaining <= 0:
+                break
+            txt = txt[:remaining]
+        parts.append(txt)
+        total_chars += len(txt)
+    return '\n'.join(parts)
+
+
+def _read_uploaded_document_text(path, limit=10000):
+    file_ext = os.path.splitext(path)[1].lower()
+    file_name = os.path.basename(path)
+
+    if file_ext in TEXT_FILE_EXTENSIONS:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            text = f.read().replace('\x00', '')
+        label = 'File'
+        instruction = "Analyze the uploaded file content and answer the user's question about it."
+    elif file_ext == '.pdf':
+        text = _extract_pdf_text(path, limit=limit)
+        label = 'PDF'
+        instruction = "Analyze the uploaded PDF content and answer the user's question about it."
+    elif file_ext == '.docx':
+        text = _extract_docx_text(path, limit=limit)
+        label = 'Word Document'
+        instruction = "Analyze the uploaded Word document content and answer the user's question about it."
+    else:
+        return None
+
+    if not text.strip():
+        raise ValueError(f'No readable text found in {label}')
+
+    if label == 'File':
+        content = f"\n--- Uploaded File: {file_name} ---\n```\n{text}\n```\n"
+    else:
+        content = f"\n--- Uploaded {label}: {file_name} ---\n{text}\n"
+
+    return {
+        'file_name': file_name,
+        'label': label,
+        'text': text,
+        'content': content,
+        'instruction': instruction,
+    }
 from utils.memory_utils import (
     build_minimum_continuation_capsule,
     build_memory_retrieval_plan,
@@ -1751,8 +1832,17 @@ def generate_gemini_answer(question: str, code: str, history_context: list = Non
                           '.html', '.css', '.xml', '.yaml', '.yml', '.log', '.sql', '.sh', 
                           '.bat', '.ps1', '.c', '.cpp', '.h', '.java', '.rb', '.go', '.rs', 
                           '.php', '.swift', '.kt', '.r', '.m']
-        
-        if file_ext in text_extensions:
+
+        if file_ext in TEXT_FILE_EXTENSIONS or file_ext in ['.pdf', '.docx']:
+            try:
+                extracted = _read_uploaded_document_text(image_path, limit=10000)
+                prompt_parts.append(extracted['content'])
+                prompt_parts.append(extracted['instruction'])
+                print(f"{extracted['label']} file read successfully: {extracted['file_name']} ({len(extracted['text'])} chars)")
+            except Exception as e:
+                print(f"Document read error: {e}")
+
+        elif file_ext in text_extensions:
             # Metin dosyası - içeriği oku ve prompt'a ekle
             try:
                 with open(image_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -2009,7 +2099,18 @@ def generate_claude_answer(question: str, code: str, history_context: list = Non
                           '.bat', '.ps1', '.c', '.cpp', '.h', '.java', '.rb', '.go', '.rs', 
                           '.php', '.swift', '.kt', '.r', '.m']
         
-        if file_ext in text_extensions:
+        if file_ext in TEXT_FILE_EXTENSIONS or file_ext in ['.pdf', '.docx']:
+            try:
+                extracted = _read_uploaded_document_text(image_path, limit=10000)
+                user_message += f"\n\n{extracted['content'].lstrip()}"
+                user_message += f"\n{extracted['instruction']}"
+                messages.append({"role": "user", "content": user_message})
+                print(f"Claude: {extracted['label']} file read successfully: {extracted['file_name']} ({len(extracted['text'])} chars)")
+            except Exception as e:
+                print(f"Claude: Document read error: {e}")
+                messages.append({"role": "user", "content": user_message})
+
+        elif file_ext in text_extensions:
             # Metin dosyası - içeriği oku ve mesaja ekle
             try:
                 with open(image_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -2170,7 +2271,18 @@ def generate_gpt_answer(question: str, code: str, history_context: list = None, 
                           '.bat', '.ps1', '.c', '.cpp', '.h', '.java', '.rb', '.go', '.rs', 
                           '.php', '.swift', '.kt', '.r', '.m']
         
-        if file_ext in text_extensions:
+        if file_ext in TEXT_FILE_EXTENSIONS or file_ext in ['.pdf', '.docx']:
+            try:
+                extracted = _read_uploaded_document_text(image_path, limit=10000)
+                user_message += f"\n\n{extracted['content'].lstrip()}"
+                user_message += f"\n{extracted['instruction']}"
+                messages.append({"role": "user", "content": user_message})
+                print(f"GPT: {extracted['label']} file read successfully: {extracted['file_name']} ({len(extracted['text'])} chars)")
+            except Exception as e:
+                print(f"GPT: Document read error: {e}")
+                messages.append({"role": "user", "content": user_message})
+
+        elif file_ext in text_extensions:
             # Metin dosyası - içeriği oku ve mesaja ekle
             try:
                 with open(image_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -8747,11 +8859,7 @@ def add_project_file(project_id):
                 return jsonify({'error': 'No readable text found in PDF'}), 400
         elif is_docx:
             try:
-                from docx import Document
-                doc = Document(io.BytesIO(binary_data))
-                content = '\n'.join(p.text for p in doc.paragraphs if p.text).replace('\x00', '')
-                if len(content) > 20000:
-                    content = content[:20000]
+                content = _extract_docx_text(io.BytesIO(binary_data), limit=20000)
             except Exception:
                 return jsonify({'error': 'DOCX text extraction failed'}), 400
 

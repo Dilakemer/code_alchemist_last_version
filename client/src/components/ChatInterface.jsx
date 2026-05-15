@@ -2160,7 +2160,7 @@ const ChatInterface = ({
               <div className="flex items-center flex-wrap gap-1">
                 <input
                   type="file"
-                  accept="image/*,audio/*,.pdf,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m"
+                  accept="image/*,audio/*,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.py,.js,.jsx,.ts,.tsx,.json,.md,.csv,.html,.css,.xml,.yaml,.yml,.log,.sql,.sh,.bat,.ps1,.c,.cpp,.h,.java,.rb,.go,.rs,.php,.swift,.kt,.r,.m"
                   className="hidden"
                   ref={fileInputRef}
                   onChange={handleFileSelect}
