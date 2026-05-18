@@ -8,10 +8,11 @@
  */
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { spawn } from 'child_process';
 import { getChatWebviewContent } from './chatView.js';
 import { getWorkspaceContext, getWorkspaceRoot } from './workspaceContext.js';
 import { sendAskRequest, getBackendStatus, deriveEndpointRoot, getHistory, getConversationHistory, getVscodeOtp, cancelAskRequest } from './apiClient.js';
-import { parseAiActions, validateFilePath, applyFileEdit, applyMultiEdit } from './actionHandler.js';
+import { parseAiActions, parseCommandActions, validateFilePath, applyFileEdit, applyMultiEdit } from './actionHandler.js';
 import { showDiffAndConfirm, showMultiDiffAndConfirm } from './diffPreview.js';
 import type { AskRequestPayload, AiAction } from './types.js';
 import type { WorkspaceContext } from './workspaceContext.js';
@@ -25,6 +26,7 @@ type SidebarModelOption = {
 type AuthBroadcastOverrides = {
   isAuthenticated?: boolean;
   balance?: number;
+  tokenUnlimited?: boolean;
   purchaseUrl?: string;
   error?: string;
   isVerifying?: boolean;
@@ -52,8 +54,16 @@ type PersistedChatState = {
   activeSessionId: string;
 };
 
+type WorkingContextState = {
+  activeFile?: string;
+  lastTargetFile?: string;
+  recentFiles: string[];
+  updatedAt: number;
+};
+
 const CHAT_STATE_STORAGE_KEY_PREFIX = 'codeAlchemist.chatState.byUser.v1';
 const CHAT_STATE_MAX_SESSIONS = 30;
+const WORKING_CONTEXT_MAX_FILES = 8;
 
 const SIDEBAR_MODEL_OPTIONS: SidebarModelOption[] = [
   { value: 'auto', label: 'Auto (Smart Model)' },
@@ -67,18 +77,18 @@ const SIDEBAR_MODEL_OPTIONS: SidebarModelOption[] = [
   { value: 'claude-opus-4-5-20251101', label: 'Claude 4.5 Opus' },
 ];
 
-function buildCodeContext(question: string, wsContext: WorkspaceContext): string {
+function buildCodeContext(question: string, wsContext: WorkspaceContext, targetFilePath?: string): string {
   if (wsContext.selectedCode?.trim()) {
     return wsContext.selectedCode;
   }
 
   const qLower = (question || '').toLowerCase();
   const asksForFileContent = /(dosya|file|markdown|\.md|readme|icerik|içerik|oku|read|ozet|özet|ozetle|özetle|summarize|summarise)\b/.test(qLower);
-  if (!asksForFileContent) {
+  if (!asksForFileContent && !targetFilePath) {
     return '';
   }
 
-  const normalizedActive = (wsContext.filePath || '').replace(/\\/g, '/');
+  const normalizedActive = (targetFilePath || wsContext.filePath || '').replace(/\\/g, '/');
   const normalizedRoot = (wsContext.workspaceRoot || '').replace(/\\/g, '/');
   const activeRelative =
     normalizedActive && normalizedRoot && normalizedActive.toLowerCase().startsWith((normalizedRoot + '/').toLowerCase())
@@ -102,7 +112,11 @@ function buildCodeContext(question: string, wsContext: WorkspaceContext): string
   return `Active file (${activeSnapshot.path}) content:\n${activeSnapshot.content}`;
 }
 
-function buildQuestionWithOutputConstraints(question: string, activeFilePath?: string): string {
+function buildQuestionWithOutputConstraints(
+  question: string,
+  activeFilePath?: string,
+  workingContextInstruction?: string,
+): string {
   const q = question.trim();
   const qLower = q.toLowerCase();
   const asksForFileEdit =
@@ -127,7 +141,8 @@ function buildQuestionWithOutputConstraints(question: string, activeFilePath?: s
     rules.push('Output rule: Place the requested date line at the very end of the file content as the final line.');
   }
 
-  return `${q}\n\n[${rules.join(' ')}]`;
+  const contextBlock = workingContextInstruction ? `\n\n${workingContextInstruction}` : '';
+  return `${q}${contextBlock}\n\n[${rules.join(' ')}]`;
 }
 
 function buildLocalDateAppendFallbackAction(question: string, activeFilePath: string, workspaceRoot: string, workspaceFiles: any[]): AiAction | null {
@@ -191,6 +206,44 @@ function createLocalSessionId(): string {
   return `session-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 }
 
+function isPathWithinWorkspace(workspaceRoot: string, targetPath: string): boolean {
+  const resolvedRoot = path.resolve(workspaceRoot);
+  const resolvedTarget = path.resolve(targetPath);
+  return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
+}
+
+async function resolveCommandCwd(workspaceRoot: string, requestedCwd?: string): Promise<string> {
+  const raw = (requestedCwd || '').trim();
+  const base = raw.length > 0
+    ? (path.isAbsolute(raw) ? raw : path.resolve(workspaceRoot, raw))
+    : workspaceRoot;
+  const normalized = path.resolve(base);
+
+  if (!isPathWithinWorkspace(workspaceRoot, normalized)) {
+    throw new Error('Komut çalışma dizini workspace dışında olamaz.');
+  }
+
+  const stat = await vscode.workspace.fs.stat(vscode.Uri.file(normalized));
+  if (stat.type & vscode.FileType.Directory) {
+    return normalized;
+  }
+  return path.dirname(normalized);
+}
+
+function getShellCommand(command: string): { file: string; args: string[] } {
+  if (process.platform === 'win32') {
+    return {
+      file: 'powershell.exe',
+      args: ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
+    };
+  }
+
+  return {
+    file: '/bin/bash',
+    args: ['-lc', command],
+  };
+}
+
 export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'code-alchemist-chat';
 
@@ -205,11 +258,13 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private _isAuthenticated: boolean = false;
   private _authError: string = '';
   private _balance: number = 0;
+  private _tokenUnlimited: boolean = false;
   private _purchaseUrl: string = '';
   private _isAuthVerifying: boolean = false;
   private _isAuthReconnecting: boolean = false;
   private _authRefreshRunId: number = 0;
   private _healthSub?: vscode.Disposable;
+  private _workingContexts: Map<string, WorkingContextState> = new Map();
   private static _instances: Set<CodeAlchemistChatProvider> = new Set();
 
   public static refreshAll() {
@@ -224,6 +279,219 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
   private _normalizeUserIdentity(value?: string): string {
     return (value || '').trim().toLowerCase();
+  }
+
+  private _getWorkingContextKey(sessionId?: string, conversationId?: string): string {
+    const localSession = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : '';
+    const backendConversation = typeof conversationId === 'string' && conversationId.trim()
+      ? conversationId.trim()
+      : (this._currentSessionId || '');
+    return localSession || backendConversation || 'default';
+  }
+
+  private _normalizeWorkspacePath(filePath: string, workspaceRoot?: string): string {
+    const normalized = (filePath || '').replace(/\\/g, '/').trim();
+    const root = (workspaceRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!normalized) {
+      return '';
+    }
+
+    if (root && normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`)) {
+      return normalized.slice(root.length + 1);
+    }
+
+    return normalized;
+  }
+
+  private _mergeRecentFiles(...groups: Array<Array<string | undefined>>): string[] {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+
+    for (const group of groups) {
+      for (const item of group) {
+        const normalized = (item || '').replace(/\\/g, '/').trim();
+        if (!normalized) {
+          continue;
+        }
+
+        const key = normalized.toLowerCase();
+        if (seen.has(key)) {
+          continue;
+        }
+
+        seen.add(key);
+        merged.push(normalized);
+        if (merged.length >= WORKING_CONTEXT_MAX_FILES) {
+          return merged;
+        }
+      }
+    }
+
+    return merged;
+  }
+
+  private _extractExplicitFileRefs(text: string, wsContext: WorkspaceContext): string[] {
+    const matches = text.match(/[A-Za-z0-9_.\-\/\\]+?\.[A-Za-z0-9]{1,12}\b/g) || [];
+    const workspacePaths = wsContext.workspaceFiles.map((file) => file.path || '').filter(Boolean);
+    const resolved: string[] = [];
+
+    for (const raw of matches) {
+      const candidate = raw.replace(/\\/g, '/').replace(/^[`'"]+|[`'",:;.!?]+$/g, '');
+      const candidateLower = candidate.toLowerCase();
+      const matchedWorkspacePath = workspacePaths.find((workspacePath) => {
+        const workspaceLower = workspacePath.toLowerCase();
+        return workspaceLower === candidateLower ||
+          workspaceLower.endsWith(`/${candidateLower}`) ||
+          path.basename(workspaceLower) === candidateLower;
+      });
+      resolved.push(matchedWorkspacePath || candidate);
+    }
+
+    return this._mergeRecentFiles(resolved);
+  }
+
+  private _buildWorkingContextForTurn(
+    text: string,
+    wsContext: WorkspaceContext,
+    sessionId?: string,
+    conversationId?: string,
+  ): {
+    key: string;
+    targetFile?: string;
+    activeFile?: string;
+    explicitFiles: string[];
+    recentFiles: string[];
+    instruction: string;
+  } {
+    const key = this._getWorkingContextKey(sessionId, conversationId);
+    const previous = this._workingContexts.get(key) || { recentFiles: [], updatedAt: 0 };
+    const activeFile = this._normalizeWorkspacePath(wsContext.filePath || '', wsContext.workspaceRoot);
+    const explicitFiles = this._extractExplicitFileRefs(text, wsContext);
+    const qLower = (text || '').toLowerCase();
+    const hasContinuationCue = /\b(this|that|it|same|again|continue|previous|last|file|edit|change|fix|update|add|remove|delete|apply|bunu|şunu|onu|ayni|aynı|devam|tekrar|dosya|duzelt|düzelt|guncelle|güncelle|ekle|sil|degistir|değiştir|uygula)\b/.test(qLower);
+
+    const previousTarget = previous.lastTargetFile || previous.activeFile || previous.recentFiles[0];
+    const targetFile = explicitFiles[0] || (hasContinuationCue && previousTarget ? previousTarget : (activeFile || previousTarget));
+    const recentFiles = this._mergeRecentFiles(
+      [targetFile],
+      explicitFiles,
+      [activeFile],
+      previous.recentFiles,
+    );
+
+    this._workingContexts.set(key, {
+      activeFile: activeFile || previous.activeFile,
+      lastTargetFile: targetFile || previous.lastTargetFile,
+      recentFiles,
+      updatedAt: Date.now(),
+    });
+
+    const lines = [
+      '[Workspace continuity context]',
+      `Current active file: ${activeFile || 'none'}`,
+      `Last target file in this chat: ${targetFile || previousTarget || 'none'}`,
+      `Recent files in this chat: ${recentFiles.length ? recentFiles.join(', ') : 'none'}`,
+      'Rule: If the user gives a follow-up edit or uses words like this/file/it/again/continue without naming a new file, use the last target file. Do not ask which file unless no target is available.',
+    ];
+
+    return {
+      key,
+      targetFile,
+      activeFile,
+      explicitFiles,
+      recentFiles,
+      instruction: lines.join('\n'),
+    };
+  }
+
+  private _rememberWorkingContextFiles(
+    key: string,
+    workspaceRoot: string,
+    files: Array<string | undefined>,
+  ): void {
+    const previous = this._workingContexts.get(key) || { recentFiles: [], updatedAt: 0 };
+    const normalizedFiles = files
+      .map((file) => this._normalizeWorkspacePath(file || '', workspaceRoot))
+      .filter(Boolean);
+
+    if (normalizedFiles.length === 0) {
+      return;
+    }
+
+    this._workingContexts.set(key, {
+      activeFile: previous.activeFile,
+      lastTargetFile: normalizedFiles[0] || previous.lastTargetFile,
+      recentFiles: this._mergeRecentFiles(normalizedFiles, previous.recentFiles),
+      updatedAt: Date.now(),
+    });
+  }
+
+  private _postCommandOutput(actionId: string | undefined, chunk: string, stream: 'stdout' | 'stderr' | 'system' = 'stdout'): void {
+    if (!this._view || !actionId || !chunk) {
+      return;
+    }
+
+    void this._view.webview.postMessage({
+      command: 'command_output',
+      actionId,
+      chunk,
+      stream,
+    });
+  }
+
+  private async _executeCommandWithOutput(
+    action: Extract<AiAction, { action: 'run_command' }>,
+    actionId?: string,
+  ): Promise<{ cwd: string; exitCode: number | null; signal: NodeJS.Signals | null }> {
+    const cmd = (action.command || '').trim();
+    if (!cmd) {
+      throw new Error('Komut içeriği boş.');
+    }
+
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      throw new Error('Workspace bulunamadı. Komut güvenli şekilde çalıştırılamaz.');
+    }
+
+    const cwd = await resolveCommandCwd(workspaceRoot, action.cwd);
+    const shell = getShellCommand(cmd);
+    const startedAt = Date.now();
+
+    this._postCommandOutput(actionId, `> ${cmd}\n`, 'system');
+    this._postCommandOutput(actionId, `cwd: ${cwd}\n\n`, 'system');
+    this._output.appendLine(`[Command] ${cmd}`);
+    this._output.appendLine(`[Command cwd] ${cwd}`);
+
+    return await new Promise((resolve, reject) => {
+      const child = spawn(shell.file, shell.args, {
+        cwd,
+        env: process.env,
+        windowsHide: true,
+      });
+
+      child.stdout?.on('data', (data: Buffer) => {
+        const text = data.toString('utf8');
+        this._postCommandOutput(actionId, text, 'stdout');
+        this._output.append(text);
+      });
+
+      child.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString('utf8');
+        this._postCommandOutput(actionId, text, 'stderr');
+        this._output.append(text);
+      });
+
+      child.on('error', (err) => {
+        reject(err);
+      });
+
+      child.on('close', (exitCode, signal) => {
+        const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+        const suffix = signal ? `signal ${signal}` : `exit ${exitCode ?? 'unknown'}`;
+        this._postCommandOutput(actionId, `\n[${suffix}, ${elapsed}s]\n`, exitCode === 0 ? 'system' : 'stderr');
+        resolve({ cwd, exitCode, signal });
+      });
+    });
   }
 
   private _getChatStateStorageKey(userIdentity: string): string {
@@ -436,24 +704,25 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.command) {
         case 'webviewReady':
-          this._broadcastSnapshot();
-          void this._runAuthRefreshCycle();
-          // Await the health check first, then push the definitive status.
-          // Without await, checkNow might silently skip firing if status hasn't
-          // changed, leaving the webview permanently stuck on 'connecting'.
-          healthMonitor.checkNow().then(() => {
-            webviewView.webview.postMessage({
-              command: 'HEALTH_STATUS',
-              status: healthMonitor.status,
-              timestamp: Date.now()
-            });
-          }).catch(() => {
-            webviewView.webview.postMessage({
-              command: 'HEALTH_STATUS',
-              status: healthMonitor.status,
-              timestamp: Date.now()
-            });
+          // The webview can miss messages posted before its listener is ready.
+          // On ready, publish the authoritative health/auth/chat state in order.
+          await healthMonitor.checkNow().catch(() => undefined);
+          await webviewView.webview.postMessage({
+            command: 'HEALTH_STATUS',
+            status: healthMonitor.status,
+            timestamp: Date.now()
           });
+          await this._runAuthRefreshCycle();
+          this._broadcastSnapshot();
+          setTimeout(() => {
+            void webviewView.webview.postMessage({
+              command: 'HEALTH_STATUS',
+              status: healthMonitor.status,
+              timestamp: Date.now()
+            });
+            void this._broadcastAuthStatus();
+            this._broadcastSnapshot();
+          }, 500);
           break;
 
         case 'refreshAuthStatus':
@@ -528,6 +797,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
   private _setLoggedOutAuthState(message: string) {
     this._isAuthenticated = false;
     this._balance = 0;
+    this._tokenUnlimited = false;
     this._purchaseUrl = '';
     this._authError = message;
     this._currentUserIdentity = '';
@@ -612,8 +882,10 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       }
 
       if (status.status === 'ok') {
+        HealthMonitor.getInstance().markOnline('authenticated status check succeeded');
         this._currentUserIdentity = this._normalizeUserIdentity(status.user);
         this._balance = status.balance ?? 0;
+        this._tokenUnlimited = Boolean(status.token_unlimited || status.is_admin);
         this._purchaseUrl = status.purchase_url ?? '';
         this._isAuthenticated = true;
         this._authError = '';
@@ -714,6 +986,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       command: 'AUTH_STATUS',
       isAuthenticated: overrides.isAuthenticated ?? this._isAuthenticated,
       balance: overrides.balance ?? this._balance,
+      tokenUnlimited: overrides.tokenUnlimited ?? this._tokenUnlimited,
       purchaseUrl: overrides.purchaseUrl ?? this._purchaseUrl,
       error: overrides.error ?? this._authError,
       isVerifying: overrides.isVerifying ?? this._isAuthVerifying,
@@ -827,7 +1100,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       }
 
       // ── 💰 UI-Side Token Guard ────────────────────────────────
-      if (this._isAuthenticated && this._balance <= 0) {
+      if (this._isAuthenticated && !this._tokenUnlimited && this._balance <= 0) {
         this._view.webview.postMessage({
           command: 'action_found',
           requestId: this._activeRequestId,
@@ -852,18 +1125,24 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         this._trustMap.set(abs, f.trust_id || '');
       });
 
-      const preparedQuestion = buildQuestionWithOutputConstraints(text, wsContext.filePath || undefined);
+      const workingContext = this._buildWorkingContextForTurn(text, wsContext, sessionId, conversationId);
+      const effectiveActiveFile = workingContext.targetFile || workingContext.activeFile || wsContext.filePath || '';
+      const preparedQuestion = buildQuestionWithOutputConstraints(
+        text,
+        effectiveActiveFile || undefined,
+        workingContext.instruction,
+      );
 
       const payload: AskRequestPayload = {
         question: preparedQuestion,
-        code: buildCodeContext(text, wsContext),
+        code: buildCodeContext(text, wsContext, effectiveActiveFile || undefined),
         model,
         agent_mode: agentMode,
         stream: !agentMode,
         allow_write_tools: true,
         include_previous_modules: true,
-        file_path: wsContext.filePath || '',
-        active_file: wsContext.filePath || '',
+        file_path: effectiveActiveFile,
+        active_file: effectiveActiveFile,
         workspace_root: wsContext.workspaceRoot || '',
         open_files: wsContext.openFiles || [],
         workspace_files: wsContext.workspaceFiles,
@@ -877,6 +1156,12 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         client_context: {
           source: 'vscode-extension-sidebar',
           extension: 'code-alchemist',
+          working_context: {
+            active_file: workingContext.activeFile,
+            last_target_file: workingContext.targetFile,
+            recent_files: workingContext.recentFiles,
+            explicit_files: workingContext.explicitFiles,
+          },
           capabilities: {
             workspace_tools_preview: true,
             diff_preview: true,
@@ -941,6 +1226,13 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       // 📜 Update Session ID for continuous conversation
       if (result.raw?.conversation_id) {
         this._currentSessionId = String(result.raw.conversation_id);
+        const linkedWorkingContextKey = this._getWorkingContextKey(sessionId, this._currentSessionId);
+        if (linkedWorkingContextKey !== workingContext.key) {
+          const state = this._workingContexts.get(workingContext.key);
+          if (state) {
+            this._workingContexts.set(linkedWorkingContextKey, state);
+          }
+        }
         if (this._view && typeof sessionId === 'string' && sessionId.trim()) {
           this._view.webview.postMessage({
             command: 'SESSION_LINKED',
@@ -964,7 +1256,17 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
       // Detect Actions
       const action = parseAiActions(result.raw);
-      const fallbackAction = action ?? buildLocalDateAppendFallbackAction(text, wsContext.filePath || '', wsContext.workspaceRoot || '', wsContext.workspaceFiles);
+      const fallbackAction = action ?? buildLocalDateAppendFallbackAction(text, effectiveActiveFile, wsContext.workspaceRoot || '', wsContext.workspaceFiles);
+      const actionFiles: Array<string | undefined> = [];
+      for (const changed of result.agentChangedFiles || []) {
+        actionFiles.push(changed.file || changed.path);
+      }
+      if (fallbackAction?.action === 'edit_file' || fallbackAction?.action === 'create_file' || fallbackAction?.action === 'delete_file') {
+        actionFiles.push(fallbackAction.file);
+      } else if (fallbackAction?.action === 'multi_edit') {
+        actionFiles.push(...fallbackAction.changes.map((change) => change.file));
+      }
+      this._rememberWorkingContextFiles(workingContext.key, wsContext.workspaceRoot || '', actionFiles);
 
       if (fallbackAction) {
         if (!action) {
@@ -979,6 +1281,16 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
           command: 'action_found',
           requestId: rid,
           action: reviewAction,
+        });
+      }
+
+      const commandActions = parseCommandActions(result.raw)
+        .filter((commandAction) => fallbackAction?.action !== 'run_command' || commandAction.command !== fallbackAction.command);
+      for (const commandAction of commandActions) {
+        this._view.webview.postMessage({
+          command: 'action_found',
+          requestId: rid,
+          action: commandAction,
         });
       }
 
@@ -1134,7 +1446,6 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       }));
       return { action: 'multi_edit', changes };
     }
-
     if (action.action !== 'edit_file') {
       return action;
     }
@@ -1170,6 +1481,43 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     }
 
     if (action.action === 'run_command') {
+      try {
+        const config = vscode.workspace.getConfiguration('codeAlchemist');
+        const allowCommands = config.get<string>('allowCommands') || 'ask';
+
+        if (allowCommands === 'never') {
+          throw new Error('Command execution is disabled in settings.');
+        }
+
+        this._view.webview.postMessage({
+          command: 'action_result',
+          actionId,
+          status: 'running',
+          message: 'Komut calistiriliyor...',
+        });
+
+        const result = await this._executeCommandWithOutput(action, actionId);
+        if (result.exitCode !== 0 || result.signal) {
+          throw new Error(result.signal ? `Komut ${result.signal} sinyali ile durdu.` : `Komut ${result.exitCode} cikis kodu ile bitti.`);
+        }
+
+        this._view.webview.postMessage({
+          command: 'action_result',
+          actionId,
+          status: 'applied',
+          message: 'Komut basariyla tamamlandi.',
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this._view.webview.postMessage({
+          command: 'action_result',
+          actionId,
+          status: 'error',
+          message: `Komut calistirilamadi: ${msg}`,
+        });
+      }
+      return;
+      /* Legacy terminal-only path disabled; command output is captured above.
       try {
         const cmd = action.command || (action as any).script || '';
         if (!cmd) throw new Error('Komut içeriği boş.');
@@ -1217,6 +1565,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         });
       }
       return;
+      */
     }
 
     if (action.action !== 'edit_file') {

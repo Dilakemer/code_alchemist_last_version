@@ -570,6 +570,10 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             color: #f1c40f;
             display: none;
             border-left: 2px solid #f1c40f;
+            white-space: pre-wrap;
+            max-height: 260px;
+            overflow: auto;
+            font-family: var(--vscode-editor-font-family, monospace);
         }
         .command-output.visible {
             display: block;
@@ -1189,6 +1193,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             statusText: '',
             isAuthenticated: false,
             balance: 0,
+            tokenUnlimited: false,
             purchaseUrl: '',
             authError: '',
             isVerifying: false,
@@ -1303,6 +1308,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     hasReceivedAuthStatus = true;
                     appState.isAuthenticated = action.payload.isAuthenticated;
                     appState.balance = typeof action.payload.balance === 'number' ? action.payload.balance : 0;
+                    appState.tokenUnlimited = Boolean(action.payload.tokenUnlimited);
                     appState.purchaseUrl = typeof action.payload.purchaseUrl === 'string' ? action.payload.purchaseUrl : '';
                     appState.authError = typeof action.payload.error === 'string' ? action.payload.error : '';
                     appState.isVerifying = Boolean(action.payload.isVerifying);
@@ -1392,7 +1398,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
                 const balanceAmount = document.getElementById('balance-amount');
                 if (balanceAmount) {
-                    balanceAmount.textContent = appState.balance.toLocaleString();
+                    balanceAmount.textContent = appState.tokenUnlimited ? '∞' : appState.balance.toLocaleString();
+                    balanceAmount.title = appState.tokenUnlimited ? 'Sınırsız token' : '';
                 }
 
                 if (authSyncIndicator) {
@@ -1516,6 +1523,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                     case 'action_result':
                         updateActionCard(message.actionId, message.status, message.message);
                         break;
+                    case 'command_output':
+                        appendCommandOutput(message.actionId, message.chunk, message.stream);
+                        break;
                     case 'session_deleted':
                         deleteSession(message.sessionId);
                         break;
@@ -1606,6 +1616,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 selectedModel: appState.selectedModel,
                 isAuthenticated: appState.isAuthenticated,
                 balance: appState.balance,
+                tokenUnlimited: appState.tokenUnlimited,
                 purchaseUrl: appState.purchaseUrl,
                 authError: appState.authError,
                 isVerifying: appState.isVerifying,
@@ -1633,6 +1644,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             appState.selectedModel = typeof saved.selectedModel === 'string' ? saved.selectedModel : appState.selectedModel;
             appState.isAuthenticated = Boolean(saved.isAuthenticated);
             appState.balance = typeof saved.balance === 'number' ? saved.balance : 0;
+            appState.tokenUnlimited = Boolean(saved.tokenUnlimited);
             appState.purchaseUrl = typeof saved.purchaseUrl === 'string' ? saved.purchaseUrl : '';
             appState.authError = typeof saved.authError === 'string' ? saved.authError : '';
             appState.isVerifying = Boolean(saved.isVerifying);
@@ -1779,6 +1791,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             appState.activeSessionId = s.id;
             appState.isAuthenticated = false;
             appState.balance = 0;
+            appState.tokenUnlimited = false;
             appState.purchaseUrl = '';
             appState.authError = 'Logged out.';
             appState.isVerifying = false;
@@ -2034,6 +2047,8 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                 runBtn.disabled = true;
                 const dBtn = card.querySelector('.discard-btn');
                 if (dBtn) dBtn.disabled = true;
+                const pBtn = card.querySelector('.popout-btn');
+                if (pBtn) pBtn.disabled = true;
                 window.resolveCard(cardId, 'accept');
             });
 
@@ -2044,7 +2059,9 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
 
             const popoutBtn = card.querySelector('.popout-btn');
             popoutBtn.addEventListener('click', () => {
-                vscode.postMessage({ command: 'runCommand', actionId: cardId, command: action.command, cwd: action.cwd, newTerminal: true });
+                popoutBtn.disabled = true;
+                runBtn.disabled = true;
+                vscode.postMessage({ command: 'runCommand', actionId: cardId, command: action.command, cwd: action.cwd });
             });
 
             if (appState.currentAiBubble) {
@@ -2119,6 +2136,22 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             }
         };
 
+        function appendCommandOutput(aid, chunk, stream) {
+            const card = document.querySelector('[data-action-id="' + aid + '"]');
+            if (!card || !card.classList.contains('command-card')) return;
+
+            const output = card.querySelector('.command-output');
+            if (!output) return;
+
+            output.classList.add('visible');
+            output.textContent += chunk || '';
+            if (stream === 'stderr') {
+                output.style.borderLeftColor = '#e74c3c';
+            }
+            output.scrollTop = output.scrollHeight;
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
         function updateActionCard(aid, status, msg) {
             console.log('[CodeAlchemist] updateActionCard: ' + aid + ' -> ' + status);
             const card = document.querySelector('[data-action-id="' + aid + '"]');
@@ -2128,10 +2161,12 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
             if (card && card.classList.contains('command-card')) {
                 const output = card.querySelector('.command-output');
                 if (output) {
-                    output.textContent = msg;
+                    output.textContent += (output.textContent ? '\\n' : '') + msg;
                     output.classList.add('visible');
                     if (status === 'applied') output.style.color = '#2ecc71';
+                    else if (status === 'running') output.style.color = '#f1c40f';
                     else if (status === 'error') output.style.color = '#e74c3c';
+                    output.scrollTop = output.scrollHeight;
                 }
                 return;
             }

@@ -12,7 +12,7 @@
  */
 import * as vscode from 'vscode';
 import * as path from 'path';
-import type { AiAction, FileChange, AgentChangedFile, AskResponse } from './types.js';
+import type { AiAction, FileChange, AgentChangedFile, AskResponse, RunCommandAction } from './types.js';
 
 function pickString(source: Record<string, unknown> | null | undefined, keys: string[]): string {
   if (!source) {
@@ -467,6 +467,49 @@ function extractNonEditActionFromTrace(trace: any[]): AiAction | null {
   }
 
   return null;
+}
+
+export function parseCommandActions(response: AskResponse): RunCommandAction[] {
+  const actions: RunCommandAction[] = [];
+  const seen = new Set<string>();
+
+  const pushAction = (candidate: RunCommandAction | null | undefined) => {
+    if (!candidate?.command?.trim()) {
+      return;
+    }
+    const key = `${candidate.command.trim()}\n${candidate.cwd || ''}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    actions.push(candidate);
+  };
+
+  const raw = response as Record<string, unknown>;
+  if (raw.action === 'run_command' && typeof raw.command === 'string') {
+    pushAction({
+      action: 'run_command',
+      command: raw.command,
+      cwd: typeof raw.cwd === 'string' ? raw.cwd : undefined,
+      background: typeof raw.background === 'boolean' ? raw.background : undefined,
+    });
+  }
+
+  for (const entry of response.agent_trace || []) {
+    const extracted = extractNonEditActionFromTrace([entry]);
+    if (extracted?.action === 'run_command') {
+      pushAction(extracted);
+    }
+  }
+
+  if (response.answer) {
+    const embedded = tryParseEmbeddedAction(response.answer);
+    if (embedded?.action === 'run_command') {
+      pushAction(embedded);
+    }
+  }
+
+  return actions;
 }
 
 /**

@@ -1,0 +1,170 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[turkish]{babel}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{parskip}
+
+\geometry{
+  a4paper,
+  top=2.5cm,
+  bottom=2.5cm,
+  left=3cm,
+  right=2.5cm
+}
+
+\definecolor{codeblue}{RGB}{32,78,145}
+\definecolor{codegray}{RGB}{245,246,248}
+\definecolor{codegreen}{RGB}{35,120,80}
+\definecolor{codered}{RGB}{170,45,45}
+
+\lstset{
+  backgroundcolor=\color{codegray},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen}\itshape,
+  stringstyle=\color{codered},
+  numbers=left,
+  numberstyle=\tiny,
+  frame=single,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=2
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=codeblue,
+  urlcolor=codeblue,
+  pdftitle={CodeAlchemist VS Code Extension Hafta 14},
+  pdfauthor={CodeAlchemist Ekibi}
+}
+
+\title{\textbf{CodeAlchemist VS Code Extension --- Hafta 14} \\
+\large Agent Baglam Koruma, Komut Ciktisi ve Saglik Durumu Stabilizasyonu}
+\author{CodeAlchemist Ekibi}
+\date{18 Mayis 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Yonetici Ozeti}
+
+Bu hafta VS Code extension tarafinda agent deneyimini mevcut modern kod asistanlarina yaklastiran uc kritik alan iyilestirildi:
+
+\begin{itemize}[leftmargin=2em]
+  \item Sohbet icinde dosya hedefi ve calisma baglami korunur hale getirildi.
+  \item Agent tarafindan onerilen terminal komutlari yakalanabilir sekilde calistirilip stdout/stderr ciktisi chat kartina yansitildi.
+  \item Backend saglik durumu ve auth handshake akisi tekil ping hatalarinda UI'yi yanlis offline durumuna dusurmemek icin sertlestirildi.
+\end{itemize}
+
+\section{Kod Tabani Kapsami}
+
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Dosya} & \textbf{Degisiklik} \\
+\midrule
+\texttt{src/chatProvider.ts} & Sohbet bazli working context, komut calistirma, health/auth yeniden yayinlama ve aksiyon karti akisi guncellendi. \\
+\texttt{src/actionHandler.ts} & Tek cevapta dosya degisikligi ve komut aksiyonunun birlikte yakalanmasi icin komut parser'i eklendi. \\
+\texttt{src/chatView.ts} & Komut karti ciktisi, webview mesaj dinleyicisi ve uzun terminal log gorunumu guncellendi. \\
+\texttt{src/healthMonitor.ts} & Tekil health ping hatalarina tolerans eklendi; basarili auth durumunda online state korunur hale getirildi. \\
+\texttt{src/types.ts} & \texttt{client\_context.working\_context} ve auth/limit alanlari tip sistemine eklendi. \\
+\bottomrule
+\end{tabularx}
+
+\section{Baglam Koruma}
+
+Onceki davranista extension her istekte yalnizca aktif editor ve workspace snapshot'ini gonderiyordu. Kullanici ikinci mesajda ``bunu duzelt'', ``ayni dosyaya ekle'' veya ``devam et'' dediginde model dosya hedefini kaybedebiliyor ve tekrar dosya adi sorabiliyordu.
+
+Yeni akista \texttt{chatProvider.ts} icinde sohbet anahtarina bagli bir working context tutulur:
+
+\begin{itemize}[leftmargin=2em]
+  \item aktif dosya,
+  \item son hedef dosya,
+  \item acikca adi gecen dosyalar,
+  \item agent tarafindan son degistirilen dosyalar.
+\end{itemize}
+
+Bu bilgiler her istekte \texttt{client\_context.working\_context} alanina ve prompt icindeki continuity instruction bolumune eklenir. Boylece kullanici ayni sohbet icinde takip mesaji yazdiginda hedef dosya korunur.
+
+\section{Terminal Komutu Ciktisi}
+
+VS Code Terminal API terminale komut gondermeye izin verir; fakat terminal stdout/stderr ciktisini extension tarafina geri okumak icin guvenilir bir API sunmaz. Bu nedenle komutlar artik extension host icinde \texttt{child\_process.spawn} ile calistirilmaktadir.
+
+\begin{lstlisting}[language=TypeScript, caption={Komut ciktisinin webview'e aktarilmasi}]
+child.stdout?.on('data', (data: Buffer) => {
+  this._postCommandOutput(actionId, data.toString('utf8'), 'stdout');
+});
+
+child.stderr?.on('data', (data: Buffer) => {
+  this._postCommandOutput(actionId, data.toString('utf8'), 'stderr');
+});
+\end{lstlisting}
+
+Windows ortaminda komutlar PowerShell uzerinden, Unix tabanli ortamlarda ise \texttt{/bin/bash -lc} uzerinden calistirilir. Calisma dizini workspace disina tasirilmadan once dogrulanir.
+
+\section{Coklu Aksiyon Duzeltmesi}
+
+Agent cevaplari bazen ayni turda hem dosya degisikligi hem terminal komutu icerebilir. Eski parser ilk dosya degisikligini bulunca durdugu icin komut karti olusmuyordu. \texttt{parseCommandActions(...)} yardimcisi ile trace, structured response ve embedded JSON icindeki \texttt{run\_command} aksiyonlari ayrica taranmaya baslandi.
+
+Beklenen UI davranisi:
+
+\begin{enumerate}[leftmargin=2em]
+  \item Dosya degisikligi icin \textbf{File Change} karti gosterilir.
+  \item Komut icin ayrica \textbf{Terminal Komutu} karti gosterilir.
+  \item Kullanici onay verdiginde komut ciktisi ayni kart icinde canli olarak akar.
+\end{enumerate}
+
+\section{Saglik Durumu ve Auth Handshake}
+
+Gozlenen problemde backend \texttt{/v1/status} istegine basarili cevap verirken, tekil \texttt{/health} ping hatasi UI'yi \texttt{offline} veya \texttt{connecting} durumuna cekebiliyordu. Bu akista iki sertlestirme yapildi:
+
+\begin{itemize}[leftmargin=2em]
+  \item \texttt{HealthMonitor} ardisik iki health hatasi olmadan mevcut online durumunu offline'a dusurmez.
+  \item Basarili auth status kontrolu \texttt{markOnline(...)} ile health state'i tekrar online kabul eder.
+\end{itemize}
+
+Bu sayede backend gercekte erisilebilirken UI'nin yalanci offline durumuna dusmesi engellenir.
+
+\section{Dogrulama}
+
+Degisikliklerden sonra extension paketi TypeScript derlemesinden gecirildi:
+
+\begin{lstlisting}[language=bash, caption={Derleme dogrulamasi}]
+npm run build
+\end{lstlisting}
+
+Backend saglik kontrolu de yerelde dogrulandi:
+
+\begin{lstlisting}[language=bash, caption={Backend health kontrolu}]
+GET http://localhost:5001/health
+{"status":"ok","version":"1.0.0"}
+\end{lstlisting}
+
+\section{Test Senaryosu}
+
+Extension Development Host yeniden yuklendikten sonra asagidaki prompt ile hem dosya baglami hem komut ciktisi test edilebilir:
+
+\begin{quote}
+Bu aktif dosyanin sonuna "Komut testi" yaz. Sonra \texttt{Get-Date} komutunu calistir ve ciktisini chat icinde goster.
+\end{quote}
+
+Ikinci mesaj olarak:
+
+\begin{quote}
+Ayni dosyanin sonuna bir satir daha ekle.
+\end{quote}
+
+Bu testte agent'in tekrar dosya adi sormadan onceki hedef dosyayi kullanmasi beklenir.
+
+\end{document}

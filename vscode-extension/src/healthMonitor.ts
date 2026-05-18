@@ -14,6 +14,7 @@ export class HealthMonitor {
   private _onStateChange = new vscode.EventEmitter<BackendHealthStatus>();
   private _output?: vscode.OutputChannel;
   private _pollTimer?: NodeJS.Timeout;
+  private _failureCount = 0;
 
   public readonly onStateChange = this._onStateChange.event;
 
@@ -39,6 +40,12 @@ export class HealthMonitor {
     return this._status;
   }
 
+  public markOnline(reason = 'backend request succeeded'): void {
+    this._failureCount = 0;
+    this._output?.appendLine(`[Health] Online (${reason})`);
+    this.setStatus('online');
+  }
+
   /**
    * Immediate health check.
    */
@@ -59,16 +66,26 @@ export class HealthMonitor {
       const isAlive = await pingBackend(endpoint);
       
       if (isAlive) {
+        this._failureCount = 0;
         this._output?.appendLine('[Health] Online');
+        this.setStatus('online');
       } else {
-        this._output?.appendLine(`[Health] Offline (ping failed for ${healthUrl || endpoint}). Check if backend is running.`);
+        this._failureCount += 1;
+        this._output?.appendLine(`[Health] Ping failed for ${healthUrl || endpoint} (failure ${this._failureCount}/2).`);
+        if (this._failureCount >= 2) {
+          this._output?.appendLine(`[Health] Offline (repeated ping failures for ${healthUrl || endpoint}). Check if backend is running.`);
+          this.setStatus('offline');
+        } else if (this._status === 'connecting') {
+          this.setStatus('connecting');
+        }
       }
-      
-      this.setStatus(isAlive ? 'online' : 'offline');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this._output?.appendLine(`[Health] Error during ping: ${msg}`);
-      this.setStatus('offline');
+      this._failureCount += 1;
+      this._output?.appendLine(`[Health] Error during ping: ${msg} (failure ${this._failureCount}/2)`);
+      if (this._failureCount >= 2) {
+        this.setStatus('offline');
+      }
     }
   }
 

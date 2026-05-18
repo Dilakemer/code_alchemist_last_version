@@ -33,6 +33,12 @@ export interface AskRequestPayload {
   client_context: {
     source: string;
     extension: string;
+    working_context?: {
+      active_file?: string;
+      last_target_file?: string;
+      recent_files?: string[];
+      explicit_files?: string[];
+    };
     capabilities: {
       workspace_tools_preview: boolean;
       diff_preview: boolean;
@@ -198,6 +204,8 @@ export interface BackendStatusResponse {
   user?: string;
   auth_state?: 'authenticated' | 'unauthorized';
   balance?: number;
+  is_admin?: boolean;
+  token_unlimited?: boolean;
   purchase_url?: string;
   model_config?: Record<string, string>;
   server_time?: string;
