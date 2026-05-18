@@ -206,20 +206,78 @@ function createLocalSessionId(): string {
   return `session-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 }
 
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findRepoRootFromActiveEditor(): Promise<string> {
+  const activePath = vscode.window.activeTextEditor?.document.uri.fsPath || '';
+  if (!activePath) {
+    return '';
+  }
+
+  let current = path.dirname(activePath);
+  let packageRoot = '';
+
+  while (current && current !== path.dirname(current)) {
+    if (await pathExists(path.join(current, '.git'))) {
+      return current;
+    }
+    if (!packageRoot && await pathExists(path.join(current, 'package.json'))) {
+      packageRoot = current;
+    }
+    current = path.dirname(current);
+  }
+
+  return packageRoot;
+}
+
 function isPathWithinWorkspace(workspaceRoot: string, targetPath: string): boolean {
   const resolvedRoot = path.resolve(workspaceRoot);
   const resolvedTarget = path.resolve(targetPath);
   return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
 }
 
-async function resolveCommandCwd(workspaceRoot: string, requestedCwd?: string): Promise<string> {
+async function getCommandWorkspaceRoot(): Promise<string> {
+  const activeRepoRoot = await findRepoRootFromActiveEditor();
+  if (activeRepoRoot) {
+    return activeRepoRoot;
+  }
+  return getWorkspaceRoot();
+}
+
+async function getCommandFallbackRoots(primaryRoot: string): Promise<string[]> {
+  const roots = new Set<string>();
+  if (primaryRoot) {
+    roots.add(path.resolve(primaryRoot));
+  }
+
+  const activeRepoRoot = await findRepoRootFromActiveEditor();
+  if (activeRepoRoot) {
+    roots.add(path.resolve(activeRepoRoot));
+  }
+
+  for (const folder of vscode.workspace.workspaceFolders || []) {
+    roots.add(path.resolve(folder.uri.fsPath));
+  }
+
+  return [...roots];
+}
+
+async function resolveCommandCwd(workspaceRoot: string, requestedCwd?: string, allowedRoots?: string[]): Promise<string> {
   const raw = (requestedCwd || '').trim();
   const base = raw.length > 0
     ? (path.isAbsolute(raw) ? raw : path.resolve(workspaceRoot, raw))
     : workspaceRoot;
   const normalized = path.resolve(base);
 
-  if (!isPathWithinWorkspace(workspaceRoot, normalized)) {
+  const safeRoots = allowedRoots && allowedRoots.length > 0 ? allowedRoots : [workspaceRoot];
+  if (!safeRoots.some((root) => isPathWithinWorkspace(root, normalized))) {
     throw new Error('Komut çalışma dizini workspace dışında olamaz.');
   }
 
@@ -242,6 +300,10 @@ function getShellCommand(command: string): { file: string; args: string[] } {
     file: '/bin/bash',
     args: ['-lc', command],
   };
+}
+
+function isLikelyCwdPathError(output: string): boolean {
+  return /cannot find path|path .* does not exist|no such file or directory|cannot access|not found/i.test(output || '');
 }
 
 export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
@@ -448,12 +510,13 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       throw new Error('Komut içeriği boş.');
     }
 
-    const workspaceRoot = getWorkspaceRoot();
+    const workspaceRoot = await getCommandWorkspaceRoot();
     if (!workspaceRoot) {
       throw new Error('Workspace bulunamadı. Komut güvenli şekilde çalıştırılamaz.');
     }
 
-    const cwd = await resolveCommandCwd(workspaceRoot, action.cwd);
+    const allowedRoots = await getCommandFallbackRoots(workspaceRoot);
+    const cwd = await resolveCommandCwd(workspaceRoot, action.cwd, allowedRoots);
     const shell = getShellCommand(cmd);
     const startedAt = Date.now();
 
@@ -462,7 +525,8 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     this._output.appendLine(`[Command] ${cmd}`);
     this._output.appendLine(`[Command cwd] ${cwd}`);
 
-    return await new Promise((resolve, reject) => {
+    let combinedOutput = '';
+    const firstResult = await new Promise<{ cwd: string; exitCode: number | null; signal: NodeJS.Signals | null; combinedOutput: string }>((resolve, reject) => {
       const child = spawn(shell.file, shell.args, {
         cwd,
         env: process.env,
@@ -471,12 +535,14 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
 
       child.stdout?.on('data', (data: Buffer) => {
         const text = data.toString('utf8');
+        combinedOutput += text;
         this._postCommandOutput(actionId, text, 'stdout');
         this._output.append(text);
       });
 
       child.stderr?.on('data', (data: Buffer) => {
         const text = data.toString('utf8');
+        combinedOutput += text;
         this._postCommandOutput(actionId, text, 'stderr');
         this._output.append(text);
       });
@@ -489,9 +555,20 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
         const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
         const suffix = signal ? `signal ${signal}` : `exit ${exitCode ?? 'unknown'}`;
         this._postCommandOutput(actionId, `\n[${suffix}, ${elapsed}s]\n`, exitCode === 0 ? 'system' : 'stderr');
-        resolve({ cwd, exitCode, signal });
+        resolve({ cwd, exitCode, signal, combinedOutput });
       });
     });
+
+    if (!action.cwd && firstResult.exitCode !== 0 && isLikelyCwdPathError(firstResult.combinedOutput)) {
+      const retryRoot = allowedRoots.find((root) => path.resolve(root) !== path.resolve(firstResult.cwd));
+      if (retryRoot) {
+        this._postCommandOutput(actionId, '\n[Komut yolu bulunamadi; repo/workspace kokunden bir kez daha deneniyor.]\n', 'system');
+        const retryAction = { ...action, cwd: retryRoot };
+        return await this._executeCommandWithOutput(retryAction, actionId);
+      }
+    }
+
+    return { cwd: firstResult.cwd, exitCode: firstResult.exitCode, signal: firstResult.signal };
   }
 
   private _getChatStateStorageKey(userIdentity: string): string {
