@@ -221,7 +221,15 @@ async function findRepoRootFromActiveEditor(): Promise<string> {
     return '';
   }
 
-  let current = path.dirname(activePath);
+  return findRepoRootFromPath(path.dirname(activePath));
+}
+
+async function findRepoRootFromPath(startPath: string): Promise<string> {
+  if (!startPath) {
+    return '';
+  }
+
+  let current = path.resolve(startPath);
   let packageRoot = '';
 
   while (current && current !== path.dirname(current)) {
@@ -251,7 +259,7 @@ async function getCommandWorkspaceRoot(): Promise<string> {
   return getWorkspaceRoot();
 }
 
-async function getCommandFallbackRoots(primaryRoot: string): Promise<string[]> {
+async function getCommandFallbackRoots(primaryRoot: string, extraRoots: string[] = []): Promise<string[]> {
   const roots = new Set<string>();
   if (primaryRoot) {
     roots.add(path.resolve(primaryRoot));
@@ -264,6 +272,12 @@ async function getCommandFallbackRoots(primaryRoot: string): Promise<string[]> {
 
   for (const folder of vscode.workspace.workspaceFolders || []) {
     roots.add(path.resolve(folder.uri.fsPath));
+  }
+
+  for (const root of extraRoots) {
+    if (root) {
+      roots.add(path.resolve(root));
+    }
   }
 
   return [...roots];
@@ -501,6 +515,25 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  private async _getExtensionFallbackRoots(): Promise<string[]> {
+    const roots: string[] = [];
+    const extensionPath = this._extensionUri.fsPath;
+    const extensionRepoRoot = await findRepoRootFromPath(extensionPath);
+
+    if (extensionRepoRoot) {
+      roots.push(extensionRepoRoot);
+    }
+
+    // In Extension Development Host the extension URI is often
+    // <repo>/vscode-extension, while commands may target <repo>/docs.
+    const parent = path.dirname(extensionPath);
+    if (parent && parent !== extensionPath) {
+      roots.push(parent);
+    }
+
+    return roots;
+  }
+
   private async _executeCommandWithOutput(
     action: Extract<AiAction, { action: 'run_command' }>,
     actionId?: string,
@@ -515,7 +548,7 @@ export class CodeAlchemistChatProvider implements vscode.WebviewViewProvider {
       throw new Error('Workspace bulunamadı. Komut güvenli şekilde çalıştırılamaz.');
     }
 
-    const allowedRoots = await getCommandFallbackRoots(workspaceRoot);
+    const allowedRoots = await getCommandFallbackRoots(workspaceRoot, await this._getExtensionFallbackRoots());
     const cwd = await resolveCommandCwd(workspaceRoot, action.cwd, allowedRoots);
     const shell = getShellCommand(cmd);
     const startedAt = Date.now();
