@@ -5064,6 +5064,8 @@ def delete_account():
         MemoryEdge.query.filter_by(user_id=user.id).delete(synchronize_session=False)
         MemoryNode.query.filter_by(user_id=user.id).delete(synchronize_session=False)
         MemoryItem.query.filter_by(user_id=user.id).delete(synchronize_session=False)
+        SecurityAuditLog.query.filter(db.or_(SecurityAuditLog.user_id == user.id, SecurityAuditLog.target_user_id == user.id)).delete(synchronize_session=False)
+        LegalConsentLog.query.filter_by(user_id=user.id).delete(synchronize_session=False)
 
         # 2. Sohbetler
         conversations = Conversation.query.filter_by(user_id=user.id).all()
