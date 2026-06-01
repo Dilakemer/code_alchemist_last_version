@@ -25,6 +25,11 @@ class User(db.Model):
     preferences = db.Column(db.Text, nullable=True)  # AI Taste Profile (JSON)
     created_at = db.Column(db.DateTime, default=_utcnow)
 
+    # Email Doğrulama Alanları
+    is_verified = db.Column(db.Boolean, default=False, nullable=False)
+    verification_code = db.Column(db.String(6), nullable=True)
+    verification_code_expires_at = db.Column(db.DateTime, nullable=True)
+
     # Gamification Fields 🎮
     xp = db.Column(db.Integer, default=0)  # Harcanan XP bu alanı etkileyebilir
     total_xp_earned = db.Column(db.Integer, default=0)  # Toplam kazanılan XP (asla düşmez, level buna göre)

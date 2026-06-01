@@ -4696,10 +4696,16 @@ def register():
     if User.query.filter_by(display_name=display_name).first():
         return jsonify({'error': 'This username is already taken.'}), 409
 
+    # 6 haneli doğrulama kodu üret
+    verification_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
     user = User(
         email=email,
         display_name=display_name,
-        password_hash=hash_password(password)
+        password_hash=hash_password(password),
+        is_verified=False,
+        verification_code=verification_code,
+        verification_code_expires_at=_utcnow() + timedelta(minutes=30)
     )
     db.session.add(user)
     db.session.commit()
@@ -4707,8 +4713,14 @@ def register():
     # Otomatik 100 token yüklemesini yap
     get_or_create_token_balance(user)
 
-    token = create_access_token(identity=str(user.id))
-    return jsonify({'token': token, 'user': serialize_user(user)}), 201
+    # Doğrulama maili gönder
+    send_verification_email(email, verification_code)
+
+    return jsonify({
+        'message': 'Registration successful. Please check your email and enter the 6-digit verification code.',
+        'requires_verification': True,
+        'email': email
+    }), 201
 
 
 @app.route('/api/auth/google', methods=['POST'])
@@ -4732,6 +4744,14 @@ def login():
     user = User.query.filter_by(email=email).first()
     if not user or not verify_password(password, user.password_hash):
         return jsonify({'error': 'Incorrect email or password.'}), 401
+
+    # E-posta doğrulama kontrolü
+    if not user.is_verified:
+        return jsonify({
+            'error': 'Please verify your email address before logging in.',
+            'requires_verification': True,
+            'email': email
+        }), 403
 
     ensure_configured_admin(user)
     token = create_access_token(identity=str(user.id))
@@ -5123,6 +5143,132 @@ def delete_account():
         db.session.rollback()
         sys.stderr.write(f'ERROR: {str(e)}\n')
         return jsonify({'error': str(e)}), 500
+
+# --- E-POSTA DOĞRULAMA ---
+
+def send_verification_email(to_email, verification_code):
+    """Resend API ile e-posta doğrulama kodu gönderir."""
+    resend_api_key = os.getenv('RESEND_API_KEY')
+    mail_from = os.getenv('MAIL_FROM', 'CodeAlchemist <onboarding@resend.dev>')
+
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; background-color: #1a1a2e; color: #eee; padding: 20px;">
+        <div style="max-width: 500px; margin: 0 auto; background: #16213e; border-radius: 12px; padding: 30px;">
+            <h2 style="color: #a855f7; margin-bottom: 20px;">✨ Welcome to CodeAlchemist!</h2>
+            <p>Thank you for registering. Please verify your email address to activate your account.</p>
+            <div style="background: #0f0f23; border: 2px solid #a855f7; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+                <p style="color: #aaa; margin-bottom: 8px; font-size: 14px;">Your verification code:</p>
+                <span style="font-size: 36px; font-weight: bold; color: #a855f7; letter-spacing: 10px;">{verification_code}</span>
+            </div>
+            <p style="color: #888; font-size: 14px;">This code will expire in 30 minutes.</p>
+            <hr style="border: none; border-top: 1px solid #333; margin: 20px 0;">
+            <p style="color: #666; font-size: 12px;">If you did not create an account, please ignore this email.</p>
+        </div>
+    </body>
+    </html>
+    """
+
+    text_content = f"""Welcome to CodeAlchemist!
+
+Your email verification code: {verification_code}
+
+This code will expire in 30 minutes.
+
+If you did not create an account, please ignore this email.
+
+CodeAlchemist Team"""
+
+    if resend_api_key:
+        try:
+            resend.api_key = resend_api_key
+            params = {
+                "from": mail_from,
+                "to": [to_email],
+                "subject": "CodeAlchemist - Email Verification Code",
+                "html": html_content,
+                "text": text_content
+            }
+            email_response = resend.Emails.send(params)
+            print(f"Verification email sent (Resend): {to_email}, ID: {email_response.get('id')}")
+            return True
+        except Exception as e:
+            print(f"Resend verification email error: {e}")
+            return False
+
+    # Development fallback
+    print("=" * 50)
+    print("📧 DEVELOPMENT MODE - Verification email would be sent to:", to_email)
+    print(f"🔐 VERIFICATION CODE: {verification_code}")
+    print("=" * 50)
+    return True
+
+
+@app.route('/api/auth/verify-email', methods=['POST'])
+def verify_email():
+    """E-posta doğrulama kodunu kontrol eder ve hesabı aktif eder."""
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    code = (data.get('code') or '').strip()
+
+    if not email or not code:
+        return jsonify({'error': 'Email and verification code are required.'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({'error': 'User not found.'}), 404
+
+    if user.is_verified:
+        token = create_access_token(identity=str(user.id))
+        return jsonify({'message': 'Email already verified.', 'token': token, 'user': serialize_user(user)})
+
+    if not user.verification_code or user.verification_code != code:
+        return jsonify({'error': 'Invalid verification code.'}), 400
+
+    if user.verification_code_expires_at and _utcnow() > user.verification_code_expires_at:
+        return jsonify({'error': 'Verification code has expired. Please request a new one.', 'code_expired': True}), 400
+
+    # Doğrulama başarılı - hesabı aktifleştir
+    user.is_verified = True
+    user.verification_code = None
+    user.verification_code_expires_at = None
+    db.session.commit()
+
+    ensure_configured_admin(user)
+    token = create_access_token(identity=str(user.id))
+    return jsonify({
+        'message': 'Email verified successfully! Welcome to CodeAlchemist!',
+        'token': token,
+        'user': serialize_user(user)
+    })
+
+
+@app.route('/api/auth/resend-verification', methods=['POST'])
+def resend_verification():
+    """Yeni doğrulama kodu gönderir."""
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+
+    if not email:
+        return jsonify({'error': 'Email address is required.'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        # Güvenlik: kullanıcı yoksa bile başarılı mesajı dön
+        return jsonify({'message': 'If this email is registered and unverified, a new code has been sent.'})
+
+    if user.is_verified:
+        return jsonify({'message': 'This email is already verified.'})
+
+    # Yeni kod üret
+    new_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+    user.verification_code = new_code
+    user.verification_code_expires_at = _utcnow() + timedelta(minutes=30)
+    db.session.commit()
+
+    send_verification_email(email, new_code)
+    return jsonify({'message': 'A new verification code has been sent to your email.'})
+
 
 # --- ŞİFRE SIFIRLAMA ---
 
