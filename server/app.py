@@ -556,6 +556,11 @@ TOKEN_COSTS = {
 }
 
 SIGNUP_GRANT_TOKENS = 100  # Yeni kullanıcıya verilen ücretsiz başlangıç token'ı
+DEFAULT_ADMIN_EMAILS = tuple(
+    email.strip().lower()
+    for email in os.getenv('ADMIN_EMAILS', 'dilo@gmail.com').split(',')
+    if email.strip()
+)
 MONTHLY_GRANT_TOKENS = 100  # Her ay başında korunacak minimum token hakkı
 
 DEFAULT_TOKEN_PACKAGES = [
@@ -1348,16 +1353,14 @@ with app.app_context():
             print(f"Warning: Could not seed/align token packages: {seed_err}")
             db.session.rollback()
 
-        # --- ADMIN SEEDING: Grant dilo@gmail.com admin rights ---
+        # --- ADMIN SEEDING: Grant configured owner emails admin rights ---
         try:
-            admin_user = User.query.filter_by(email="dilo@gmail.com").first()
-            if admin_user:
-                if not admin_user.is_admin:
-                    admin_user.is_admin = True
-                    db.session.commit()
-                    print("Admin rights granted to dilo@gmail.com.")
-            else:
-                print("Warning: Admin user dilo@gmail.com not found. Create it via signup first.")
+            for admin_email in DEFAULT_ADMIN_EMAILS:
+                admin_user = User.query.filter_by(email=admin_email).first()
+                if admin_user:
+                    ensure_configured_admin(admin_user)
+                else:
+                    print(f"Warning: Admin user {admin_email} not found. Create it via signup first.")
         except Exception as admin_err:
             print(f"Warning: Could not grant admin rights: {admin_err}")
             db.session.rollback()
@@ -4020,7 +4023,27 @@ def serialize_answer(answer: Answer) -> dict:
         'created_at': answer.created_at.strftime('%Y-%m-%d %H:%M'),
     }
 
+def ensure_configured_admin(user: User | None) -> bool:
+    """Grant admin rights to configured owner emails even if the user was created after DB init."""
+    if not user:
+        return False
+
+    email = (user.email or '').strip().lower()
+    is_configured_admin = email in DEFAULT_ADMIN_EMAILS
+    if is_configured_admin and not user.is_admin:
+        try:
+            user.is_admin = True
+            db.session.add(user)
+            db.session.commit()
+            print(f"Admin rights granted to {user.email} from ADMIN_EMAILS.")
+        except Exception as admin_err:
+            db.session.rollback()
+            print(f"Warning: Could not grant admin rights to {user.email}: {admin_err}")
+
+    return bool(user.is_admin or is_configured_admin)
+
 def serialize_user(user: User) -> dict:
+    ensure_configured_admin(user)
     prefs = {}
     if user.preferences:
         try:
@@ -4710,6 +4733,7 @@ def login():
     if not user or not verify_password(password, user.password_hash):
         return jsonify({'error': 'Incorrect email or password.'}), 401
 
+    ensure_configured_admin(user)
     token = create_access_token(identity=str(user.id))
     return jsonify({'token': token, 'user': serialize_user(user)})
 
@@ -10552,6 +10576,7 @@ def vscode_login_and_issue_api_key():
     if not user or not verify_password(password, user.password_hash):
         return jsonify({'error': 'Incorrect email or password.'}), 401
 
+    ensure_configured_admin(user)
     token = f"ca-vsc-{secrets.token_hex(16)}"
     stored_token = _build_stored_api_key(token)
     new_key = ApiKey(user_id=user.id, name=key_name or 'VS Code Extension', key=stored_token)
@@ -10640,6 +10665,7 @@ def vscode_login_page():
         html = """<!doctype html><html><head><meta charset='utf-8'><title>Login failed</title></head><body style='font-family:Segoe UI,Arial,sans-serif;background:#0b1220;color:#e5e7eb;padding:24px;'><h2>Giriş başarısız</h2><p>Email veya şifre hatalı. VS Code'dan tekrar deneyin.</p></body></html>"""
         return Response(html, mimetype='text/html'), 401
 
+    ensure_configured_admin(user)
     token = f"ca-vsc-{secrets.token_hex(16)}"
     stored_token = _build_stored_api_key(token)
     new_key = ApiKey(user_id=user.id, name='VS Code Extension', key=stored_token)
@@ -10704,9 +10730,14 @@ def vscode_login_poll():
     if not api_key:
         return jsonify({'status': 'pending'})
 
+    user = User.query.get(payload.user_id) if payload.user_id else None
+    is_admin = ensure_configured_admin(user)
     return jsonify({
         'status': 'ready',
         'api_key': api_key,
+        'user': user.email if user else 'unknown',
+        'is_admin': is_admin,
+        'token_unlimited': is_admin,
     })
 
 
@@ -11477,6 +11508,7 @@ def external_status():
         return jsonify({'status': 'unauthorized', 'error': 'Web API keys cannot be used for /v1 endpoints.'}), 403
     
     user = User.query.get(key_record.user_id)
+    ensure_configured_admin(user)
     
     # Ensure TokenBalance record exists (SaaS resilience)
     if user:
@@ -11487,8 +11519,10 @@ def external_status():
     purchase_url = f"{base_url}/billing"
 
     # Diagnostic logging for VS Code connection
+    is_admin = bool(user and user.is_admin)
     reported_balance = get_or_create_token_balance(user).balance if user else 0
-    print(f"[VSCODE] FINAL SYNC: {user.email if user else 'N/A'} | Balance: {reported_balance} | URL: {purchase_url}")
+    reported_balance_label = 'unlimited' if is_admin else str(reported_balance)
+    print(f"[VSCODE] FINAL SYNC: {user.email if user else 'N/A'} | Balance: {reported_balance_label} | URL: {purchase_url}")
 
     return jsonify({
         'status': 'ok',
@@ -11496,6 +11530,8 @@ def external_status():
         'user': user.email if user else 'unknown',
         'auth_state': 'authenticated',
         'balance': reported_balance,
+        'is_admin': is_admin,
+        'token_unlimited': is_admin,
         'purchase_url': purchase_url,
         'model_config': {
             'gemini': GEMINI_MODEL,

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import AdvisoryBanner from './AdvisoryBanner';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -2134,6 +2134,29 @@ const ChatInterface = ({
           )}
 
           <div className="w-full bg-gray-800/80 rounded-2xl border border-gray-700/50 focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/50 shadow-inner flex flex-col transition-all backdrop-blur-sm relative">
+            {/* 🔐 Auth Gate Overlay — giriş yapılmadıysa modelleri kilitle */}
+            {!user && (
+              <div
+                onClick={() => onAuthRequired?.()}
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-2xl cursor-pointer bg-gray-900/85 backdrop-blur-sm border border-indigo-500/30 hover:border-indigo-400/60 transition-all group"
+              >
+                <div className="flex items-center gap-2 text-indigo-300 group-hover:text-indigo-200 transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <span className="text-sm font-semibold">Modelleri kullanmak için giriş yapın</span>
+                </div>
+                <p className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors">
+                  Yeni üyelere <span className="text-emerald-400 font-semibold">100 ücretsiz token</span> tanımlanır
+                </p>
+                <button
+                  type="button"
+                  className="mt-1 px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition-all"
+                >
+                  Giriş Yap / Kayıt Ol
+                </button>
+              </div>
+            )}
             {useMonacoEditor ? (
               <MonacoCodeEditor
                 value={question}
@@ -2148,11 +2171,13 @@ const ChatInterface = ({
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type your question here..."
+                placeholder={user ? "Type your question here..." : "Giriş yaparak soru sorun..."}
                 className="w-full bg-transparent p-4 outline-none resize-none min-h-[60px] max-h-[200px] custom-scrollbar text-white placeholder-gray-500"
                 style={{ minHeight: '60px' }}
+                readOnly={!user}
               />
             )}
+
 
             {/* Bottom Action Bar */}
             <div className="flex items-center justify-between flex-wrap gap-y-2 px-3 pb-3">

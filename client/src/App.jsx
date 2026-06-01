@@ -1091,6 +1091,12 @@ function App() {
   async function handleAsk(opts = {}) {
     const effectiveQuestion = opts.question !== undefined ? opts.question : question;
     const effectiveConversationId = opts.conversationId !== undefined ? opts.conversationId : activeConversationId;
+
+    // 🔐 Auth Gate: Collab misafir görünümü dışında giriş zorunlu
+    if (!token && !isCollabView) {
+      setAuthOpen(true);
+      return;
+    }
     
     // Collaboration redirect — Live Socket yolu
     if (isCollabView && collabToken) {
