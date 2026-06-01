@@ -8,6 +8,7 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
   const [displayName, setDisplayName] = useState('');
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -157,8 +158,8 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
             }).catch(e => console.error("Consent log error:", e));
           }
 
-          setAuthMode('login');
-          setSuccessMessage('Registration successful! Please login.');
+          setAuthMode('verify');
+          setSuccessMessage('Registration successful! A 6-digit code has been sent to your email. Please enter it below.');
           setPassword('');
           setAcceptTerms(false);
           setAcceptCommercial(false);
@@ -166,7 +167,22 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
           onSuccess(data);
         }
       } else {
-        setError(data.error || 'An error occurred');
+        if (authMode === 'login' && data.error && (data.error.toLowerCase().includes('verify') || data.error.toLowerCase().includes('doğrula'))) {
+          setError(
+            <span>
+              {data.error}{' '}
+              <button 
+                type="button" 
+                onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('verify'); }} 
+                className="text-fuchsia-400 hover:text-fuchsia-300 underline font-medium"
+              >
+                Click here to verify now.
+              </button>
+            </span>
+          );
+        } else {
+          setError(data.error || 'An error occurred');
+        }
       }
     } catch (err) {
       console.error(err);
@@ -226,6 +242,62 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
         setAuthMode('login');
         setResetCode('');
         setNewPassword('');
+      } else {
+        setError(data.error || 'An error occurred');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('A connection error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyEmail = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMessage('');
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${apiBase}/api/auth/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: verificationCode })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setSuccessMessage('Email verified successfully! Logging you in...');
+        setTimeout(() => {
+          onSuccess(data);
+        }, 1500);
+      } else {
+        setError(data.error || 'An error occurred');
+      }
+    } catch (err) {
+      console.error(err);
+      setError('A connection error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setError('');
+    setSuccessMessage('');
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${apiBase}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setSuccessMessage(data.message || 'A new verification code has been sent!');
       } else {
         setError(data.error || 'An error occurred');
       }
@@ -467,6 +539,46 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
           </form>
         )}
 
+        {/* Verify Email Form */}
+        {authMode === 'verify' && (
+          <form onSubmit={handleVerifyEmail} className="space-y-4">
+            <p className="text-sm text-gray-400 mb-4">
+              A 6-digit verification code has been sent to <strong>{email}</strong>. Please enter the code below to verify your email.
+            </p>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Verification Code</label>
+              <input
+                type="text"
+                className="w-full bg-black/50 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-fuchsia-500 outline-none text-center text-2xl tracking-[0.5em] font-bold"
+                value={verificationCode}
+                onChange={e => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength={6}
+                placeholder="••••••"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white py-2.5 rounded-lg font-bold shadow-lg shadow-purple-900/20 transition-all disabled:opacity-50"
+            >
+              {loading ? 'Verifying...' : 'Verify Email'}
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleResendVerification}
+                className="text-sm text-fuchsia-400 hover:text-fuchsia-300 font-medium disabled:opacity-50"
+              >
+                Resend Code
+              </button>
+            </div>
+          </form>
+        )}
+
         {/* Footer Links */}
         <div className="mt-6 text-center text-sm text-gray-400 space-y-2">
           {authMode === 'login' && (
@@ -484,7 +596,7 @@ const AuthModal = ({ open, apiBase, onClose, onSuccess }) => {
           {authMode === 'register' && (
             <p>Already have an account? <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('login'); setEmail(''); setPassword(''); setDisplayName(''); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Login</button></p>
           )}
-          {(authMode === 'forgot' || authMode === 'reset') && (
+          {(authMode === 'forgot' || authMode === 'reset' || authMode === 'verify') && (
             <p>
               <button onClick={() => { setError(''); setSuccessMessage(''); setAuthMode('login'); }} className="text-fuchsia-400 hover:text-fuchsia-300 font-medium">
                 ← Back to Login
